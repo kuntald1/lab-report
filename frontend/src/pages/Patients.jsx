@@ -5,8 +5,8 @@ const inp = { background:'#fafbfc', border:'1.5px solid #e8ecf4', borderRadius:'
 const lbl = { fontSize:'0.7rem', color:'#8892a4', fontWeight:600, textTransform:'uppercase', letterSpacing:'0.06em', display:'block', marginBottom:'0.35rem' };
 const S   = { card: { background:'#fff', border:'1px solid #e8ecf4', borderRadius:'14px', padding:'1.5rem', boxShadow:'0 2px 16px rgba(15,18,24,0.07)' } };
 
-const sampleColor = { Blood:'#fff1ee', Serum:'#eff6ff', Urine:'#fefce8', Plasma:'#fdf4ff' };
-const sampleText  = { Blood:'#c2410c', Serum:'#1d4ed8', Urine:'#854d0e', Plasma:'#7e22ce' };
+const sampleColor = { Blood:'#fff1ee', Serum:'#eff6ff', Urine:'#fefce8', Plasma:'#fdf4ff', Sodium:'#f0fdf4', Potassium:'#fef9c3', Electrolyte:'#f0fdf4' };
+const sampleText  = { Blood:'#c2410c', Serum:'#1d4ed8', Urine:'#854d0e', Plasma:'#7e22ce', Sodium:'#16a34a', Potassium:'#854d0e', Electrolyte:'#16a34a' };
 
 export default function Patients() {
   const [patients, setPatients] = useState([]);
@@ -56,7 +56,7 @@ export default function Patients() {
             <div><label style={lbl}>Doctor Name</label><input style={inp} placeholder="Dr. Sharma" value={form.doctor_name} onChange={e=>setForm({...form,doctor_name:e.target.value})} /></div>
             <div><label style={lbl}>Sample Type</label>
               <select style={inp} value={form.sample_type} onChange={e=>setForm({...form,sample_type:e.target.value})}>
-                <option>Blood</option><option>Serum</option><option>Urine</option><option>Plasma</option>
+                <option>Blood</option><option>Serum</option><option>Urine</option><option>Plasma</option><option>Sodium</option><option>Potassium</option><option>Electrolyte</option>
               </select></div>
             <div><label style={lbl}>Barcode <span style={{ textTransform:'none', letterSpacing:0, fontWeight:400 }}>(leave blank to auto-generate)</span></label>
               <input style={{ ...inp, fontFamily:'monospace', letterSpacing:'0.04em' }} placeholder="e.g. MC45265601" value={form.barcode} onChange={e=>setForm({...form,barcode:e.target.value})} /></div>
