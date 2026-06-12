@@ -20,7 +20,7 @@ services:
     environment:
       DATABASE_URL: postgresql://medicloud:medicloud123@postgres:5432/medicloud_db
     ports:
-      - "8011:8000"
+      - "8001:8000"
     depends_on:
       - postgres
     restart: unless-stopped
