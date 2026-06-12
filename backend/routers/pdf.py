@@ -6,13 +6,35 @@ from models.models import LabResult
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.lib.units import cm
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, HRFlowable
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, HRFlowable, Image
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 import io
 from datetime import datetime
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
 
 router = APIRouter()
+
+
+def _render_chromatogram(values, color):
+    """Render chromatogram values to a PNG image (in-memory) for the PDF."""
+    fig, ax = plt.subplots(figsize=(6, 2.2), dpi=120)
+    ax.plot(values, color='#dc2626', linewidth=1)
+    ax.set_xlim(0, len(values)-1)
+    ax.set_ylim(0, max(values) * 1.1 if max(values) > 0 else 1)
+    ax.set_xlabel('Time', fontsize=7, color=color)
+    ax.set_ylabel('10mOD', fontsize=7, color=color)
+    ax.tick_params(axis='both', labelsize=6, colors=color)
+    for spine in ax.spines.values():
+        spine.set_color('#d4e6d6')
+    fig.tight_layout()
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png', transparent=True)
+    plt.close(fig)
+    buf.seek(0)
+    return buf
 
 def generate_pdf(result: LabResult) -> bytes:
     buffer = io.BytesIO()
@@ -170,6 +192,46 @@ def generate_pdf(result: LabResult) -> bytes:
         story.append(Paragraph('No parameters found in this result.', normal_style))
 
     story.append(Spacer(1, 0.5*cm))
+
+    # ── GH-900 RESULT DETAILS (NGSP/IFCC/Area/HbA0) ──────────
+    gh900_info = parsed.get('gh900_info')
+    if gh900_info:
+        story.append(Paragraph('RESULT DETAILS', section_style))
+        gh_data = [
+            [
+                Paragraph('NGSP',   label_style),
+                Paragraph('IFCC',   label_style),
+                Paragraph('AREA (TOTAL)', label_style),
+                Paragraph('HBA0',   label_style),
+            ],
+            [
+                Paragraph(f"{gh900_info.get('ngsp','—')} %", value_style),
+                Paragraph(f"{gh900_info.get('ifcc','—')} mmol/mol", value_style),
+                Paragraph(f"{gh900_info.get('area_total','—')}", value_style),
+                Paragraph(f"{gh900_info.get('hba0_pct','—')} %", value_style),
+            ],
+        ]
+        gh_table = Table(gh_data, colWidths=['25%','25%','25%','25%'])
+        gh_table.setStyle(TableStyle([
+            ('BACKGROUND',    (0,0),(-1,-1), colors.white),
+            ('BOX',           (0,0),(-1,-1), 1, colors.HexColor('#d4e6d6')),
+            ('GRID',          (0,0),(-1,-1), 0.5, colors.HexColor('#f0f4f0')),
+            ('TOPPADDING',    (0,0),(-1,-1), 7),
+            ('BOTTOMPADDING', (0,0),(-1,-1), 7),
+            ('LEFTPADDING',   (0,0),(-1,-1), 10),
+            ('RIGHTPADDING',  (0,0),(-1,-1), 10),
+            ('ROWBACKGROUND', (0,0),(-1,0),  CREAM),
+        ]))
+        story.append(gh_table)
+        story.append(Spacer(1, 0.4*cm))
+
+    # ── CHROMATOGRAM ───────────────────────────────────────
+    chromatogram = parsed.get('chromatogram')
+    if chromatogram:
+        story.append(Paragraph('CHROMATOGRAM', section_style))
+        chart_buf = _render_chromatogram(chromatogram, '#5a7060')
+        story.append(Image(chart_buf, width=16*cm, height=5.5*cm))
+        story.append(Spacer(1, 0.4*cm))
 
     # ── LEGEND ───────────────────────────────────────────────
     legend_data = [[

@@ -6,6 +6,29 @@ const flagColor  = f => f==='H'?'#dc2626':f==='L'?'#2563eb':'#16a34a';
 const flagBg     = f => f==='H'?'#fef2f2':f==='L'?'#eff6ff':'#f0fdf4';
 const flagBorder = f => f==='H'?'#fecaca':f==='L'?'#bfdbfe':'#bbf7d0';
 
+// Lightweight inline SVG line chart for the GH-900 chromatogram —
+// no chart library dependency needed.
+function ChromatogramChart({ data }) {
+  if (!data || data.length === 0) return null;
+  const W = 600, H = 200, PAD = 30;
+  const maxY = Math.max(...data, 0.01);
+  const points = data.map((v, i) => {
+    const x = PAD + (i / (data.length - 1)) * (W - 2*PAD);
+    const y = H - PAD - (v / maxY) * (H - 2*PAD);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} style={{ width:'100%', height:'auto', background:'#fff' }}>
+      {/* axes */}
+      <line x1={PAD} y1={H-PAD} x2={W-PAD} y2={H-PAD} stroke="#d1d5db" strokeWidth="1"/>
+      <line x1={PAD} y1={PAD} x2={PAD} y2={H-PAD} stroke="#d1d5db" strokeWidth="1"/>
+      {/* curve */}
+      <polyline points={points} fill="none" stroke="#dc2626" strokeWidth="1.5"/>
+    </svg>
+  );
+}
+
 export default function Results() {
   const [results, setResults] = useState([]);
   const [sel,     setSel]     = useState(null);
@@ -121,6 +144,40 @@ export default function Results() {
                 </div>
               ))}
             </div>
+
+            {sel.parsed_data?.gh900_info && (
+              <>
+                <div style={{ fontSize:'0.68rem', color:'#8892a4', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.07em', margin:'1.2rem 0 0.6rem' }}>
+                  Result Details
+                </div>
+                <div style={{ background:'#fafbfc', border:'1px solid #e8ecf4', borderRadius:'10px', padding:'1rem', marginBottom:'1rem' }}>
+                  <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.6rem' }}>
+                    {[
+                      { label:'NGSP',       value:`${sel.parsed_data.gh900_info.ngsp} %` },
+                      { label:'IFCC',       value:`${sel.parsed_data.gh900_info.ifcc} mmol/mol` },
+                      { label:'Area (Total)', value:sel.parsed_data.gh900_info.area_total },
+                      { label:'HbA0',       value:`${sel.parsed_data.gh900_info.hba0_pct} %` },
+                    ].map(x => (
+                      <div key={x.label}>
+                        <div style={{ fontSize:'0.62rem', color:'#8892a4', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.05em' }}>{x.label}</div>
+                        <div style={{ fontSize:'0.85rem', color:'#0f1218', fontWeight:600, marginTop:'0.15rem' }}>{x.value}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
+
+            {sel.parsed_data?.chromatogram && (
+              <>
+                <div style={{ fontSize:'0.68rem', color:'#8892a4', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:'0.6rem' }}>
+                  Chromatogram
+                </div>
+                <div style={{ background:'#fafbfc', border:'1px solid #e8ecf4', borderRadius:'10px', padding:'0.8rem' }}>
+                  <ChromatogramChart data={sel.parsed_data.chromatogram} />
+                </div>
+              </>
+            )}
           </div>
         )}
       </div>
