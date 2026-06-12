@@ -39,7 +39,7 @@ export default function Results() {
   const downloadPDF = async (id) => {
     setLoading(true);
     try {
-      const r = await fetch(`http://localhost:8001/api/results/${id}/pdf`);
+      const r = await fetch(`${api.BASE}/results/${id}/pdf`);
       const blob = await r.blob();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');

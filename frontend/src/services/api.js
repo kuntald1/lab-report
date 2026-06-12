@@ -1,6 +1,7 @@
 const BASE = atob("aHR0cHM6Ly9tZWRpY2xvdWQubW9vby5jb20vYXBp");
 
 export const api = {
+  BASE,
   getDevices: () => fetch(BASE + "/devices").then(r=>r.json()),
   getPatients: () => fetch(BASE + "/patients").then(r=>r.json()),
   getPatient: (b) => fetch(BASE + "/patients/" + b).then(r=>r.json()),
