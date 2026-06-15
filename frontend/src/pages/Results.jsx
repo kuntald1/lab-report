@@ -11,27 +11,21 @@ const flagBorder = f => f==='H'?'#fecaca':f==='L'?'#bfdbfe':'#bbf7d0';
 function ChromatogramChart({ data }) {
   if (!data || data.length === 0) return null;
 
-  // Zoom to the signal: drop the trailing flat baseline so the curve fills
-  // the plot like the GH-900 screen (which shows ~0–130, not the raw tail).
-  // Keep a small margin past the last real peak.
-  const peak = Math.max(...data, 0.01);
-  const thresh = peak * 0.03;
-  let lastSig = data.length - 1;
-  while (lastSig > 0 && data[lastSig] < thresh) lastSig--;
-  const margin = Math.ceil(data.length * 0.05);
-  const view = data.slice(0, Math.min(data.length, lastSig + margin + 1));
-
+  // Plot the FULL curve on a 0–TIME_MAX time axis (calibrated to the machine's
+  // display window) so the peak lands at the same position as on the analyser
+  // screen. No baseline trimming — the leading/trailing baseline is shown.
+  const TIME_MAX = 130;
   const W = 600, H = 200, PAD = 34;
-  const n = view.length;
-  const maxY = Math.max(...view, 0.01);
-  const xAt = i => PAD + (i / (n - 1 || 1)) * (W - 2*PAD);
-  const yAt = v => H - PAD - (v / maxY) * (H - 2*PAD);
-  const points = view.map((v, i) => `${xAt(i).toFixed(1)},${yAt(v).toFixed(1)}`).join(' ');
+  const n = data.length;
+  const maxY = Math.max(...data, 0.01);
+  const xAtTime = t => PAD + (t / TIME_MAX) * (W - 2*PAD);
+  const xAtIdx  = i => xAtTime((i / (n - 1 || 1)) * TIME_MAX);
+  const yAt     = v => H - PAD - (v / maxY) * (H - 2*PAD);
+  const points = data.map((v, i) => `${xAtIdx(i).toFixed(1)},${yAt(v).toFixed(1)}`).join(' ');
 
-  // X ticks every 20 points (matches the machine's 20-unit grid)
-  const STEP = 20;
+  // X ticks every 20 time units (matches the machine grid)
   const ticks = [];
-  for (let t = 0; t <= n - 1; t += STEP) ticks.push(t);
+  for (let t = 0; t <= TIME_MAX; t += 20) ticks.push(t);
 
   return (
     <svg viewBox={`0 0 ${W} ${H}`} style={{ width:'100%', height:'auto', background:'#fff' }}>
@@ -41,8 +35,8 @@ function ChromatogramChart({ data }) {
       {/* x ticks + labels every 20 */}
       {ticks.map(t => (
         <g key={t}>
-          <line x1={xAt(t)} y1={H-PAD} x2={xAt(t)} y2={H-PAD+4} stroke="#d1d5db" strokeWidth="1"/>
-          <text x={xAt(t)} y={H-PAD+14} fontSize="8" fill="#8892a4" textAnchor="middle">{t}</text>
+          <line x1={xAtTime(t)} y1={H-PAD} x2={xAtTime(t)} y2={H-PAD+4} stroke="#d1d5db" strokeWidth="1"/>
+          <text x={xAtTime(t)} y={H-PAD+14} fontSize="8" fill="#8892a4" textAnchor="middle">{t}</text>
         </g>
       ))}
       {/* y-axis label */}

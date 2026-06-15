@@ -19,28 +19,23 @@ router = APIRouter()
 
 
 def _render_chromatogram(values, color):
-    """Render chromatogram values to a PNG image (in-memory) for the PDF.
+    """Render the GH-900 absorbance curve to an in-memory PNG for the PDF.
 
-    Zooms to the signal (drops the trailing flat baseline) so the curve fills
-    the plot like the GH-900 screen, and forces 20-unit x-axis ticks.
+    Plots the FULL curve on a 0–TIME_MAX time axis (calibrated to the
+    analyser's display window) with ticks every 20, so the peak lands at the
+    same position as on the machine screen. No baseline trimming — the
+    leading/trailing baseline is part of the run, exactly as the machine shows.
     """
     from matplotlib.ticker import MultipleLocator
 
-    # Zoom: trim trailing baseline below 3% of the peak, keep a small margin
-    peak = max(values) if values else 0
-    view = values
-    if peak > 0:
-        thresh = peak * 0.03
-        last_sig = len(values) - 1
-        while last_sig > 0 and values[last_sig] < thresh:
-            last_sig -= 1
-        margin = max(1, int(len(values) * 0.05))
-        view = values[:min(len(values), last_sig + margin + 1)]
+    TIME_MAX = 130   # GH-900 display window; matches the machine's x-axis
+    n = len(values)
+    xs = [i * TIME_MAX / (n - 1) for i in range(n)] if n > 1 else [0]
 
     fig, ax = plt.subplots(figsize=(6, 2.2), dpi=120)
-    ax.plot(view, color='#dc2626', linewidth=1)
-    ax.set_xlim(0, len(view)-1 if len(view) > 1 else 1)
-    ax.set_ylim(0, max(view) * 1.1 if view and max(view) > 0 else 1)
+    ax.plot(xs, values, color='#dc2626', linewidth=1)
+    ax.set_xlim(0, TIME_MAX)
+    ax.set_ylim(0, max(values) * 1.1 if values and max(values) > 0 else 1)
     ax.xaxis.set_major_locator(MultipleLocator(20))   # ticks every 20
     ax.set_xlabel('Time', fontsize=7, color=color)
     ax.set_ylabel('10mOD', fontsize=7, color=color)
