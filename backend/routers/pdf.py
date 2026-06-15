@@ -19,11 +19,29 @@ router = APIRouter()
 
 
 def _render_chromatogram(values, color):
-    """Render chromatogram values to a PNG image (in-memory) for the PDF."""
+    """Render chromatogram values to a PNG image (in-memory) for the PDF.
+
+    Zooms to the signal (drops the trailing flat baseline) so the curve fills
+    the plot like the GH-900 screen, and forces 20-unit x-axis ticks.
+    """
+    from matplotlib.ticker import MultipleLocator
+
+    # Zoom: trim trailing baseline below 3% of the peak, keep a small margin
+    peak = max(values) if values else 0
+    view = values
+    if peak > 0:
+        thresh = peak * 0.03
+        last_sig = len(values) - 1
+        while last_sig > 0 and values[last_sig] < thresh:
+            last_sig -= 1
+        margin = max(1, int(len(values) * 0.05))
+        view = values[:min(len(values), last_sig + margin + 1)]
+
     fig, ax = plt.subplots(figsize=(6, 2.2), dpi=120)
-    ax.plot(values, color='#dc2626', linewidth=1)
-    ax.set_xlim(0, len(values)-1)
-    ax.set_ylim(0, max(values) * 1.1 if max(values) > 0 else 1)
+    ax.plot(view, color='#dc2626', linewidth=1)
+    ax.set_xlim(0, len(view)-1 if len(view) > 1 else 1)
+    ax.set_ylim(0, max(view) * 1.1 if view and max(view) > 0 else 1)
+    ax.xaxis.set_major_locator(MultipleLocator(20))   # ticks every 20
     ax.set_xlabel('Time', fontsize=7, color=color)
     ax.set_ylabel('10mOD', fontsize=7, color=color)
     ax.tick_params(axis='both', labelsize=6, colors=color)
@@ -193,7 +211,7 @@ def generate_pdf(result: LabResult) -> bytes:
 
     story.append(Spacer(1, 0.5*cm))
 
-    # ── GH-900 RESULT DETAILS (NGSP/IFCC/Area/HbA0) ──────────
+    # ── GH-900 RESULT DETAILS (NGSP/IFCC/Area) ───────────────
     gh900_info = parsed.get('gh900_info')
     if gh900_info:
         story.append(Paragraph('RESULT DETAILS', section_style))
@@ -202,16 +220,14 @@ def generate_pdf(result: LabResult) -> bytes:
                 Paragraph('NGSP',   label_style),
                 Paragraph('IFCC',   label_style),
                 Paragraph('AREA (TOTAL)', label_style),
-                Paragraph('HBA0',   label_style),
             ],
             [
                 Paragraph(f"{gh900_info.get('ngsp','—')} %", value_style),
                 Paragraph(f"{gh900_info.get('ifcc','—')} mmol/mol", value_style),
                 Paragraph(f"{gh900_info.get('area_total','—')}", value_style),
-                Paragraph(f"{gh900_info.get('hba0_pct','—')} %", value_style),
             ],
         ]
-        gh_table = Table(gh_data, colWidths=['25%','25%','25%','25%'])
+        gh_table = Table(gh_data, colWidths=['33.33%','33.33%','33.34%'])
         gh_table.setStyle(TableStyle([
             ('BACKGROUND',    (0,0),(-1,-1), colors.white),
             ('BOX',           (0,0),(-1,-1), 1, colors.HexColor('#d4e6d6')),

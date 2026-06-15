@@ -10,19 +10,43 @@ const flagBorder = f => f==='H'?'#fecaca':f==='L'?'#bfdbfe':'#bbf7d0';
 // no chart library dependency needed.
 function ChromatogramChart({ data }) {
   if (!data || data.length === 0) return null;
-  const W = 600, H = 200, PAD = 30;
-  const maxY = Math.max(...data, 0.01);
-  const points = data.map((v, i) => {
-    const x = PAD + (i / (data.length - 1)) * (W - 2*PAD);
-    const y = H - PAD - (v / maxY) * (H - 2*PAD);
-    return `${x.toFixed(1)},${y.toFixed(1)}`;
-  }).join(' ');
+
+  // Zoom to the signal: drop the trailing flat baseline so the curve fills
+  // the plot like the GH-900 screen (which shows ~0–130, not the raw tail).
+  // Keep a small margin past the last real peak.
+  const peak = Math.max(...data, 0.01);
+  const thresh = peak * 0.03;
+  let lastSig = data.length - 1;
+  while (lastSig > 0 && data[lastSig] < thresh) lastSig--;
+  const margin = Math.ceil(data.length * 0.05);
+  const view = data.slice(0, Math.min(data.length, lastSig + margin + 1));
+
+  const W = 600, H = 200, PAD = 34;
+  const n = view.length;
+  const maxY = Math.max(...view, 0.01);
+  const xAt = i => PAD + (i / (n - 1 || 1)) * (W - 2*PAD);
+  const yAt = v => H - PAD - (v / maxY) * (H - 2*PAD);
+  const points = view.map((v, i) => `${xAt(i).toFixed(1)},${yAt(v).toFixed(1)}`).join(' ');
+
+  // X ticks every 20 points (matches the machine's 20-unit grid)
+  const STEP = 20;
+  const ticks = [];
+  for (let t = 0; t <= n - 1; t += STEP) ticks.push(t);
 
   return (
     <svg viewBox={`0 0 ${W} ${H}`} style={{ width:'100%', height:'auto', background:'#fff' }}>
       {/* axes */}
       <line x1={PAD} y1={H-PAD} x2={W-PAD} y2={H-PAD} stroke="#d1d5db" strokeWidth="1"/>
       <line x1={PAD} y1={PAD} x2={PAD} y2={H-PAD} stroke="#d1d5db" strokeWidth="1"/>
+      {/* x ticks + labels every 20 */}
+      {ticks.map(t => (
+        <g key={t}>
+          <line x1={xAt(t)} y1={H-PAD} x2={xAt(t)} y2={H-PAD+4} stroke="#d1d5db" strokeWidth="1"/>
+          <text x={xAt(t)} y={H-PAD+14} fontSize="8" fill="#8892a4" textAnchor="middle">{t}</text>
+        </g>
+      ))}
+      {/* y-axis label */}
+      <text x={PAD-8} y={PAD-6} fontSize="8" fill="#8892a4" textAnchor="start">10mOD</text>
       {/* curve */}
       <polyline points={points} fill="none" stroke="#dc2626" strokeWidth="1.5"/>
     </svg>
@@ -156,7 +180,6 @@ export default function Results() {
                       { label:'NGSP',       value:`${sel.parsed_data.gh900_info.ngsp} %` },
                       { label:'IFCC',       value:`${sel.parsed_data.gh900_info.ifcc} mmol/mol` },
                       { label:'Area (Total)', value:sel.parsed_data.gh900_info.area_total },
-                      { label:'HbA0',       value:`${sel.parsed_data.gh900_info.hba0_pct} %` },
                     ].map(x => (
                       <div key={x.label}>
                         <div style={{ fontSize:'0.62rem', color:'#8892a4', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.05em' }}>{x.label}</div>
