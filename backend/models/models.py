@@ -15,6 +15,9 @@ class Device(Base):
     bidirectional = Column(Boolean, default=True)
     is_client     = Column(Boolean, default=False)   # false = MediCloud connects TO machine (this lab)
     is_online     = Column(Boolean, default=False)   # live connection status
+    # --- Phase 1: multi-tenant scoping (nullable; ingestion path untouched) ---
+    tenant_id     = Column(Integer, ForeignKey("tenants.id"),  nullable=True, index=True)
+    branch_id     = Column(Integer, ForeignKey("branches.id"), nullable=True, index=True)
     created_at    = Column(DateTime(timezone=True), server_default=func.now())
     results       = relationship("LabResult", back_populates="device")
 
@@ -27,6 +30,10 @@ class Patient(Base):
     gender       = Column(String)
     doctor_name  = Column(String)
     sample_type  = Column(String, default="Blood")
+    # --- Phase 1: multi-tenant scoping (nullable; ingestion path untouched) ---
+    tenant_id              = Column(Integer, ForeignKey("tenants.id"),    nullable=True, index=True)
+    branch_id              = Column(Integer, ForeignKey("branches.id"),   nullable=True, index=True)
+    registered_franchise_id = Column(Integer, ForeignKey("franchises.id"), nullable=True, index=True)
     created_at   = Column(DateTime(timezone=True), server_default=func.now())
     results      = relationship("LabResult", back_populates="patient")
 
@@ -40,6 +47,9 @@ class LabResult(Base):
     raw_data    = Column(Text)
     parsed_data = Column(JSON)
     status      = Column(String, default="pending")
+    # --- Phase 1: multi-tenant scoping (nullable; ingestion path untouched) ---
+    tenant_id   = Column(Integer, ForeignKey("tenants.id"),  nullable=True, index=True)
+    branch_id   = Column(Integer, ForeignKey("branches.id"), nullable=True, index=True)
     created_at  = Column(DateTime(timezone=True), server_default=func.now())
     patient     = relationship("Patient", back_populates="results")
     device      = relationship("Device",  back_populates="results")

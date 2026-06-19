@@ -3,6 +3,10 @@ uvicorn==0.29.0
 sqlalchemy==2.0.28
 psycopg2-binary==2.9.9
 pydantic==2.6.4
+pydantic[email]==2.6.4
 python-multipart==0.0.9
 reportlab==4.1.0
 matplotlib
+# --- Phase 1: auth / RBAC ---
+PyJWT==2.8.0
+bcrypt==4.1.2
