@@ -4,6 +4,7 @@ const nav = [
   { id:'dashboard', icon:'⬡',  label:'Dashboard',    section:'main' },
   { id:'devices',   icon:'🔬', label:'Your Devices',  section:'main', badge:'devices' },
   { id:'patients',  icon:'👤', label:'Patients',      section:'main', badge:'patients' },
+  { id:'orders',    icon:'📋', label:'Orders',        section:'main', tag:'NEW' },
   { id:'results',   icon:'🧪', label:'Results',       section:'main', badge:'results' },
   { id:'tat',       icon:'⏱',  label:'TAT Report',    section:'main', tag:'NEW' },
   { id:'simulator', icon:'⚡', label:'Simulator',     section:'tools', tag:'DEMO' },

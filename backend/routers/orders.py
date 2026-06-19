@@ -12,9 +12,12 @@ from typing import Optional, List
 
 from database import get_db
 from models.org import Role, User
-from models.clinical import Order, OrderItem, SampleEvent, OrderStatus, Priority, EventType, EVENT_SEQUENCE
+from models.models import Patient
+from models.clinical import (Order, OrderItem, SampleEvent, ResultAmendment,
+                             OrderStatus, Priority, EventType, EVENT_SEQUENCE)
 from auth.deps import get_current_user, get_scope, apply_scope, Scope
 from auth.audit import write_audit
+from services.flagging import compute_flag
 
 router = APIRouter()
 
@@ -142,3 +145,144 @@ def _order_dict(db: Session, o: Order, with_events: bool = False) -> dict:
         evs = db.query(SampleEvent).filter(SampleEvent.order_id == o.id).order_by(SampleEvent.event_at).all()
         d["events"] = [{"event_type": e.event_type, "event_at": e.event_at, "note": e.note} for e in evs]
     return d
+
+
+# --------------------------------------------------------------------------- result flow
+def _append_event(db, order, event_type, actor_id):
+    """Append a lifecycle event (idempotent per type) and advance order status."""
+    exists = (db.query(SampleEvent)
+                .filter(SampleEvent.order_id == order.id, SampleEvent.event_type == event_type)
+                .first())
+    if not exists:
+        db.add(SampleEvent(
+            tenant_id=order.tenant_id, branch_id=order.branch_id, franchise_id=order.franchise_id,
+            order_id=order.id, patient_id=order.patient_id, barcode=order.barcode,
+            event_type=event_type, event_at=dt.datetime.now(dt.timezone.utc), actor_id=actor_id,
+        ))
+
+
+def _load_order(db, scope, order_id):
+    o = apply_scope(db.query(Order), Order, scope).filter(Order.id == order_id).first()
+    if not o:
+        raise HTTPException(status_code=404, detail="Order not found")
+    return o
+
+
+class ResultIn(BaseModel):
+    result_value: str
+    result_unit: Optional[str] = None
+
+
+@router.put("/{order_id}/items/{item_id}/result")
+def enter_result(order_id: int, item_id: int, p: ResultIn, request: Request,
+                 db: Session = Depends(get_db), user: User = Depends(get_current_user),
+                 scope: Scope = Depends(get_scope)):
+    if user.role not in (Role.TECHNICIAN, Role.LAB_ADMIN, Role.PATHOLOGIST, Role.SUPER_ADMIN):
+        raise HTTPException(status_code=403, detail="not permitted to enter results")
+    o = _load_order(db, scope, order_id)
+    item = db.query(OrderItem).filter(OrderItem.id == item_id, OrderItem.order_id == o.id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Order item not found")
+
+    patient = db.query(Patient).filter(Patient.id == o.patient_id).first() if o.patient_id else None
+    flag = compute_flag(db, item.test_id, patient, p.result_value)
+    item.result_value, item.result_unit, item.flag, item.status = p.result_value, p.result_unit, flag, "resulted"
+    _append_event(db, o, EventType.RESULTED, user.id)
+    if o.status in (OrderStatus.CREATED, OrderStatus.COLLECTED, OrderStatus.RECEIVED, OrderStatus.TESTING):
+        o.status = OrderStatus.RESULTED
+    db.commit()
+
+    critical = flag == "critical"
+    if critical:
+        write_audit(db, action="critical_value", user=user, entity="order_item", entity_id=item.id,
+                    after={"test": item.test_name, "value": p.result_value}, ip=_ip2(request),
+                    detail="CRITICAL value entered")
+    return {"id": item.id, "result_value": item.result_value, "flag": flag, "critical": critical,
+            "order_status": o.status}
+
+
+@router.post("/{order_id}/validate")
+def validate_order(order_id: int, request: Request, db: Session = Depends(get_db),
+                   user: User = Depends(get_current_user), scope: Scope = Depends(get_scope)):
+    if user.role not in (Role.PATHOLOGIST, Role.LAB_ADMIN, Role.SUPER_ADMIN):
+        raise HTTPException(status_code=403, detail="only a pathologist can validate")
+    o = _load_order(db, scope, order_id)
+    items = db.query(OrderItem).filter(OrderItem.order_id == o.id).all()
+    resulted = [it for it in items if it.status in ("resulted", "validated")]
+    if not resulted:
+        raise HTTPException(status_code=400, detail="no results to validate")
+    now = dt.datetime.now(dt.timezone.utc)
+    for it in resulted:
+        it.status, it.validated_by, it.validated_at = "validated", user.id, now
+    _append_event(db, o, EventType.VALIDATED, user.id)
+    o.status = OrderStatus.VALIDATED
+    db.commit()
+    write_audit(db, action="validate", user=user, entity="order", entity_id=o.id,
+                after={"items": len(resulted)}, ip=_ip2(request))
+    return {"order_id": o.id, "status": o.status, "validated_items": len(resulted)}
+
+
+@router.post("/{order_id}/release")
+def release_order(order_id: int, request: Request, db: Session = Depends(get_db),
+                  user: User = Depends(get_current_user), scope: Scope = Depends(get_scope)):
+    if user.role not in (Role.PATHOLOGIST, Role.LAB_ADMIN, Role.RECEPTIONIST, Role.SUPER_ADMIN):
+        raise HTTPException(status_code=403, detail="not permitted to release")
+    o = _load_order(db, scope, order_id)
+    if o.status not in (OrderStatus.VALIDATED, OrderStatus.REPORTED):
+        raise HTTPException(status_code=400, detail="order must be validated before release")
+    _append_event(db, o, EventType.REPORTED, user.id)
+    o.status = OrderStatus.REPORTED
+    db.commit()
+    write_audit(db, action="release", user=user, entity="order", entity_id=o.id, ip=_ip2(request))
+    return {"order_id": o.id, "status": o.status}
+
+
+class AmendIn(BaseModel):
+    result_value: str
+    reason: str
+
+
+@router.post("/{order_id}/items/{item_id}/amend")
+def amend_result(order_id: int, item_id: int, p: AmendIn, request: Request,
+                 db: Session = Depends(get_db), user: User = Depends(get_current_user),
+                 scope: Scope = Depends(get_scope)):
+    if user.role not in (Role.PATHOLOGIST, Role.LAB_ADMIN, Role.SUPER_ADMIN):
+        raise HTTPException(status_code=403, detail="only a pathologist can amend")
+    if not p.reason or not p.reason.strip():
+        raise HTTPException(status_code=400, detail="an amendment reason is required")
+    o = _load_order(db, scope, order_id)
+    item = db.query(OrderItem).filter(OrderItem.id == item_id, OrderItem.order_id == o.id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Order item not found")
+
+    patient = db.query(Patient).filter(Patient.id == o.patient_id).first() if o.patient_id else None
+    new_flag = compute_flag(db, item.test_id, patient, p.result_value)
+    amendment = ResultAmendment(
+        tenant_id=o.tenant_id, order_id=o.id, order_item_id=item.id,
+        old_value=item.result_value, new_value=p.result_value,
+        old_flag=item.flag, new_flag=new_flag, reason=p.reason, amended_by=user.id,
+    )
+    db.add(amendment)
+    item.result_value, item.flag = p.result_value, new_flag
+    db.commit(); db.refresh(amendment)
+    write_audit(db, action="amend", user=user, entity="order_item", entity_id=item.id,
+                before={"value": amendment.old_value, "flag": amendment.old_flag},
+                after={"value": p.result_value, "flag": new_flag}, detail=p.reason, ip=_ip2(request))
+    return {"id": item.id, "result_value": item.result_value, "flag": new_flag,
+            "amendment_id": amendment.id}
+
+
+@router.get("/{order_id}/items/{item_id}/amendments")
+def list_amendments(order_id: int, item_id: int, db: Session = Depends(get_db),
+                    scope: Scope = Depends(get_scope)):
+    _load_order(db, scope, order_id)
+    rows = (db.query(ResultAmendment)
+              .filter(ResultAmendment.order_item_id == item_id)
+              .order_by(ResultAmendment.id.desc()).all())
+    return [{"id": r.id, "old_value": r.old_value, "new_value": r.new_value,
+             "old_flag": r.old_flag, "new_flag": r.new_flag, "reason": r.reason,
+             "amended_by": r.amended_by, "created_at": r.created_at} for r in rows]
+
+
+def _ip2(request: Request) -> Optional[str]:
+    return request.client.host if request.client else None

@@ -109,6 +109,8 @@ class ReferenceRange(Base):
     age_max   = Column(Integer, nullable=True)
     low       = Column(Float, nullable=True)
     high      = Column(Float, nullable=True)
+    critical_low  = Column(Float, nullable=True)   # below this = critical alert
+    critical_high = Column(Float, nullable=True)   # above this = critical alert
     unit      = Column(String, nullable=True)
     text      = Column(String, nullable=True)   # qualitative ranges ("Negative")
 
@@ -168,3 +170,19 @@ class SampleEvent(Base):
     created_at   = Column(DateTime(timezone=True), server_default=func.now())
 
     order = relationship("Order", back_populates="events")
+
+
+class ResultAmendment(Base):
+    """Append-only history of changes to a validated result (medico-legal)."""
+    __tablename__ = "result_amendments"
+    id            = Column(Integer, primary_key=True, index=True)
+    tenant_id     = Column(Integer, ForeignKey("tenants.id"),     nullable=True, index=True)
+    order_id      = Column(Integer, ForeignKey("orders.id"),      nullable=True, index=True)
+    order_item_id = Column(Integer, ForeignKey("order_items.id"), nullable=False, index=True)
+    old_value     = Column(String, nullable=True)
+    new_value     = Column(String, nullable=True)
+    old_flag      = Column(String, nullable=True)
+    new_flag      = Column(String, nullable=True)
+    reason        = Column(Text, nullable=False)
+    amended_by    = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_at    = Column(DateTime(timezone=True), server_default=func.now())
