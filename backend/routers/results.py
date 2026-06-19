@@ -70,6 +70,14 @@ def parse_raw_data(payload: RawDataSubmit, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(db_result)
 
+    # Phase 2: auto-record a 'resulted' sample_event for TAT (never breaks ingestion)
+    try:
+        from services.sample_event_hook import emit_resulted_event
+        emit_resulted_event(db, barcode=barcode, patient=patient,
+                            device_id=(device.id if device else None))
+    except Exception:
+        pass
+
     return {
         "message":    "Data parsed and saved successfully",
         "result_id":  db_result.id,

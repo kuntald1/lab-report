@@ -5,11 +5,12 @@ const nav = [
   { id:'devices',   icon:'🔬', label:'Your Devices',  section:'main', badge:'devices' },
   { id:'patients',  icon:'👤', label:'Patients',      section:'main', badge:'patients' },
   { id:'results',   icon:'🧪', label:'Results',       section:'main', badge:'results' },
+  { id:'tat',       icon:'⏱',  label:'TAT Report',    section:'main', tag:'NEW' },
   { id:'simulator', icon:'⚡', label:'Simulator',     section:'tools', tag:'DEMO' },
   { id:'tcp',       icon:'🔌', label:'Live Connect',  section:'tools', tag:'PHASE 2' },
 ];
 
-export default function Sidebar({ current, onChange, counts = {} }) {
+export default function Sidebar({ current, onChange, counts = {}, user = null, onLogout = () => {} }) {
   const s = {
     aside: { position:'fixed', top:0, left:0, bottom:0, width:'235px', background:'#1a1f2e', display:'flex', flexDirection:'column', zIndex:50, boxShadow:'4px 0 24px rgba(0,0,0,0.15)' },
     logoWrap: { padding:'1.4rem 1.3rem 1.2rem', borderBottom:'1px solid rgba(255,255,255,0.06)' },
@@ -60,15 +61,25 @@ export default function Sidebar({ current, onChange, counts = {} }) {
       {/* Footer */}
       <div style={s.footer}>
         <div style={s.userRow}>
-          <div style={s.avatar}>KD</div>
-          <div>
-            <div style={{ fontSize:'0.8rem', fontWeight:700, color:'rgba(255,255,255,0.85)' }}>Kuntal Das</div>
-            <div style={{ fontSize:'0.62rem', color:'rgba(255,255,255,0.3)', marginTop:'0.05rem' }}>Lab Administrator</div>
+          <div style={s.avatar}>{initials(user)}</div>
+          <div style={{ flex:1, minWidth:0 }}>
+            <div style={{ fontSize:'0.8rem', fontWeight:700, color:'rgba(255,255,255,0.85)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{user?.full_name || user?.email || 'User'}</div>
+            <div style={{ fontSize:'0.62rem', color:'rgba(255,255,255,0.3)', marginTop:'0.05rem', textTransform:'capitalize' }}>{(user?.role || 'user').replace('_',' ')}</div>
           </div>
+          <div onClick={onLogout} title="Sign out"
+            style={{ cursor:'pointer', color:'rgba(255,255,255,0.35)', fontSize:'1rem', padding:'0.3rem', borderRadius:'7px' }}
+            onMouseEnter={e=>e.currentTarget.style.color='#f97316'}
+            onMouseLeave={e=>e.currentTarget.style.color='rgba(255,255,255,0.35)'}>⏻</div>
         </div>
       </div>
     </aside>
   );
+}
+
+function initials(user) {
+  const name = user?.full_name || user?.email || 'U';
+  const parts = name.replace(/@.*/, '').split(/[ ._]/).filter(Boolean);
+  return ((parts[0]?.[0] || 'U') + (parts[1]?.[0] || '')).toUpperCase();
 }
 
 function NavItem({ item, active, onClick, count }) {

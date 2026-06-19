@@ -81,6 +81,12 @@ def save_result(device_id: int, raw_data: str, device_type: str = "Hematology"):
         db.add(result)
         db.commit()
         rid = result.id
+        # Phase 2: auto-record a 'resulted' sample_event for TAT (never breaks ingestion)
+        try:
+            from services.sample_event_hook import emit_resulted_event
+            emit_resulted_event(db, barcode=barcode, patient=patient, device_id=device_id)
+        except Exception:
+            pass
         db.close()
         with device_lock:
             if device_id in device_states:
