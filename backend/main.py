@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from routers import devices, results, patients, simulate, pdf, tcp
 from routers import auth_router, admin
 from routers import catalog, orders, tat
+from routers import sample_status
 from database import engine, Base
 # Import models so their tables register on Base before create_all().
 from models import models as _core_models   # noqa: F401  (patients/devices/lab_results)
@@ -32,6 +33,7 @@ app.include_router(admin.router,       prefix="/api/admin", tags=["Admin"])
 app.include_router(catalog.router,     prefix="/api/catalog", tags=["Catalog"])
 app.include_router(orders.router,      prefix="/api/orders",  tags=["Orders"])
 app.include_router(tat.router,         prefix="/api/tat",     tags=["TAT"])
+app.include_router(sample_status.router, prefix="/api/sample-status", tags=["Sample Status"])
 
 @app.get("/")
 def root():

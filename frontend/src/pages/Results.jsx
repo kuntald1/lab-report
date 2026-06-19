@@ -1,5 +1,8 @@
 import { useEffect, useState } from 'react';
 import { api } from '../services/api';
+import { authedFetch } from '../services/auth';
+
+const lifeColor = { collected:'#0ea5e9', dispatched:'#6366f1', received:'#8b5cf6', tested:'#f59e0b', validated:'#16a34a', reported:'#0f766e' };
 
 const S = { card: { background:'#fff', border:'1px solid #e8ecf4', borderRadius:'14px', boxShadow:'0 2px 16px rgba(15,18,24,0.07)' } };
 const flagColor  = f => f==='H'?'#dc2626':f==='L'?'#2563eb':'#16a34a';
@@ -51,8 +54,15 @@ export default function Results() {
   const [results, setResults] = useState([]);
   const [sel,     setSel]     = useState(null);
   const [loading, setLoading] = useState(false);
+  const [q, setQ] = useState({ barcode:'', patient_id:'' });
 
-  useEffect(() => { api.getResults().then(setResults).catch(()=>{}); }, []);
+  const load = () => {
+    const qs = new URLSearchParams();
+    if (q.barcode) qs.set('barcode', q.barcode);
+    if (q.patient_id) qs.set('patient_id', q.patient_id);
+    authedFetch('/results/?' + qs.toString()).then(r=>r.json()).then(setResults).catch(()=>{});
+  };
+  useEffect(() => { load(); }, []);
 
   const downloadPDF = async (id) => {
     setLoading(true);
@@ -73,6 +83,16 @@ export default function Results() {
         <div style={{ display:'inline-flex', background:'rgba(249,115,22,0.08)', border:'1px solid rgba(249,115,22,0.2)', color:'#f97316', padding:'4px 12px', borderRadius:'100px', fontSize:'0.62rem', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:'0.6rem' }}>Lab Reports</div>
         <h1 style={{ fontFamily:'Manrope,sans-serif', fontSize:'2rem', fontWeight:800, color:'#0f1218', letterSpacing:'-0.025em' }}>Results</h1>
         <p style={{ color:'#8892a4', fontSize:'0.82rem', marginTop:'0.2rem' }}>{results.length} results — click to view details</p>
+      </div>
+
+      <div style={{ display:'flex', gap:'0.6rem', alignItems:'flex-end', marginBottom:'1.2rem', flexWrap:'wrap' }}>
+        <div><div style={{ fontSize:'0.68rem', fontWeight:700, color:'#8892a4', marginBottom:'0.25rem' }}>Barcode</div>
+          <input value={q.barcode} onChange={e=>setQ({...q,barcode:e.target.value})} onKeyDown={e=>e.key==='Enter'&&load()}
+            style={{ padding:'0.5rem 0.7rem', borderRadius:8, border:'1px solid #e8ecf4', fontSize:'0.84rem' }} /></div>
+        <div><div style={{ fontSize:'0.68rem', fontWeight:700, color:'#8892a4', marginBottom:'0.25rem' }}>Patient ID</div>
+          <input value={q.patient_id} onChange={e=>setQ({...q,patient_id:e.target.value})} onKeyDown={e=>e.key==='Enter'&&load()}
+            style={{ padding:'0.5rem 0.7rem', borderRadius:8, border:'1px solid #e8ecf4', fontSize:'0.84rem' }} /></div>
+        <button onClick={load} style={{ padding:'0.5rem 1.1rem', borderRadius:9, border:'none', cursor:'pointer', fontWeight:700, fontSize:'0.82rem', color:'#fff', background:'linear-gradient(135deg,#f97316,#fbbf24)' }}>Search</button>
       </div>
 
       <div style={{ display:'grid', gridTemplateColumns: sel ? '1fr 1.1fr' : '1fr', gap:'1.5rem', alignItems:'start' }}>
@@ -102,6 +122,9 @@ export default function Results() {
                 </div>
               </div>
               <div style={{ textAlign:'right' }}>
+                {r.lifecycle_status && (
+                  <span style={{ fontSize:'0.66rem', background:(lifeColor[r.lifecycle_status]||'#94a3b8')+'22', color:lifeColor[r.lifecycle_status]||'#94a3b8', padding:'0.2rem 0.6rem', borderRadius:'20px', fontWeight:800, textTransform:'capitalize', marginRight:'0.35rem' }}>{r.lifecycle_status}</span>
+                )}
                 <span style={{ fontSize:'0.68rem', background:'rgba(34,197,94,0.1)', color:'#16a34a', padding:'0.2rem 0.65rem', borderRadius:'20px', fontWeight:700, border:'1px solid rgba(34,197,94,0.2)' }}>{r.status}</span>
                 <div style={{ fontSize:'0.68rem', color:'#8892a4', marginTop:'0.3rem' }}>{new Date(r.created_at).toLocaleString('en-IN')}</div>
               </div>

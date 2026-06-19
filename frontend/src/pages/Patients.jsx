@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
-import { api } from '../services/api';
+import { authedFetch } from '../services/auth';
+
+const statusColor = { collected:'#0ea5e9', dispatched:'#6366f1', received:'#8b5cf6', tested:'#f59e0b', validated:'#16a34a', reported:'#0f766e' };
 
 const inp = { background:'#fafbfc', border:'1.5px solid #e8ecf4', borderRadius:'9px', padding:'0.65rem 0.9rem', color:'#0f1218', fontFamily:'Manrope,sans-serif', fontSize:'0.85rem', outline:'none', width:'100%', transition:'border 0.15s' };
 const lbl = { fontSize:'0.7rem', color:'#8892a4', fontWeight:600, textTransform:'uppercase', letterSpacing:'0.06em', display:'block', marginBottom:'0.35rem' };
@@ -14,13 +16,14 @@ export default function Patients() {
   const [saving, setSaving]     = useState(false);
   const [form, setForm]         = useState({ patient_name:'', age:'', gender:'Male', doctor_name:'', sample_type:'Blood', barcode:'' });
 
-  const load = () => api.getPatients().then(setPatients).catch(()=>{});
+  const load = () => authedFetch('/patients/').then(r=>r.json()).then(setPatients).catch(()=>{});
   useEffect(() => { load(); }, []);
 
   const submit = async () => {
     if(!form.patient_name) return alert('Patient name required');
     setSaving(true);
-    await api.createPatient({ ...form, age: form.age ? parseInt(form.age) : null, barcode: form.barcode || undefined });
+    await authedFetch('/patients/', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ ...form, age: form.age ? parseInt(form.age) : null, barcode: form.barcode || undefined }) });
     setForm({ patient_name:'', age:'', gender:'Male', doctor_name:'', sample_type:'Blood', barcode:'' });
     setShowForm(false);
     load();
@@ -77,14 +80,14 @@ export default function Patients() {
         <table style={{ width:'100%', borderCollapse:'collapse' }}>
           <thead>
             <tr style={{ background:'#fafbfc', borderBottom:'1.5px solid #e8ecf4' }}>
-              {['Barcode','Patient Name','Age','Gender','Doctor','Sample','Registered'].map(h => (
+              {['Barcode','Patient Name','Age','Gender','Doctor','Sample','Status','Registered'].map(h => (
                 <th key={h} style={{ textAlign:'left', padding:'0.8rem 1.3rem', fontSize:'0.65rem', color:'#8892a4', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.07em' }}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {patients.length === 0 && (
-              <tr><td colSpan={7} style={{ textAlign:'center', padding:'3rem', color:'#8892a4' }}>
+              <tr><td colSpan={8} style={{ textAlign:'center', padding:'3rem', color:'#8892a4' }}>
                 <div style={{ fontSize:'2rem', marginBottom:'0.8rem' }}>👤</div>
                 No patients registered yet.
               </td></tr>
@@ -102,6 +105,9 @@ export default function Patients() {
                 <td style={{ padding:'0.9rem 1.3rem', color:'#8892a4', fontSize:'0.85rem' }}>{p.doctor_name||'—'}</td>
                 <td style={{ padding:'0.9rem 1.3rem' }}>
                   <span style={{ background:sampleColor[p.sample_type]||'#f5f5f5', color:sampleText[p.sample_type]||'#333', padding:'0.2rem 0.7rem', borderRadius:'20px', fontSize:'0.72rem', fontWeight:700 }}>{p.sample_type}</span>
+                </td>
+                <td style={{ padding:'0.9rem 1.3rem' }}>
+                  <span style={{ background:(statusColor[p.status]||'#94a3b8')+'22', color:statusColor[p.status]||'#94a3b8', padding:'0.2rem 0.7rem', borderRadius:'20px', fontSize:'0.7rem', fontWeight:800, textTransform:'capitalize' }}>{p.status||'—'}</span>
                 </td>
                 <td style={{ padding:'0.9rem 1.3rem', color:'#8892a4', fontSize:'0.78rem' }}>{new Date(p.created_at).toLocaleDateString('en-IN')}</td>
               </tr>

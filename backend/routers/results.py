@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from database import get_db
 from models.models import LabResult, Patient, Device
+from auth.deps import get_scope, apply_scope, Scope
 from parsers.astm_parser import auto_parse
 from pydantic import BaseModel
 from typing import Optional
@@ -15,8 +16,14 @@ class RawDataSubmit(BaseModel):
     device_type: Optional[str] = "Hematology"
 
 @router.get("/")
-def get_all_results(db: Session = Depends(get_db)):
-    results = db.query(LabResult).order_by(LabResult.created_at.desc()).limit(100).all()
+def get_all_results(db: Session = Depends(get_db), scope: Scope = Depends(get_scope),
+                    barcode: Optional[str] = None, patient_id: Optional[int] = None):
+    q = apply_scope(db.query(LabResult), LabResult, scope)
+    if barcode:
+        q = q.filter(LabResult.barcode.ilike(f"%{barcode}%"))
+    if patient_id is not None:
+        q = q.filter(LabResult.patient_id == patient_id)
+    results = q.order_by(LabResult.created_at.desc()).limit(200).all()
     output = []
     for r in results:
         output.append({
@@ -24,6 +31,7 @@ def get_all_results(db: Session = Depends(get_db)):
             "barcode":      r.barcode,
             "test_name":    r.test_name,
             "status":       r.status,
+            "lifecycle_status": r.patient.status if r.patient else None,
             "parsed_data":  r.parsed_data,
             "created_at":   r.created_at,
             "patient_name": r.patient.patient_name if r.patient else "Unknown",

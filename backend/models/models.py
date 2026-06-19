@@ -34,6 +34,7 @@ class Patient(Base):
     tenant_id              = Column(Integer, ForeignKey("tenants.id"),    nullable=True, index=True)
     branch_id              = Column(Integer, ForeignKey("branches.id"),   nullable=True, index=True)
     registered_franchise_id = Column(Integer, ForeignKey("franchises.id"), nullable=True, index=True)
+    status                 = Column(String, nullable=True, index=True)  # collected→…→reported
     created_at   = Column(DateTime(timezone=True), server_default=func.now())
     results      = relationship("LabResult", back_populates="patient")
 
