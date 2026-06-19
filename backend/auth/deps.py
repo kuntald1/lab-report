@@ -100,9 +100,14 @@ def apply_scope(query: Query, model, scope: Scope) -> Query:
     if scope.branch_id is not None and hasattr(model, "branch_id"):
         query = query.filter(model.branch_id == scope.branch_id)
 
-    # Franchise users only see patients their franchise registered.
-    if scope.franchise_id is not None and hasattr(model, "registered_franchise_id"):
-        query = query.filter(model.registered_franchise_id == scope.franchise_id)
+    # Franchise users only see their franchise's rows. Patients carry the
+    # registering franchise as `registered_franchise_id`; orders / sample_events
+    # carry it as `franchise_id`.
+    if scope.franchise_id is not None:
+        if hasattr(model, "franchise_id"):
+            query = query.filter(model.franchise_id == scope.franchise_id)
+        elif hasattr(model, "registered_franchise_id"):
+            query = query.filter(model.registered_franchise_id == scope.franchise_id)
 
     # Patient users only see their own patient row / their own results.
     if scope.patient_id is not None:

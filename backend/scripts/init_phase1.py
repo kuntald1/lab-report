@@ -18,12 +18,42 @@ import sys
 # Allow running as `python -m scripts.init_phase1` or `python scripts/init_phase1.py`
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from sqlalchemy import text
+
 from database import engine, Base, SessionLocal
 from models import models as core_models   # noqa: F401  registers core tables
 from models import org as org_models        # noqa: F401  registers org tables
 from models.org import Tenant, Branch, User, Role
 from models.models import Patient, Device, LabResult
 from auth.security import hash_password
+
+
+# create_all() never ALTERs existing tables, so on a DB that already has the
+# core tables we must add the new scoping columns ourselves. These are additive
+# and idempotent (IF NOT EXISTS), safe to run repeatedly.
+PG_MIGRATIONS = [
+    "ALTER TABLE patients    ADD COLUMN IF NOT EXISTS tenant_id INTEGER",
+    "ALTER TABLE patients    ADD COLUMN IF NOT EXISTS branch_id INTEGER",
+    "ALTER TABLE patients    ADD COLUMN IF NOT EXISTS registered_franchise_id INTEGER",
+    "ALTER TABLE devices     ADD COLUMN IF NOT EXISTS tenant_id INTEGER",
+    "ALTER TABLE devices     ADD COLUMN IF NOT EXISTS branch_id INTEGER",
+    "ALTER TABLE lab_results ADD COLUMN IF NOT EXISTS tenant_id INTEGER",
+    "ALTER TABLE lab_results ADD COLUMN IF NOT EXISTS branch_id INTEGER",
+    "CREATE INDEX IF NOT EXISTS ix_patients_tenant_id    ON patients    (tenant_id)",
+    "CREATE INDEX IF NOT EXISTS ix_devices_tenant_id     ON devices     (tenant_id)",
+    "CREATE INDEX IF NOT EXISTS ix_lab_results_tenant_id ON lab_results (tenant_id)",
+]
+
+
+def migrate_columns():
+    """Add scoping columns to pre-existing core tables (Postgres only)."""
+    if engine.dialect.name != "postgresql":
+        print("  = non-postgres dialect; create_all already added the columns, skipping ALTER")
+        return
+    with engine.begin() as conn:
+        for stmt in PG_MIGRATIONS:
+            conn.execute(text(stmt))
+    print(f"  ~ ensured {len(PG_MIGRATIONS)} additive column/index migration(s)")
 
 
 def get_or_create_tenant(db):
@@ -83,6 +113,9 @@ def backfill(db, tenant, branch):
 def main():
     print("Creating any missing tables ...")
     Base.metadata.create_all(bind=engine)
+
+    print("Adding scoping columns to existing core tables (if missing) ...")
+    migrate_columns()
 
     db = SessionLocal()
     try:
