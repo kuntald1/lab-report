@@ -5,7 +5,7 @@ never create rows in another tenant), and every list goes through apply_scope.
 """
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel
 from typing import Optional
 
 from database import get_db
@@ -107,7 +107,7 @@ def list_franchises(db: Session = Depends(get_db), scope: Scope = Depends(get_sc
 
 # --------------------------------------------------------------------------- users
 class UserCreate(BaseModel):
-    email: EmailStr
+    email: str
     password: str
     full_name: Optional[str] = None
     role: str
