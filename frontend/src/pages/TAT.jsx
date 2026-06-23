@@ -172,12 +172,11 @@ function Report({ data }) {
               })}
             </div>
 
-            {/* phase rollup chips */}
+            {/* phase rollup chips — "—" for any phase not yet reached/timed */}
             <div style={{ display: 'flex', gap: '0.6rem', marginTop: '0.8rem', flexWrap: 'wrap' }}>
-              <Chip label="Pre-analytical" val={fmt(f.phases.pre_analytical)} tone="#E24B4A" />
-              <Chip label="Analytical"     val={f.phases.analytical > 0 ? fmt(f.phases.analytical) : '—'}
-                    tone="#1D9E75" muted={!(f.phases.analytical > 0)} />
-              <Chip label="Post-analytical" val={fmt(f.phases.post_analytical)} tone="#7F77DD" />
+              <Chip label="Pre-analytical"  val={f.phases.pre_analytical  > 0 ? fmt(f.phases.pre_analytical)  : '—'} tone="#E24B4A" muted={!(f.phases.pre_analytical  > 0)} />
+              <Chip label="Analytical"      val={f.phases.analytical      > 0 ? fmt(f.phases.analytical)      : '—'} tone="#1D9E75" muted={!(f.phases.analytical      > 0)} />
+              <Chip label="Post-analytical" val={f.phases.post_analytical > 0 ? fmt(f.phases.post_analytical) : '—'} tone="#7F77DD" muted={!(f.phases.post_analytical > 0)} />
             </div>
           </div>
         );
@@ -224,7 +223,7 @@ function Field({ label, children }) {
 
 function Chip({ label, val, tone, muted }) {
   return (
-    <span title={muted ? 'Testing not separately timed (test start = result time)' : undefined}
+    <span title={muted ? 'No duration recorded for this phase yet' : undefined}
           style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.72rem',
                    color: '#475569', background: '#f8fafc', border: '1px solid #e8ecf4',
                    padding: '0.3rem 0.65rem', borderRadius: 100, opacity: muted ? 0.6 : 1 }}>
