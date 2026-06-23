@@ -161,12 +161,16 @@ function Report({ data }) {
                 const v = f.stages[s] && f.stages[s].median;
                 if (!v) return null;
                 const segPct = sum > 0 ? (v / sum) * 100 : 0;
+                const rounded = Math.round(v);
+                // print the number whenever the segment is wide enough to fit it;
+                // single digits need less room than double digits
+                const minPct = String(rounded).length >= 2 ? 6 : 3.5;
                 return (
                   <div key={s} title={`${STAGE_META[s].label}: ${fmt(v)}`}
                        style={{ width: segPct + '%', background: STAGE_META[s].color, display: 'flex',
                                 alignItems: 'center', justifyContent: 'center', color: '#fff',
-                                fontSize: '0.68rem', fontWeight: 700, whiteSpace: 'nowrap' }}>
-                    {segPct > 9 ? Math.round(v) : ''}
+                                fontSize: '0.66rem', fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden' }}>
+                    {segPct > minPct ? rounded : ''}
                   </div>
                 );
               })}
