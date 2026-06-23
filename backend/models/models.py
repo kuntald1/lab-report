@@ -30,11 +30,13 @@ class Patient(Base):
     gender       = Column(String)
     doctor_name  = Column(String)
     sample_type  = Column(String, default="Blood")
+    abha_number  = Column(String, nullable=True, index=True)   # ABHA / ABDM 14-digit health ID
     # --- Phase 1: multi-tenant scoping (nullable; ingestion path untouched) ---
     tenant_id              = Column(Integer, ForeignKey("tenants.id"),    nullable=True, index=True)
     branch_id              = Column(Integer, ForeignKey("branches.id"),   nullable=True, index=True)
     registered_franchise_id = Column(Integer, ForeignKey("franchises.id"), nullable=True, index=True)
     status                 = Column(String, nullable=True, index=True)  # collected→…→reported
+    is_active    = Column(Boolean, default=True, nullable=False, index=True)  # soft delete
     created_at   = Column(DateTime(timezone=True), server_default=func.now())
     results      = relationship("LabResult", back_populates="patient")
 
