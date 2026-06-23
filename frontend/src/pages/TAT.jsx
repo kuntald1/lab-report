@@ -3,7 +3,7 @@ import { authedFetch } from '../services/auth';
 
 const STAGE_META = {
   wait_for_pickup:      { label: 'Wait for pickup',  color: '#E24B4A' },
-  transit:              { label: 'Transit',          color: '#D85A30' },
+  transit:              { label: 'Transit',          color: '#E8A33D' },
   receipt_accessioning: { label: 'Receipt + accessioning', color: '#378ADD' },
   testing:              { label: 'Testing',          color: '#1D9E75' },
   validation:           { label: 'Validation',       color: '#7F77DD' },
