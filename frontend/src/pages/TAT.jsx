@@ -129,34 +129,43 @@ export default function TAT() {
 
 function Report({ data }) {
   const stageOrder = data.stage_order;
-  const maxTotal = Math.max(...data.franchises.map(f => (f.total && f.total.median) || 0), 1);
+  // Size the bar on the SUM of the stages actually recorded — not on the
+  // collected->reported total, which is missing until a sample is reported.
+  // This keeps the bar readable and proportional whether or not it's complete.
+  const stageSum = (f) => stageOrder.reduce((a, s) => a + ((f.stages[s] && f.stages[s].median) || 0), 0);
+  const maxSum = Math.max(...data.franchises.map(stageSum), 1);
 
   return (
     <>
       {data.franchises.map(f => {
-        const total = (f.total && f.total.median) || 0;
-        const widthPct = (total / maxTotal) * 100;
+        const sum = stageSum(f);
+        const total = (f.total && f.total.median); // true end-to-end; may be null/0 if not reported
+        const complete = total != null && total > 0;
+        // relative length across franchises, with a floor so it's never a cramped stub
+        const widthPct = Math.max((sum / maxSum) * 100, 32);
         return (
           <div key={f.franchise_id ?? 'direct'} style={card}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '0.7rem' }}>
               <div style={{ fontWeight: 700, fontSize: '0.98rem', color: '#0f1218' }}>{f.franchise_name}</div>
               <div style={{ fontSize: '0.8rem', color: '#8892a4' }}>
-                <b style={{ color: '#0f1218' }}>{fmt(total)}</b> total · {f.order_count} orders
+                {complete
+                  ? <><b style={{ color: '#0f1218' }}>{fmt(total)}</b> total · {f.order_count} orders</>
+                  : <><b style={{ color: '#0f1218' }}>{fmt(sum)}</b> so far · <span style={{ color: '#d97706' }}>in progress</span> · {f.order_count} orders</>}
               </div>
             </div>
 
-            {/* stacked bar */}
-            <div style={{ display: 'flex', width: widthPct + '%', minWidth: 120, height: 30, borderRadius: 7,
+            {/* stacked bar — proportions are relative to the recorded stage sum */}
+            <div style={{ display: 'flex', width: widthPct + '%', minWidth: 240, height: 34, borderRadius: 8,
                           overflow: 'hidden', boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.04)' }}>
               {stageOrder.map(s => {
                 const v = f.stages[s] && f.stages[s].median;
                 if (!v) return null;
-                const segPct = (v / total) * 100;
+                const segPct = sum > 0 ? (v / sum) * 100 : 0;
                 return (
                   <div key={s} title={`${STAGE_META[s].label}: ${fmt(v)}`}
                        style={{ width: segPct + '%', background: STAGE_META[s].color, display: 'flex',
                                 alignItems: 'center', justifyContent: 'center', color: '#fff',
-                                fontSize: '0.66rem', fontWeight: 700, whiteSpace: 'nowrap' }}>
+                                fontSize: '0.68rem', fontWeight: 700, whiteSpace: 'nowrap' }}>
                     {segPct > 9 ? Math.round(v) : ''}
                   </div>
                 );
@@ -166,7 +175,8 @@ function Report({ data }) {
             {/* phase rollup chips */}
             <div style={{ display: 'flex', gap: '0.6rem', marginTop: '0.8rem', flexWrap: 'wrap' }}>
               <Chip label="Pre-analytical" val={fmt(f.phases.pre_analytical)} tone="#E24B4A" />
-              <Chip label="Analytical"     val={fmt(f.phases.analytical)}     tone="#1D9E75" />
+              <Chip label="Analytical"     val={f.phases.analytical > 0 ? fmt(f.phases.analytical) : '—'}
+                    tone="#1D9E75" muted={!(f.phases.analytical > 0)} />
               <Chip label="Post-analytical" val={fmt(f.phases.post_analytical)} tone="#7F77DD" />
             </div>
           </div>
@@ -212,11 +222,12 @@ function Field({ label, children }) {
   );
 }
 
-function Chip({ label, val, tone }) {
+function Chip({ label, val, tone, muted }) {
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.72rem',
+    <span title={muted ? 'Testing not separately timed (test start = result time)' : undefined}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.72rem',
                    color: '#475569', background: '#f8fafc', border: '1px solid #e8ecf4',
-                   padding: '0.3rem 0.65rem', borderRadius: 100 }}>
+                   padding: '0.3rem 0.65rem', borderRadius: 100, opacity: muted ? 0.6 : 1 }}>
       <span style={{ width: 8, height: 8, borderRadius: '50%', background: tone }} />
       {label} <b style={{ color: '#0f1218' }}>{val}</b>
     </span>
