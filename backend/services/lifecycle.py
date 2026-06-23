@@ -4,8 +4,10 @@ order needed). Setting a status records the matching sample_event(s) so TAT
 keeps working, and stamps the patient's current `status`.
 
 User-facing statuses (6):  collected → dispatched → received → tested → validated → reported
-The `tested` step maps to two internal events (test_started + resulted) so the
-existing TAT stage breakdown still computes.
+The `tested` step records only `test_started`. The matching `resulted` event is
+recorded separately, at the real moment a result arrives (analyser / parse hook
+in services.sample_event_hook), so the Testing stage measures actual time
+instead of collapsing to zero.
 """
 import datetime as dt
 
@@ -16,7 +18,7 @@ STATUS_EVENTS = {
     "collected":  [EventType.COLLECTED],
     "dispatched": [EventType.DISPATCHED],
     "received":   [EventType.RECEIVED],
-    "tested":     [EventType.TEST_STARTED, EventType.RESULTED],
+    "tested":     [EventType.TEST_STARTED],   # resulted comes from the real result, not this click
     "validated":  [EventType.VALIDATED],
     "reported":   [EventType.REPORTED],
 }
