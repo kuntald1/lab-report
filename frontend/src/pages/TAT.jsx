@@ -18,6 +18,20 @@ const fmt = (m) => {
 
 const EMPTY = { franchise_id: '', branch_id: '', date_from: '', date_to: '', patient_id: '', barcode: '' };
 
+// Largest-remainder (Hamilton) rounding: round each value to an integer such that
+// the integers sum exactly to round(sum of values). Avoids "parts ≠ whole" on the bar.
+function tieRounded(items) {
+  const target = Math.round(items.reduce((a, x) => a + x.v, 0));
+  const parts = items.map(x => ({ key: x.key, base: Math.floor(x.v), rem: x.v - Math.floor(x.v) }));
+  let diff = target - parts.reduce((a, p) => a + p.base, 0);
+  parts.sort((a, b) => b.rem - a.rem);
+  for (let i = 0; i < parts.length && diff > 0; i++) { parts[i].base += 1; diff--; }
+  for (let i = parts.length - 1; i >= 0 && diff < 0; i--) { if (parts[i].base > 0) { parts[i].base -= 1; diff++; } }
+  const out = {};
+  parts.forEach(p => { out[p.key] = p.base; });
+  return out;
+}
+
 export default function TAT() {
   const [data, setData] = useState(null);
   const [err, setErr] = useState('');
@@ -143,6 +157,10 @@ function Report({ data }) {
         const complete = total != null && total > 0;
         // relative length across franchises, with a floor so it's never a cramped stub
         const widthPct = Math.max((sum / maxSum) * 100, 32);
+        // round segment labels via largest-remainder so they sum exactly to round(sum)
+        const tied = tieRounded(stageOrder
+          .filter(s => f.stages[s] && f.stages[s].median > 0)
+          .map(s => ({ key: s, v: f.stages[s].median })));
         return (
           <div key={f.franchise_id ?? 'direct'} style={card}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '0.7rem' }}>
@@ -161,16 +179,16 @@ function Report({ data }) {
                 const v = f.stages[s] && f.stages[s].median;
                 if (!v) return null;
                 const segPct = sum > 0 ? (v / sum) * 100 : 0;
-                const rounded = Math.round(v);
+                const label = tied[s];   // largest-remainder rounded; segments sum to the bar total
                 // print the number whenever the segment is wide enough to fit it;
                 // single digits need less room than double digits
-                const minPct = String(rounded).length >= 2 ? 6 : 3.5;
+                const minPct = String(label).length >= 2 ? 6 : 3.5;
                 return (
                   <div key={s} title={`${STAGE_META[s].label}: ${fmt(v)}`}
                        style={{ width: segPct + '%', background: STAGE_META[s].color, display: 'flex',
                                 alignItems: 'center', justifyContent: 'center', color: '#fff',
                                 fontSize: '0.66rem', fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden' }}>
-                    {segPct > minPct ? rounded : ''}
+                    {segPct > minPct ? label : ''}
                   </div>
                 );
               })}
