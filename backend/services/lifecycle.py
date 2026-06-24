@@ -47,7 +47,14 @@ def record_status(db, patient, status, actor_id=None, commit=True):
             event_type=et, event_at=now, actor_id=actor_id,
         ))
         written.append(et)
-    patient.status = status
+patient.status = status
     if commit:
         db.commit()
+    # ABDM: queue a validated report for ABHA linking (never blocks the status change)
+    if status == "validated":
+        try:
+            from services.abdm.queue import enqueue_abdm_link
+            enqueue_abdm_link(db, patient, trigger="validated")
+        except Exception:
+            pass
     return written
