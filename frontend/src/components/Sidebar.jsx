@@ -7,6 +7,7 @@ const nav = [
   { id:'status',    icon:'🔄', label:'Change Status',  section:'main', tag:'NEW' },
   { id:'results',   icon:'🧪', label:'Results',       section:'main', badge:'results' },
   { id:'tat',       icon:'⏱',  label:'TAT Report',    section:'main', tag:'NEW' },
+  { id:'tubes',     icon:'🧫', label:'Sample Tubes',  section:'master', tag:'NEW' },
   { id:'simulator', icon:'⚡', label:'Simulator',     section:'tools', tag:'DEMO' },
   { id:'tcp',       icon:'🔌', label:'Live Connect',  section:'tools', tag:'PHASE 2' },
 ];
@@ -55,6 +56,8 @@ export default function Sidebar({ current, onChange, counts = {}, user = null, o
       <div style={s.navSection}>
         <div style={s.navLabel}>Main Menu</div>
         {nav.filter(n=>n.section==='main').map(item => <NavItem key={item.id} item={item} active={current===item.id} onClick={()=>onChange(item.id)} count={counts[item.badge]} />)}
+         <div style={s.navLabel}>Master</div>
+        {nav.filter(n=>n.section==='master').map(item => <NavItem key={item.id} item={item} active={current===item.id} onClick={()=>onChange(item.id)} />)}
         <div style={s.navLabel}>Tools</div>
         {nav.filter(n=>n.section==='tools').map(item => <NavItem key={item.id} item={item} active={current===item.id} onClick={()=>onChange(item.id)} />)}
       </div>
