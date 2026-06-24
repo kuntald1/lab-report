@@ -10,6 +10,7 @@ import TAT from './pages/TAT';
 import ChangeStatus from './pages/ChangeStatus';
 import Login from './pages/Login';
 import { auth } from './services/auth';
+import SampleTubes from './pages/SampleTubes';
 
 export default function App() {
   const [authed, setAuthed] = useState(auth.isAuthed());
@@ -17,7 +18,7 @@ export default function App() {
 
   if (!authed) return <Login onLogin={() => setAuthed(true)} />;
 
-  const pages = { dashboard:<Dashboard />, devices:<Devices />, patients:<Patients />, results:<Results />, simulator:<Simulator />, tcp:<TCPLive />, tat:<TAT />, status:<ChangeStatus /> };
+  const pages = { dashboard:<Dashboard />, devices:<Devices />, patients:<Patients />, results:<Results />, simulator:<Simulator />, tcp:<TCPLive />, tat:<TAT />, status:<ChangeStatus />,tubes:<SampleTubes /> };
   const logout = () => { auth.logout(); setAuthed(false); setPage('dashboard'); };
   return (
     <div style={{ display:'flex', minHeight:'100vh', background:'#f4f6fa' }}>
