@@ -8,6 +8,7 @@ const nav = [
   { id:'results',   icon:'🧪', label:'Results',       section:'main', badge:'results' },
   { id:'tat',       icon:'⏱',  label:'TAT Report',    section:'main', tag:'NEW' },
   { id:'tubes',     icon:'🧫', label:'Sample Tubes',  section:'master', tag:'NEW' },
+  { id:'orggroups', icon:'🏢', label:'Org Groups',    section:'master', tag:'NEW' },
   { id:'simulator', icon:'⚡', label:'Simulator',     section:'tools', tag:'DEMO' },
   { id:'tcp',       icon:'🔌', label:'Live Connect',  section:'tools', tag:'PHASE 2' },
 ];
