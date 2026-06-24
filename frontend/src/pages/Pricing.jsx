@@ -27,6 +27,13 @@ export default function Pricing() {
 
   const baseOf = (id) => tests.find(t => t.id === id) || {};
 
+  // standalone mode: only organizations NOT in any group
+  const standaloneOrgs = orgs.filter(o => !o.org_group_id);
+  // members of the currently-selected group (group mode)
+  const groupMembers = (mode === 'group' && contextId)
+    ? orgs.filter(o => String(o.org_group_id) === String(contextId))
+    : [];
+
   // when context changes, load its existing priced tests
   useEffect(() => {
     setLoaded(false); setSel({});
@@ -78,7 +85,7 @@ export default function Pricing() {
     setSaving(false);
   };
 
-  const contextList = mode === 'group' ? groups : orgs;
+  const contextList = mode === 'group' ? groups : standaloneOrgs;
 
   return (
     <div>
@@ -117,6 +124,25 @@ export default function Pricing() {
             <input style={inp} placeholder="Filter by name…" value={search} onChange={e=>setSearch(e.target.value)} />
           </div>
         </div>
+
+        {/* group members: who this pricing applies to */}
+        {mode==='group' && contextId && (
+          <div style={{ marginTop:'1rem', paddingTop:'1rem', borderTop:'1px solid #f4f6fa' }}>
+            <div style={{ ...lbl, marginBottom:'0.5rem' }}>Organizations in this group</div>
+            {groupMembers.length === 0
+              ? <span style={{ color:'#8892a4', fontSize:'0.8rem' }}>No organizations assigned to this group yet.</span>
+              : <div style={{ display:'flex', flexWrap:'wrap', gap:'0.4rem' }}>
+                  {groupMembers.map(o => (
+                    <span key={o.id} style={{ background:'rgba(99,102,241,0.1)', color:'#6366f1', padding:'0.25rem 0.8rem', borderRadius:'20px', fontSize:'0.78rem', fontWeight:600 }}>{o.name}</span>
+                  ))}
+                </div>}
+          </div>
+        )}
+        {mode==='org' && standaloneOrgs.length === 0 && (
+          <div style={{ marginTop:'1rem', paddingTop:'1rem', borderTop:'1px solid #f4f6fa', color:'#8892a4', fontSize:'0.8rem' }}>
+            No standalone organizations — every organization currently belongs to a group. Standalone pricing is only for organizations with no group.
+          </div>
+        )}
       </div>
 
       {!contextId && (
@@ -131,14 +157,14 @@ export default function Pricing() {
             <table style={{ width:'100%', borderCollapse:'collapse' }}>
               <thead>
                 <tr style={{ background:'#fafbfc', borderBottom:'1.5px solid #e8ecf4' }}>
-                  {['', 'Test', 'Base Price', 'MRP', 'Price'].map((h,i) => (
+                  {['', 'Test', 'MRP', 'Price'].map((h,i) => (
                     <th key={i} style={{ textAlign: i>=2?'right':'left', padding:'0.7rem 1.2rem', fontSize:'0.65rem', color:'#8892a4', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.07em' }}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {filtered.length === 0 && (
-                  <tr><td colSpan={5} style={{ textAlign:'center', padding:'2rem', color:'#8892a4' }}>No tests match.</td></tr>
+                  <tr><td colSpan={4} style={{ textAlign:'center', padding:'2rem', color:'#8892a4' }}>No tests match.</td></tr>
                 )}
                 {filtered.map(t => {
                   const row = sel[t.id]; const checked = !!row?.checked;
@@ -149,7 +175,6 @@ export default function Pricing() {
                                style={{ width:'17px', height:'17px', accentColor:'#f97316', cursor:'pointer' }} />
                       </td>
                       <td style={{ padding:'0.6rem 1.2rem', fontWeight:600, color:'#0f1218', fontSize:'0.85rem' }}>{t.name}</td>
-                      <td style={{ padding:'0.6rem 1.2rem', textAlign:'right', color:'#8892a4', fontSize:'0.8rem' }}>{inr(t.price)}</td>
                       <td style={{ padding:'0.6rem 1.2rem', textAlign:'right' }}>
                         <input style={small} type="number" disabled={!checked}
                           value={checked ? (row.mrp ?? '') : ''} placeholder="—"
