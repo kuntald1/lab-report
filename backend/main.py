@@ -11,6 +11,8 @@ from models import org as _org_models        # noqa: F401  (tenants/branches/fra
 from models import clinical as _clinical_models  # noqa: F401  (orders/sample_events/catalog)
 from routers import abdm
 import models.abdm  # registers the abdm tables on metadata
+from routers import b2b as b2b_router
+   
 
 
 Base.metadata.create_all(bind=engine)
@@ -38,7 +40,7 @@ app.include_router(orders.router,      prefix="/api/orders",  tags=["Orders"])
 app.include_router(tat.router,         prefix="/api/tat",     tags=["TAT"])
 app.include_router(sample_status.router, prefix="/api/sample-status", tags=["Sample Status"])
 app.include_router(abdm.router, prefix="/api/abdm", tags=["ABDM"])
-
+app.include_router(b2b_router.router, prefix="/api/b2b", tags=["B2B"])
 
 @app.get("/")
 def root():
