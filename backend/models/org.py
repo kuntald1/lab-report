@@ -96,6 +96,13 @@ class Franchise(Base):
     credit_limit     = Column(Integer, default=0)
     is_active        = Column(Boolean, default=True)
     created_at       = Column(DateTime(timezone=True), server_default=func.now())
+    # --- B2B: a franchise acts as an "organization"; belongs to one group or none ---
+    org_group_id   = Column(Integer, ForeignKey("org_groups.id"), nullable=True, index=True)
+    aadhaar        = Column(String, nullable=True)
+    gstin          = Column(String, nullable=True)
+    contact_person = Column(String, nullable=True)
+    phone          = Column(String, nullable=True)
+    email          = Column(String, nullable=True)
 
     tenant        = relationship("Tenant", back_populates="franchises")
 

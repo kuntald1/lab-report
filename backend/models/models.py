@@ -35,6 +35,7 @@ class Patient(Base):
     tenant_id              = Column(Integer, ForeignKey("tenants.id"),    nullable=True, index=True)
     branch_id              = Column(Integer, ForeignKey("branches.id"),   nullable=True, index=True)
     registered_franchise_id = Column(Integer, ForeignKey("franchises.id"), nullable=True, index=True)
+    organization_id        = Column(Integer, ForeignKey("franchises.id"), nullable=True, index=True)  # B2B: NULL = Direct/walk-in
     status                 = Column(String, nullable=True, index=True)  # collected→…→reported
     is_active    = Column(Boolean, default=True, nullable=False, index=True)  # soft delete
     created_at   = Column(DateTime(timezone=True), server_default=func.now())

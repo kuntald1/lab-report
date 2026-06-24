@@ -71,6 +71,11 @@ class TestCatalog(Base):
     method        = Column(String, nullable=True)
     sample_type   = Column(String, nullable=True)      # Blood, Serum, Urine, ...
     price         = Column(Float, default=0.0)
+    # --- B2B: rich catalog fields ---
+    mrp                = Column(Float, default=0.0)
+    normal_value       = Column(String, nullable=True)   # free-text reference / normal value
+    sample_tube_id     = Column(Integer, ForeignKey("sample_tubes.id"), nullable=True)
+    assigned_doctor_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     # target analytical time in minutes — used for TAT SLA comparison
     tat_target_minutes = Column(Integer, nullable=True)
     is_active     = Column(Boolean, default=True)
