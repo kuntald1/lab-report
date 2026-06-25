@@ -15,6 +15,7 @@ import OrgGroups from './pages/OrgGroups';
 import Organizations from './pages/Organizations';
 import Pricing from './pages/Pricing';
 import TestsCatalog from './pages/TestsCatalog';
+import Users from './pages/Users';
 
 export default function App() {
   const [authed, setAuthed] = useState(auth.isAuthed());
@@ -33,7 +34,7 @@ export default function App() {
           <div style={{ display:'flex', alignItems:'center', gap:'0.5rem', fontSize:'0.78rem', color:'#8892a4' }}>
             <span>Home</span>
             <span style={{ color:'#d1d5db' }}>/</span>
-           <span style={{ color:'#0f1218', fontWeight:600, textTransform:'capitalize' }}>{page === 'tcp' ? 'Live Connect' : page === 'simulator' ? 'Simulator Test' : page === 'tat' ? 'Turnaround Time' : page === 'status' ? 'Change Report Status' : page === 'tubes' ? 'Sample Tubes' : page === 'orggroups' ? 'Organization Groups' : page === 'organizations' ? 'Organizations' : page === 'pricing' ? 'Group / Org Pricing' : page === 'testscatalog' ? 'Tests Catalog' : page}</span>
+           <span style={{ color:'#0f1218', fontWeight:600, textTransform:'capitalize' }}>{page === 'tcp' ? 'Live Connect' : page === 'simulator' ? 'Simulator Test' : page === 'tat' ? 'Turnaround Time' : page === 'status' ? 'Change Report Status' : page === 'tubes' ? 'Sample Tubes' : page === 'orggroups' ? 'Organization Groups' : page === 'organizations' ? 'Organizations' : page === 'pricing' ? 'Group / Org Pricing' : page === 'testscatalog' ? 'Tests Catalog' : page === 'users' ? 'Users & Staff' : page}</span>
           </div>
           <div style={{ display:'flex', alignItems:'center', gap:'0.6rem' }}>
             <div style={{ width:'8px', height:'8px', borderRadius:'50%', background:'#f97316', boxShadow:'0 0 8px rgba(249,115,22,0.6)', animation:'pulse 2s infinite' }}></div>

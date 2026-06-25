@@ -12,6 +12,7 @@ const nav = [
   { id:'organizations', icon:'🏥', label:'Organizations', section:'master' },
   { id:'pricing', icon:'💰', label:'Group / Org Pricing', section:'master', tag:'NEW' },
   { id:'testscatalog', icon:'🧾', label:'Tests Catalog', section:'master' },
+  { id:'users', icon:'👥', label:'Users & Staff', section:'master' },
   { id:'simulator', icon:'⚡', label:'Simulator',     section:'tools', tag:'DEMO' },
   { id:'tcp',       icon:'🔌', label:'Live Connect',  section:'tools', tag:'PHASE 2' },
 ];
