@@ -12,11 +12,11 @@ const sourceBadge = (src) => {
   return <span style={{ background:c+'18', color:c, padding:'0.1rem 0.5rem', borderRadius:'20px', fontSize:'0.65rem', fontWeight:700 }}>{label}</span>;
 };
 
-export default function Billing({ isAdmin = true }) {
+export default function Billing({ isAdmin = true, initialPatientId = '' }) {
   const [patients, setPatients] = useState([]);
   const [tests, setTests]       = useState([]);
   const [orgs, setOrgs]         = useState([]);
-  const [patientId, setPatientId] = useState('');
+  const [patientId, setPatientId] = useState(initialPatientId || '');
   const [picked, setPicked]     = useState({});     // {test_id: {name, mrp, price, source}}
   const [search, setSearch]     = useState('');
   const [discType, setDiscType] = useState('');     // '' | 'flat' | 'percent'

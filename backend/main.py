@@ -12,6 +12,7 @@ from models import clinical as _clinical_models  # noqa: F401  (orders/sample_ev
 from routers import abdm
 import models.abdm  # registers the abdm tables on metadata
 from routers import b2b as b2b_router
+from routers import billing as billing_router
    
 
 
@@ -41,6 +42,8 @@ app.include_router(tat.router,         prefix="/api/tat",     tags=["TAT"])
 app.include_router(sample_status.router, prefix="/api/sample-status", tags=["Sample Status"])
 app.include_router(abdm.router, prefix="/api/abdm", tags=["ABDM"])
 app.include_router(b2b_router.router, prefix="/api/b2b", tags=["B2B"])
+app.include_router(billing_router.router, prefix="/api/billing", tags=["Billing"])
+
 
 @app.get("/")
 def root():

@@ -10,7 +10,7 @@ const S   = { card: { background:'#fff', border:'1px solid #e8ecf4', borderRadiu
 const sampleColor = { Blood:'#fff1ee', Serum:'#eff6ff', Urine:'#fefce8', Plasma:'#fdf4ff', Sodium:'#f0fdf4', Potassium:'#fef9c3', Electrolyte:'#f0fdf4' };
 const sampleText  = { Blood:'#c2410c', Serum:'#1d4ed8', Urine:'#854d0e', Plasma:'#7e22ce', Sodium:'#16a34a', Potassium:'#854d0e', Electrolyte:'#16a34a' };
 
-const BLANK = { patient_name:'', age:'', gender:'Male', doctor_name:'', sample_type:'Blood', barcode:'', abha_number:'', branch_id:'', registered_franchise_id:'' };
+const BLANK = { patient_name:'', age:'', gender:'Male', doctor_name:'', sample_type:'Blood', barcode:'', abha_number:'', branch_id:'', registered_franchise_id:'', organization_id:'' };
 
 // pretty-print a 14-digit ABHA as XX-XXXX-XXXX-XXXX
 const fmtAbha = (n) => {
@@ -19,10 +19,11 @@ const fmtAbha = (n) => {
   return d.length === 14 ? `${d.slice(0,2)}-${d.slice(2,6)}-${d.slice(6,10)}-${d.slice(10)}` : d;
 };
 
-export default function Patients() {
+export default function Patients({ onBill = () => {} }) {
   const [patients, setPatients]   = useState([]);
   const [branches, setBranches]   = useState([]);
   const [franchises, setFranchises] = useState([]);
+  const [orgs, setOrgs]           = useState([]);
   const [showForm, setShowForm]   = useState(false);
   const [saving, setSaving]       = useState(false);
   const [editingId, setEditingId] = useState(null);   // null = create mode
@@ -33,6 +34,7 @@ export default function Patients() {
     load();
     authedFetch('/admin/branches').then(r=>r.ok?r.json():[]).then(setBranches).catch(()=>{});
     authedFetch('/admin/franchises').then(r=>r.ok?r.json():[]).then(setFranchises).catch(()=>{});
+    authedFetch('/b2b/organizations').then(r=>r.ok?r.json():[]).then(setOrgs).catch(()=>{});
   }, []);
 
   const branchName    = (id) => branches.find(b=>b.id===id)?.name || (id ? `Branch ${id}` : '—');
@@ -46,6 +48,7 @@ export default function Patients() {
       doctor_name: p.doctor_name || '', sample_type: p.sample_type || 'Blood', barcode: p.barcode || '',
       abha_number: p.abha_number || '',
       branch_id: p.branch_id ?? '', registered_franchise_id: p.registered_franchise_id ?? '',
+      organization_id: p.organization_id ?? '',
     });
     setShowForm(true);
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -63,6 +66,7 @@ export default function Patients() {
       abha_number: form.abha_number || null,
       branch_id: form.branch_id ? parseInt(form.branch_id) : null,
       registered_franchise_id: form.registered_franchise_id ? parseInt(form.registered_franchise_id) : null,
+      organization_id: form.organization_id ? parseInt(form.organization_id) : null,
     };
     try {
       if (editingId) {
@@ -128,6 +132,11 @@ export default function Patients() {
                 <option value="">— Direct / Walk-in —</option>
                 {franchises.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
               </select></div>
+            <div><label style={lbl}>Organization <span style={{ textTransform:'none', letterSpacing:0, fontWeight:400 }}>(B2B billing)</span></label>
+              <select style={inp} value={form.organization_id} onChange={e=>setForm({...form,organization_id:e.target.value})}>
+                <option value="">— Direct (no organization) —</option>
+                {orgs.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
+              </select></div>
             {!editingId && (
               <div style={{ gridColumn:'1 / -1' }}><label style={lbl}>Barcode <span style={{ textTransform:'none', letterSpacing:0, fontWeight:400 }}>(leave blank to auto-generate)</span></label>
                 <input style={{ ...inp, fontFamily:'monospace', letterSpacing:'0.04em' }} placeholder="e.g. MC45265601" value={form.barcode} onChange={e=>setForm({...form,barcode:e.target.value})} /></div>
@@ -188,6 +197,9 @@ export default function Patients() {
                 <td style={{ padding:'0.9rem 1.3rem', color:'#8892a4', fontSize:'0.78rem' }}>{new Date(p.created_at).toLocaleDateString('en-IN')}</td>
                 <td style={{ padding:'0.9rem 1.3rem' }}>
                   <div style={{ display:'flex', gap:'0.4rem' }}>
+                    <button title="Create bill" onClick={()=>onBill(p.id)} style={iconBtn('#16a34a')}>
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M12 18v-6"/><path d="M9 15h6"/></svg>
+                    </button>
                     <button title="Edit" onClick={()=>startEdit(p)} style={iconBtn('#2563eb')}>
                       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
                     </button>
