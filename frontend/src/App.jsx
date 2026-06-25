@@ -23,7 +23,7 @@ export default function App() {
 
   if (!authed) return <Login onLogin={() => setAuthed(true)} />;
 
-  const pages = { dashboard:<Dashboard />, devices:<Devices />, patients:<Patients />, results:<Results />, simulator:<Simulator />, tcp:<TCPLive />, tat:<TAT />, status:<ChangeStatus />,tubes:<SampleTubes />, orggroups:<OrgGroups />, organizations:<Organizations />, pricing:<Pricing />, testscatalog:<TestsCatalog />  };
+  const pages = { dashboard:<Dashboard />, devices:<Devices />, patients:<Patients />, results:<Results />, simulator:<Simulator />, tcp:<TCPLive />, tat:<TAT />, status:<ChangeStatus />,tubes:<SampleTubes />, orggroups:<OrgGroups />, organizations:<Organizations />, pricing:<Pricing />, testscatalog:<TestsCatalog />, users:<Users />  };
   const logout = () => { auth.logout(); setAuthed(false); setPage('dashboard'); };
   return (
     <div style={{ display:'flex', minHeight:'100vh', background:'#f4f6fa' }}>
