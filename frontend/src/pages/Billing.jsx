@@ -25,6 +25,7 @@ export default function Billing({ isAdmin = true, initialPatientId = '' }) {
   const [saving, setSaving]     = useState(false);
   const [toast, setToast]       = useState(null);
   const [lastBill, setLastBill] = useState(null);
+  const [payingMethod, setPayingMethod] = useState(null);   // 'cash'|'upi'|'razorpay'|null
 
   const showToast = (kind, msg) => { setToast({ kind, msg }); setTimeout(()=>setToast(null), 3500); };
 
@@ -75,6 +76,79 @@ export default function Billing({ isAdmin = true, initialPatientId = '' }) {
   const total = Math.max(0, subtotal - discAmount);
 
   const filtered = tests.filter(t => !search || t.name.toLowerCase().includes(search.toLowerCase()));
+
+  // load Razorpay checkout script once
+  useEffect(() => {
+    if (document.getElementById('rzp-sdk')) return;
+    const s = document.createElement('script');
+    s.id = 'rzp-sdk'; s.src = 'https://checkout.razorpay.com/v1/checkout.js'; s.async = true;
+    document.body.appendChild(s);
+  }, []);
+
+  const refreshBill = async (id) => {
+    const b = await authedFetch(`/billing/bills/${id}`).then(r=>r.ok?r.json():null).catch(()=>null);
+    if (b) setLastBill(b);
+    return b;
+  };
+
+  const downloadReceipt = async (bill) => {
+    try {
+      const res = await authedFetch(`/billing/bills/${bill.id}/receipt`);
+      if (!res.ok) throw new Error();
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = `Receipt_${bill.bill_no}.pdf`; a.click();
+      URL.revokeObjectURL(url);
+    } catch { showToast('error', 'Receipt download failed'); }
+  };
+
+  const payCashUpi = async (method) => {
+    if (!lastBill) return;
+    const due = Math.max(0, (lastBill.total||0) - (lastBill.paid||0));
+    if (due <= 0) return;
+    setPayingMethod(method);
+    try {
+      const res = await authedFetch(`/billing/bills/${lastBill.id}/payments`, { method:'POST',
+        headers:{'Content-Type':'application/json'}, body: JSON.stringify({ method, amount: due }) });
+      if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.detail||'failed'); }
+      const updated = await res.json();
+      setLastBill(updated);
+      showToast('success', `Paid ${inr(due)} · receipt ready`);
+      downloadReceipt(updated);
+    } catch (e) { showToast('error', String(e.message||'Payment failed')); }
+    setPayingMethod(null);
+  };
+
+  const payRazorpay = async () => {
+    if (!lastBill) return;
+    setPayingMethod('razorpay');
+    try {
+      const ordRes = await authedFetch(`/billing/bills/${lastBill.id}/razorpay/order`, { method:'POST' });
+      if (!ordRes.ok) { const e = await ordRes.json().catch(()=>({})); throw new Error(e.detail||'order failed'); }
+      const ord = await ordRes.json();
+      if (!window.Razorpay) { setPayingMethod(null); return showToast('error', 'Razorpay not loaded — retry'); }
+      const rzp = new window.Razorpay({
+        key: ord.key_id, order_id: ord.order_id, amount: ord.amount, currency: ord.currency,
+        name: ord.name, description: ord.description,
+        handler: async (resp) => {
+          try {
+            const vRes = await authedFetch(`/billing/bills/${lastBill.id}/razorpay/verify`, { method:'POST',
+              headers:{'Content-Type':'application/json'},
+              body: JSON.stringify({ razorpay_order_id: resp.razorpay_order_id,
+                razorpay_payment_id: resp.razorpay_payment_id, razorpay_signature: resp.razorpay_signature }) });
+            if (!vRes.ok) { const e = await vRes.json().catch(()=>({})); throw new Error(e.detail||'verify failed'); }
+            const updated = await refreshBill(lastBill.id);
+            showToast('success', 'Payment verified · receipt ready');
+            if (updated) downloadReceipt(updated);
+          } catch (e) { showToast('error', String(e.message||'Verify failed')); }
+        },
+        modal: { ondismiss: () => { setPayingMethod(null); showToast('error', 'Payment cancelled'); } },
+        theme: { color: '#f97316' },
+      });
+      rzp.open();
+    } catch (e) { showToast('error', String(e.message||'Razorpay failed')); }
+    setPayingMethod(null);
+  };
 
   const generate = async () => {
     if (!patientId) return showToast('error', 'Select a patient');
@@ -211,20 +285,52 @@ export default function Billing({ isAdmin = true, initialPatientId = '' }) {
         </div>
       )}
 
-      {/* last created bill */}
-      {lastBill && (
-        <div style={{ ...S.card, marginTop:'1.2rem', border:'1px solid rgba(22,163,74,0.3)' }}>
+      {/* last created bill + pay now */}
+      {lastBill && (() => {
+        const due = Math.max(0, (lastBill.total||0) - (lastBill.paid||0));
+        const paid = due <= 0;
+        return (
+        <div style={{ ...S.card, marginTop:'1.2rem', border:`1px solid ${paid?'rgba(22,163,74,0.4)':'rgba(249,115,22,0.3)'}` }}>
           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
             <div>
               <div style={{ fontWeight:800, color:'#16a34a', fontSize:'1rem' }}>✓ Bill {lastBill.bill_no} created</div>
-              <div style={{ color:'#8892a4', fontSize:'0.82rem', marginTop:'0.2rem' }}>{lastBill.patient_name} · {lastBill.items.length} test(s) · {lastBill.status}</div>
+              <div style={{ color:'#8892a4', fontSize:'0.82rem', marginTop:'0.2rem' }}>{lastBill.patient_name} · {lastBill.items.length} test(s) · <span style={{ textTransform:'capitalize', fontWeight:700, color: paid?'#16a34a':'#f97316' }}>{lastBill.status}</span></div>
             </div>
-            <div style={{ fontWeight:800, fontSize:'1.3rem', color:'#0f1218' }}>{inr(lastBill.total)}</div>
+            <div style={{ textAlign:'right' }}>
+              <div style={{ fontWeight:800, fontSize:'1.3rem', color:'#0f1218' }}>{inr(lastBill.total)}</div>
+              {!paid && <div style={{ fontSize:'0.78rem', color:'#dc2626', fontWeight:600 }}>Due {inr(due)}</div>}
+            </div>
           </div>
+
+          {/* pay now */}
+          {!paid && lastBill.status !== 'credit' && (
+            <div style={{ marginTop:'1rem', paddingTop:'1rem', borderTop:'1px dashed #e8ecf4' }}>
+              <div style={{ fontSize:'0.72rem', color:'#8892a4', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:'0.6rem' }}>Collect Payment</div>
+              <div style={{ display:'flex', gap:'0.6rem', flexWrap:'wrap' }}>
+                <button onClick={()=>payCashUpi('cash')} disabled={!!payingMethod} style={payBtn('#16a34a')}>{payingMethod==='cash'?'…':'💵 Cash'}</button>
+                <button onClick={()=>payCashUpi('upi')} disabled={!!payingMethod} style={payBtn('#8b5cf6')}>{payingMethod==='upi'?'…':'📲 UPI'}</button>
+                <button onClick={payRazorpay} disabled={!!payingMethod} style={payBtn('#3b82f6')}>{payingMethod==='razorpay'?'…':'💳 Razorpay (Online)'}</button>
+              </div>
+            </div>
+          )}
+
+          {/* receipt */}
+          {paid && (
+            <div style={{ marginTop:'1rem', paddingTop:'1rem', borderTop:'1px dashed #e8ecf4', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+              <span style={{ color:'#16a34a', fontWeight:700, fontSize:'0.85rem' }}>✓ Fully paid — money receipt generated</span>
+              <button onClick={()=>downloadReceipt(lastBill)} style={{ background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', border:'none', borderRadius:'9px', padding:'0.55rem 1.2rem', fontWeight:700, cursor:'pointer', fontFamily:'Manrope,sans-serif' }}>⬇ Download Receipt</button>
+            </div>
+          )}
         </div>
-      )}
+        );
+      })()}
     </div>
   );
+}
+
+function payBtn(color) {
+  return { background:color, color:'#fff', border:'none', borderRadius:'9px', padding:'0.6rem 1.1rem',
+           fontWeight:700, cursor:'pointer', fontFamily:'Manrope,sans-serif', fontSize:'0.85rem' };
 }
 
 function Row({ k, v, color }) {

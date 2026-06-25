@@ -21,6 +21,7 @@ class PatientCreate(BaseModel):
     sample_type:  Optional[str] = "Blood"
     barcode:      Optional[str] = None
     abha_number:  Optional[str] = None
+    phone:        Optional[str] = None
     branch_id:               Optional[int] = None
     registered_franchise_id: Optional[int] = None
     organization_id:         Optional[int] = None   # B2B link; NULL = Direct/walk-in
@@ -34,6 +35,7 @@ class PatientUpdate(BaseModel):
     doctor_name:  Optional[str] = None
     sample_type:  Optional[str] = None
     abha_number:  Optional[str] = None
+    phone:        Optional[str] = None
     branch_id:               Optional[int] = None
     registered_franchise_id: Optional[int] = None
     organization_id:         Optional[int] = None
@@ -56,7 +58,7 @@ def _serialize(p: Patient) -> dict:
         "id": p.id, "barcode": p.barcode, "patient_name": p.patient_name,
         "age": p.age, "gender": p.gender, "doctor_name": p.doctor_name,
         "sample_type": p.sample_type, "status": p.status,
-        "abha_number": p.abha_number, "is_active": p.is_active,
+        "abha_number": p.abha_number, "phone": p.phone, "is_active": p.is_active,
         "tenant_id": p.tenant_id, "branch_id": p.branch_id,
         "registered_franchise_id": p.registered_franchise_id,
         "organization_id": p.organization_id, "created_at": p.created_at,
@@ -83,6 +85,7 @@ def create_patient(patient: PatientCreate, request: Request,
         patient_name=patient.patient_name, age=patient.age, gender=patient.gender,
         doctor_name=patient.doctor_name, sample_type=patient.sample_type, barcode=barcode,
         abha_number=_clean_abha(patient.abha_number),
+        phone=patient.phone,
         # tenant always inherited from the registering user (no cross-tenant);
         # branch/franchise use the form value if given, else the user's own scope
         tenant_id=user.tenant_id,

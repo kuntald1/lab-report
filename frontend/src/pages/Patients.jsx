@@ -10,7 +10,7 @@ const S   = { card: { background:'#fff', border:'1px solid #e8ecf4', borderRadiu
 const sampleColor = { Blood:'#fff1ee', Serum:'#eff6ff', Urine:'#fefce8', Plasma:'#fdf4ff', Sodium:'#f0fdf4', Potassium:'#fef9c3', Electrolyte:'#f0fdf4' };
 const sampleText  = { Blood:'#c2410c', Serum:'#1d4ed8', Urine:'#854d0e', Plasma:'#7e22ce', Sodium:'#16a34a', Potassium:'#854d0e', Electrolyte:'#16a34a' };
 
-const BLANK = { patient_name:'', age:'', gender:'Male', doctor_name:'', sample_type:'Blood', barcode:'', abha_number:'', branch_id:'', registered_franchise_id:'', organization_id:'' };
+const BLANK = { patient_name:'', age:'', gender:'Male', doctor_name:'', sample_type:'Blood', barcode:'', abha_number:'', phone:'', branch_id:'', registered_franchise_id:'', organization_id:'' };
 
 // pretty-print a 14-digit ABHA as XX-XXXX-XXXX-XXXX
 const fmtAbha = (n) => {
@@ -47,6 +47,7 @@ export default function Patients({ onBill = () => {} }) {
       patient_name: p.patient_name || '', age: p.age ?? '', gender: p.gender || 'Male',
       doctor_name: p.doctor_name || '', sample_type: p.sample_type || 'Blood', barcode: p.barcode || '',
       abha_number: p.abha_number || '',
+      phone: p.phone || '',
       branch_id: p.branch_id ?? '', registered_franchise_id: p.registered_franchise_id ?? '',
       organization_id: p.organization_id ?? '',
     });
@@ -64,6 +65,7 @@ export default function Patients({ onBill = () => {} }) {
       doctor_name: form.doctor_name || null,
       sample_type: form.sample_type,
       abha_number: form.abha_number || null,
+      phone: form.phone || null,
       branch_id: form.branch_id ? parseInt(form.branch_id) : null,
       registered_franchise_id: form.registered_franchise_id ? parseInt(form.registered_franchise_id) : null,
       organization_id: form.organization_id ? parseInt(form.organization_id) : null,
@@ -122,6 +124,8 @@ export default function Patients({ onBill = () => {} }) {
               </select></div>
             <div><label style={lbl}>ABHA Number <span style={{ textTransform:'none', letterSpacing:0, fontWeight:400 }}>(14-digit health ID)</span></label>
               <input style={{ ...inp, fontFamily:'monospace', letterSpacing:'0.04em' }} placeholder="e.g. 91-1234-5678-9012" value={form.abha_number} onChange={e=>setForm({...form,abha_number:e.target.value})} /></div>
+            <div><label style={lbl}>Phone <span style={{ textTransform:'none', letterSpacing:0, fontWeight:400 }}>(for WhatsApp bill)</span></label>
+              <input style={inp} placeholder="10-digit mobile" value={form.phone} onChange={e=>setForm({...form,phone:e.target.value})} /></div>
             <div><label style={lbl}>Branch</label>
               <select style={inp} value={form.branch_id} onChange={e=>setForm({...form,branch_id:e.target.value})}>
                 <option value="">— Use my branch —</option>
