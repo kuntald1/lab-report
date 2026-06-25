@@ -18,6 +18,10 @@ export default function Bills() {
   const [detail, setDetail]     = useState(null);     // bill open in modal
   const [payAmt, setPayAmt]     = useState('');
   const [payMethod, setPayMethod] = useState('cash');
+  const [waNumber, setWaNumber] = useState('');
+  const [waLink, setWaLink]     = useState(true);
+  const [waSending, setWaSending] = useState(false);
+  const [waDone, setWaDone]     = useState(null);   // success popup payload
   const [toast, setToast]       = useState(null);
 
   const showToast = (kind, msg) => { setToast({ kind, msg }); setTimeout(()=>setToast(null), 3200); };
@@ -49,6 +53,7 @@ export default function Bills() {
             const updated = await authedFetch(`/billing/bills/${bill.id}`).then(r=>r.json());
             setDetail(updated); load();
             showToast('success', 'Razorpay payment verified');
+            sendReceiptWA(updated);
           } catch (e) { showToast('error', String(e.message||'Verify failed')); }
         },
         modal: { ondismiss: () => showToast('error', 'Payment cancelled') },
@@ -69,7 +74,32 @@ export default function Bills() {
     authedFetch('/admin/branches').then(r=>r.ok?r.json():[]).then(setBranches).catch(()=>{});
   }, []);   // eslint-disable-line
 
-  const openBill = (b) => { setDetail(b); setPayAmt(String(Math.max(0,(b.total||0)-(b.paid||0)))); setPayMethod('cash'); };
+  const openBill = (b) => { setDetail(b); setPayAmt(String(Math.max(0,(b.total||0)-(b.paid||0)))); setPayMethod('cash'); setWaNumber(b.phone||''); setWaLink(true); };
+
+  const sendWhatsApp = async () => {
+    if (!detail) return;
+    if (!waNumber.trim()) return showToast('error', 'Enter the patient\u2019s WhatsApp number');
+    setWaSending(true);
+    try {
+      const res = await authedFetch(`/billing/bills/${detail.id}/send-whatsapp`, { method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ to_number: waNumber.trim(), include_payment_link: waLink, save_patient_phone: true }) });
+      if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.detail||'failed'); }
+      const out = await res.json();
+      setWaDone({ number: waNumber.trim(), bill: detail.bill_no, link: out.payment_link });
+    } catch (e) { showToast('error', String(e.message||'WhatsApp failed')); }
+    setWaSending(false);
+  };
+  const sendReceiptWA = async (bill) => {
+    const num = (waNumber && waNumber.trim()) || bill?.phone || '';
+    if (!num) return;   // no number → skip silently
+    try {
+      await authedFetch(`/billing/bills/${bill.id}/send-receipt`, { method:'POST',
+        headers:{'Content-Type':'application/json'}, body: JSON.stringify({ to_number: num }) });
+      showToast('success', 'Money receipt sent on WhatsApp');
+    } catch { /* non-blocking */ }
+  };
+
   const takePayment = async () => {
     if (!detail) return;
     if (payMethod === 'razorpay') return payWithRazorpay(detail);
@@ -82,6 +112,7 @@ export default function Bills() {
       const updated = await res.json();
       setDetail(updated); load();
       showToast('success', `Payment recorded · ${inr(amt)}`);
+      sendReceiptWA(updated);
     } catch (e) { showToast('error', String(e.message||'Payment failed')); }
   };
 
@@ -107,6 +138,20 @@ export default function Bills() {
         </div>
       )}
       <style>{`@keyframes toastIn { from { opacity:0; transform:translateX(40px);} to { opacity:1; transform:translateX(0);} }`}</style>
+
+      {waDone && (
+        <div onClick={()=>setWaDone(null)} style={{ position:'fixed', inset:0, zIndex:10000, background:'rgba(15,18,24,0.5)', display:'flex', alignItems:'center', justifyContent:'center', padding:'1rem' }}>
+          <div onClick={e=>e.stopPropagation()} style={{ background:'#fff', borderRadius:'18px', padding:'2rem', width:'380px', maxWidth:'92vw', textAlign:'center', boxShadow:'0 24px 70px rgba(15,18,24,0.35)' }}>
+            <div style={{ width:'64px', height:'64px', borderRadius:'50%', background:'rgba(37,211,102,0.12)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'2rem', margin:'0 auto 1rem' }}>💬</div>
+            <div style={{ fontFamily:'Manrope,sans-serif', fontSize:'1.25rem', fontWeight:800, color:'#0f1218' }}>Sent on WhatsApp</div>
+            <div style={{ color:'#8892a4', fontSize:'0.86rem', marginTop:'0.4rem', lineHeight:1.5 }}>
+              Bill <strong style={{ color:'#0f1218' }}>{waDone.bill}</strong> was sent to <strong style={{ color:'#0f1218' }}>{waDone.number}</strong>.
+              {waDone.link && <div style={{ marginTop:'0.5rem' }}>A payment link was included — the final bill will reflect payment once they pay.</div>}
+            </div>
+            <button onClick={()=>setWaDone(null)} style={{ marginTop:'1.5rem', width:'100%', background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', border:'none', borderRadius:'10px', padding:'0.7rem', fontWeight:700, cursor:'pointer', fontFamily:'Manrope,sans-serif' }}>Done</button>
+          </div>
+        </div>
+      )}
 
       <div style={{ marginBottom:'1.5rem' }}>
         <div style={{ display:'inline-flex', background:'rgba(249,115,22,0.08)', border:'1px solid rgba(249,115,22,0.2)', color:'#f97316', padding:'4px 12px', borderRadius:'100px', fontSize:'0.62rem', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:'0.6rem' }}>Billing</div>
@@ -233,6 +278,23 @@ export default function Bills() {
                 </div>
               </div>
             )}
+
+            {/* send via WhatsApp */}
+            <div style={{ marginTop:'1.2rem', paddingTop:'1rem', borderTop:'1px dashed #e8ecf4' }}>
+              <label style={lbl}>Send bill on WhatsApp</label>
+              <div style={{ display:'flex', gap:'0.5rem', marginBottom:'0.5rem' }}>
+                <input style={{ ...inp, flex:1 }} placeholder="Patient WhatsApp number (e.g. 98xxxxxxxx)" value={waNumber} onChange={e=>setWaNumber(e.target.value)} />
+                <button onClick={sendWhatsApp} disabled={waSending} style={{ background:'#25D366', color:'#fff', border:'none', borderRadius:'9px', padding:'0.55rem 1.1rem', fontWeight:700, cursor:'pointer', fontFamily:'Manrope,sans-serif', whiteSpace:'nowrap' }}>
+                  {waSending ? 'Sending…' : '💬 Send'}
+                </button>
+              </div>
+              {Math.max(0,detail.total-detail.paid) > 0 && (
+                <label style={{ display:'flex', alignItems:'center', gap:'0.5rem', fontSize:'0.8rem', color:'#475569', cursor:'pointer' }}>
+                  <input type="checkbox" checked={waLink} onChange={e=>setWaLink(e.target.checked)} style={{ accentColor:'#f97316', width:'15px', height:'15px' }} />
+                  Include a payment link (patient can pay online)
+                </label>
+              )}
+            </div>
 
             <button onClick={()=>downloadPdf(detail)} style={{ width:'100%', marginTop:'1.2rem', background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', border:'none', borderRadius:'10px', padding:'0.7rem', fontWeight:700, cursor:'pointer', fontFamily:'Manrope,sans-serif' }}>⬇ Download PDF</button>
           </div>

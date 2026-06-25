@@ -23,7 +23,6 @@ export default function Patients({ onBill = () => {} }) {
   const [patients, setPatients]   = useState([]);
   const [branches, setBranches]   = useState([]);
   const [franchises, setFranchises] = useState([]);
-  const [orgs, setOrgs]           = useState([]);
   const [showForm, setShowForm]   = useState(false);
   const [saving, setSaving]       = useState(false);
   const [editingId, setEditingId] = useState(null);   // null = create mode
@@ -34,7 +33,6 @@ export default function Patients({ onBill = () => {} }) {
     load();
     authedFetch('/admin/branches').then(r=>r.ok?r.json():[]).then(setBranches).catch(()=>{});
     authedFetch('/admin/franchises').then(r=>r.ok?r.json():[]).then(setFranchises).catch(()=>{});
-    authedFetch('/b2b/organizations').then(r=>r.ok?r.json():[]).then(setOrgs).catch(()=>{});
   }, []);
 
   const branchName    = (id) => branches.find(b=>b.id===id)?.name || (id ? `Branch ${id}` : '—');
@@ -131,15 +129,10 @@ export default function Patients({ onBill = () => {} }) {
                 <option value="">— Use my branch —</option>
                 {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
               </select></div>
-            <div><label style={lbl}>Franchise</label>
-              <select style={inp} value={form.registered_franchise_id} onChange={e=>setForm({...form,registered_franchise_id:e.target.value})}>
+            <div><label style={lbl}>Franchise <span style={{ textTransform:'none', letterSpacing:0, fontWeight:400 }}>(also used for B2B billing)</span></label>
+              <select style={inp} value={form.registered_franchise_id} onChange={e=>setForm({...form,registered_franchise_id:e.target.value, organization_id:e.target.value})}>
                 <option value="">— Direct / Walk-in —</option>
                 {franchises.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
-              </select></div>
-            <div><label style={lbl}>Organization <span style={{ textTransform:'none', letterSpacing:0, fontWeight:400 }}>(B2B billing)</span></label>
-              <select style={inp} value={form.organization_id} onChange={e=>setForm({...form,organization_id:e.target.value})}>
-                <option value="">— Direct (no organization) —</option>
-                {orgs.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
               </select></div>
             {!editingId && (
               <div style={{ gridColumn:'1 / -1' }}><label style={lbl}>Barcode <span style={{ textTransform:'none', letterSpacing:0, fontWeight:400 }}>(leave blank to auto-generate)</span></label>

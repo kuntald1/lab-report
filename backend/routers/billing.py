@@ -145,6 +145,7 @@ def _bill_dict(db: Session, b: Bill) -> dict:
         "id": b.id, "bill_no": b.bill_no, "patient_id": b.patient_id,
         "patient_name": patient.patient_name if patient else None,
         "barcode": patient.barcode if patient else None,
+        "phone": getattr(patient, "phone", None) if patient else None,
         "organization_id": b.organization_id, "organization_name": org.name if org else None,
         "subtotal": b.subtotal, "discount_type": b.discount_type,
         "discount_value": b.discount_value, "discount_amount": b.discount_amount,
@@ -359,13 +360,39 @@ def money_receipt(bill_id: int, db: Session = Depends(get_db), scope: Scope = De
 
     el.append(Paragraph("<b>MediCloud Diagnostics</b>", ParagraphStyle("h", parent=styles["Title"], alignment=TA_CENTER, fontSize=18)))
     el.append(Paragraph("MONEY RECEIPT", ParagraphStyle("sub", parent=styles["Normal"], alignment=TA_CENTER, fontSize=11, textColor=colors.HexColor("#f97316"))))
-    el.append(Spacer(1, 14))
+    el.append(Spacer(1, 10))
+
+    # scannable barcode of the patient barcode (Code128)
+    bc_value = data.get("barcode") or data["bill_no"] or f"B{b.id}"
+    try:
+        from reportlab.graphics.barcode import code128
+        from reportlab.platypus import Flowable
+        from reportlab.lib.units import mm
+
+        class _Barcode(Flowable):
+            def __init__(self, value):
+                super().__init__()
+                self.bc = code128.Code128(value, barHeight=12*mm, barWidth=0.42)
+                self.value = value
+                self.width = self.bc.width
+                self.height = 16*mm
+            def draw(self):
+                self.bc.drawOn(self.canv, 0, 4*mm)
+                self.canv.setFont("Helvetica", 7)
+                self.canv.drawCentredString(self.bc.width/2.0, 0, self.value)
+
+        bc_tbl = Table([[_Barcode(bc_value)]], colWidths=[16*cm])
+        bc_tbl.setStyle(TableStyle([("ALIGN", (0,0), (-1,-1), "CENTER")]))
+        el.append(bc_tbl)
+    except Exception:
+        pass
+    el.append(Spacer(1, 12))
 
     meta = [
         [Paragraph(f"<b>Receipt No:</b> R{b.id:06d}", styles["Normal"]),
          Paragraph(f"<b>Bill No:</b> {data['bill_no']}", right)],
         [Paragraph(f"<b>Patient:</b> {data['patient_name'] or '-'}", styles["Normal"]),
-         Paragraph(f"<b>Barcode:</b> {data.get('barcode') or '-'}", right)],
+         Paragraph(f"<b>Barcode No:</b> {data.get('barcode') or '-'}", right)],
         [Paragraph(f"<b>Billed To:</b> {data.get('organization_name') or 'Direct / Walk-in'}", styles["Normal"]),
          Paragraph(f"<b>Date:</b> {str(b.created_at)[:16]}", right)],
     ]

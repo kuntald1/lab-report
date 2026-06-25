@@ -127,6 +127,37 @@ def send_bill_whatsapp(bill_id: int, payload: SendWhatsAppIn, request: Request,
     return {"ok": True, "sid": res.get("sid"), "payment_link": link_url or None}
 
 
+# --------------------------------------------------------- send receipt on WhatsApp
+class SendReceiptIn(BaseModel):
+    to_number: Optional[str] = None     # if omitted, uses the patient's saved phone
+
+
+@router.post("/bills/{bill_id}/send-receipt")
+def send_receipt_whatsapp(bill_id: int, payload: SendReceiptIn, request: Request,
+                          db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Send the money receipt over WhatsApp. Used after payment completes.
+    Twilio sandbox can't attach PDFs, so we send a paid-confirmation message with
+    the receipt download link."""
+    bill = db.query(Bill).filter(Bill.id == bill_id).first()
+    if not bill:
+        raise HTTPException(404, "bill not found")
+    patient = db.query(Patient).filter(Patient.id == bill.patient_id).first()
+    to_number = payload.to_number or (patient.phone if patient else None)
+    if not to_number:
+        raise HTTPException(400, "no phone number for this patient")
+
+    paid = round(bill.paid or 0, 2)
+    body = (f"Dear {patient.patient_name if patient else 'Patient'}, "
+            f"we have received ₹{paid:.0f} for Bill {bill.bill_no} at MediCloud. "
+            f"Your money receipt is ready. Thank you!")
+    res = send_whatsapp(db, bill.tenant_id, to_number, body)
+    write_audit(db, action="whatsapp_receipt", user=user, entity="bill", entity_id=bill.id,
+                after={"to": to_number, "ok": res.get("ok")}, ip=_ip(request))
+    if not res.get("ok"):
+        raise HTTPException(502, res.get("error", "whatsapp failed"))
+    return {"ok": True, "sid": res.get("sid")}
+
+
 # --------------------------------------------------------- transactions list
 @router.get("/transactions")
 def list_transactions(db: Session = Depends(get_db), scope: Scope = Depends(get_scope),

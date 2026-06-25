@@ -26,6 +26,8 @@ export default function Billing({ isAdmin = true, initialPatientId = '' }) {
   const [toast, setToast]       = useState(null);
   const [lastBill, setLastBill] = useState(null);
   const [payingMethod, setPayingMethod] = useState(null);   // 'cash'|'upi'|'razorpay'|null
+  const [waPhone, setWaPhone]   = useState('');
+  const [waBusy, setWaBusy]     = useState(false);
 
   const showToast = (kind, msg) => { setToast({ kind, msg }); setTimeout(()=>setToast(null), 3500); };
 
@@ -102,6 +104,32 @@ export default function Billing({ isAdmin = true, initialPatientId = '' }) {
     } catch { showToast('error', 'Receipt download failed'); }
   };
 
+  // send the Razorpay payment link to the patient's WhatsApp
+  const sendBillLink = async () => {
+    if (!lastBill) return;
+    if (!waPhone.trim()) return showToast('error', 'Enter a WhatsApp number');
+    setWaBusy(true);
+    try {
+      const res = await authedFetch(`/billing/bills/${lastBill.id}/send-whatsapp`, { method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ to_number: waPhone.trim(), include_payment_link: true, save_patient_phone: true }) });
+      if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.detail||'failed'); }
+      showToast('success', `Payment link sent to ${waPhone.trim()}`);
+    } catch (e) { showToast('error', String(e.message||'WhatsApp failed')); }
+    setWaBusy(false);
+  };
+
+  // auto-send the money receipt to WhatsApp once paid (if we have a number)
+  const sendReceiptWA = async (bill) => {
+    const num = waPhone.trim() || (patient?.phone || '');
+    if (!num) return;
+    try {
+      await authedFetch(`/billing/bills/${bill.id}/send-receipt`, { method:'POST',
+        headers:{'Content-Type':'application/json'}, body: JSON.stringify({ to_number: num }) });
+      showToast('success', 'Money receipt sent on WhatsApp');
+    } catch { /* non-blocking */ }
+  };
+
   const payCashUpi = async (method) => {
     if (!lastBill) return;
     const due = Math.max(0, (lastBill.total||0) - (lastBill.paid||0));
@@ -115,6 +143,7 @@ export default function Billing({ isAdmin = true, initialPatientId = '' }) {
       setLastBill(updated);
       showToast('success', `Paid ${inr(due)} · receipt ready`);
       downloadReceipt(updated);
+      sendReceiptWA(updated);
     } catch (e) { showToast('error', String(e.message||'Payment failed')); }
     setPayingMethod(null);
   };
@@ -139,7 +168,7 @@ export default function Billing({ isAdmin = true, initialPatientId = '' }) {
             if (!vRes.ok) { const e = await vRes.json().catch(()=>({})); throw new Error(e.detail||'verify failed'); }
             const updated = await refreshBill(lastBill.id);
             showToast('success', 'Payment verified · receipt ready');
-            if (updated) downloadReceipt(updated);
+            if (updated) { downloadReceipt(updated); sendReceiptWA(updated); }
           } catch (e) { showToast('error', String(e.message||'Verify failed')); }
         },
         modal: { ondismiss: () => { setPayingMethod(null); showToast('error', 'Payment cancelled'); } },
@@ -168,6 +197,7 @@ export default function Billing({ isAdmin = true, initialPatientId = '' }) {
       if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.detail||'failed'); }
       const bill = await res.json();
       setLastBill(bill); setPicked({}); setDiscType(''); setDiscVal(''); setOnCredit(false);
+      setWaPhone(patient?.phone || '');
       showToast('success', `Bill ${bill.bill_no} created · ${inr(bill.total)}`);
     } catch (e) { showToast('error', String(e.message||'Bill failed')); }
     setSaving(false);
@@ -311,14 +341,31 @@ export default function Billing({ isAdmin = true, initialPatientId = '' }) {
                 <button onClick={()=>payCashUpi('upi')} disabled={!!payingMethod} style={payBtn('#8b5cf6')}>{payingMethod==='upi'?'…':'📲 UPI'}</button>
                 <button onClick={payRazorpay} disabled={!!payingMethod} style={payBtn('#3b82f6')}>{payingMethod==='razorpay'?'…':'💳 Razorpay (Online)'}</button>
               </div>
+
+              {/* WhatsApp: send payment link */}
+              <div style={{ marginTop:'1rem' }}>
+                <div style={{ fontSize:'0.72rem', color:'#8892a4', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:'0.5rem' }}>Or send payment link on WhatsApp</div>
+                <div style={{ display:'flex', gap:'0.5rem' }}>
+                  <input style={{ ...inp, flex:1 }} placeholder="Patient WhatsApp number" value={waPhone} onChange={e=>setWaPhone(e.target.value)} />
+                  <button onClick={sendBillLink} disabled={waBusy} style={{ background:'#25D366', color:'#fff', border:'none', borderRadius:'9px', padding:'0.55rem 1.2rem', fontWeight:700, cursor:'pointer', fontFamily:'Manrope,sans-serif', whiteSpace:'nowrap' }}>
+                    {waBusy ? 'Sending…' : '💬 Send Bill'}
+                  </button>
+                </div>
+                <div style={{ fontSize:'0.72rem', color:'#8892a4', marginTop:'0.4rem' }}>
+                  Patient gets a Razorpay link to pay. The money receipt is sent automatically once they pay.
+                </div>
+              </div>
             </div>
           )}
 
           {/* receipt */}
           {paid && (
-            <div style={{ marginTop:'1rem', paddingTop:'1rem', borderTop:'1px dashed #e8ecf4', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+            <div style={{ marginTop:'1rem', paddingTop:'1rem', borderTop:'1px dashed #e8ecf4', display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:'0.6rem' }}>
               <span style={{ color:'#16a34a', fontWeight:700, fontSize:'0.85rem' }}>✓ Fully paid — money receipt generated</span>
-              <button onClick={()=>downloadReceipt(lastBill)} style={{ background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', border:'none', borderRadius:'9px', padding:'0.55rem 1.2rem', fontWeight:700, cursor:'pointer', fontFamily:'Manrope,sans-serif' }}>⬇ Download Receipt</button>
+              <div style={{ display:'flex', gap:'0.5rem' }}>
+                <button onClick={()=>sendReceiptWA(lastBill)} style={{ background:'#25D366', color:'#fff', border:'none', borderRadius:'9px', padding:'0.55rem 1rem', fontWeight:700, cursor:'pointer', fontFamily:'Manrope,sans-serif' }}>💬 Send Receipt</button>
+                <button onClick={()=>downloadReceipt(lastBill)} style={{ background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', border:'none', borderRadius:'9px', padding:'0.55rem 1.2rem', fontWeight:700, cursor:'pointer', fontFamily:'Manrope,sans-serif' }}>⬇ Download Receipt</button>
+              </div>
             </div>
           )}
         </div>
