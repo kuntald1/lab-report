@@ -90,11 +90,17 @@ def delete_tube(tube_id: int, db: Session = Depends(get_db), user: User = Depend
 # =================================================================== doctors
 @router.get("/doctors")
 def list_doctors(db: Session = Depends(get_db), scope: Scope = Depends(get_scope)):
-    """Users who can validate (pathologist/doctor), for the assigned-doctor dropdown."""
-    q = db.query(User).filter(User.role.in_((Role.PATHOLOGIST,)), User.is_active.is_(True))
+    """Users who can be assigned to validate tests. Includes pathologists and
+    lab admins (so there's always someone assignable). is_active NULL counts as active."""
+    from sqlalchemy import or_
+    q = db.query(User).filter(
+        User.role.in_((Role.PATHOLOGIST, Role.LAB_ADMIN)),
+        or_(User.is_active.is_(True), User.is_active.is_(None)),
+    )
     if scope.tenant_id is not None:
         q = q.filter(User.tenant_id == scope.tenant_id)
-    return [{"id": u.id, "name": u.full_name or u.email, "email": u.email} for u in q.order_by(User.full_name)]
+    return [{"id": u.id, "name": u.full_name or u.email, "email": u.email, "role": u.role}
+            for u in q.order_by(User.full_name)]
 
 
 # =================================================================== test catalog
@@ -136,6 +142,19 @@ def update_test(test_id: int, payload: TestPatch, request: Request,
     write_audit(db, action="update", user=user, entity="test", entity_id=t.id,
                 after=payload.model_dump(exclude_unset=True), ip=_ip(request))
     return _test_dict(t)
+
+
+@router.delete("/tests/{test_id}")
+def delete_test(test_id: int, request: Request,
+                db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    _require_admin(user)
+    t = db.query(TestCatalog).filter(TestCatalog.id == test_id).first()
+    if not t: raise HTTPException(404, "test not found")
+    t.is_active = False
+    db.commit()
+    write_audit(db, action="delete", user=user, entity="test", entity_id=test_id,
+                after={"is_active": False}, ip=_ip(request))
+    return {"id": test_id, "is_active": False}
 
 
 # =================================================================== test groups (packages)

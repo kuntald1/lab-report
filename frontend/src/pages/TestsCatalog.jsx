@@ -15,6 +15,7 @@ export default function TestsCatalog() {
   const [form, setForm]       = useState({});
   const [saving, setSaving]   = useState(false);
   const [toast, setToast]     = useState(null);
+  const [confirmDel, setConfirmDel] = useState(null);   // the test pending deletion
 
   const showToast = (kind, msg) => { setToast({ kind, msg }); setTimeout(()=>setToast(null), 3000); };
 
@@ -57,6 +58,16 @@ export default function TestsCatalog() {
 
   const filtered = tests.filter(t => !search || t.name.toLowerCase().includes(search.toLowerCase()));
 
+  const doDelete = async () => {
+    const t = confirmDel; if (!t) return;
+    try {
+      const res = await authedFetch(`/b2b/tests/${t.id}`, { method:'DELETE' });
+      if (!res.ok) throw new Error();
+      setConfirmDel(null); load();
+      showToast('success', `Deleted ${t.name}`);
+    } catch { setConfirmDel(null); showToast('error', 'Delete failed'); }
+  };
+
   return (
     <div>
       {toast && (
@@ -66,6 +77,23 @@ export default function TestsCatalog() {
         </div>
       )}
       <style>{`@keyframes toastIn { from { opacity:0; transform:translateX(40px);} to { opacity:1; transform:translateX(0);} }`}</style>
+
+      {confirmDel && (
+        <div onClick={()=>setConfirmDel(null)} style={{ position:'fixed', inset:0, zIndex:9998, background:'rgba(15,18,24,0.45)', display:'flex', alignItems:'center', justifyContent:'center', animation:'fadeIn 0.15s ease' }}>
+          <div onClick={e=>e.stopPropagation()} style={{ background:'#fff', borderRadius:'16px', padding:'1.8rem', width:'400px', maxWidth:'90vw', boxShadow:'0 20px 60px rgba(15,18,24,0.3)' }}>
+            <div style={{ width:'48px', height:'48px', borderRadius:'12px', background:'rgba(220,38,38,0.1)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'1.4rem', marginBottom:'1rem' }}>🗑️</div>
+            <div style={{ fontFamily:'Manrope,sans-serif', fontSize:'1.15rem', fontWeight:800, color:'#0f1218', marginBottom:'0.4rem' }}>Delete this test?</div>
+            <div style={{ color:'#8892a4', fontSize:'0.85rem', marginBottom:'1.5rem', lineHeight:1.5 }}>
+              <strong style={{ color:'#0f1218' }}>{confirmDel.name}</strong> will be removed from the catalog. Existing bills and saved group/org pricing keep their copies — this only hides it from new selections.
+            </div>
+            <div style={{ display:'flex', gap:'0.6rem', justifyContent:'flex-end' }}>
+              <button onClick={()=>setConfirmDel(null)} style={{ background:'transparent', color:'#8892a4', border:'1px solid #e8ecf4', borderRadius:'10px', padding:'0.65rem 1.3rem', cursor:'pointer', fontWeight:600, fontFamily:'Manrope,sans-serif' }}>Cancel</button>
+              <button onClick={doDelete} style={{ background:'#dc2626', color:'#fff', border:'none', borderRadius:'10px', padding:'0.65rem 1.5rem', cursor:'pointer', fontWeight:700, fontFamily:'Manrope,sans-serif', boxShadow:'0 4px 14px rgba(220,38,38,0.3)' }}>Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
+      <style>{`@keyframes fadeIn { from { opacity:0;} to { opacity:1;} }`}</style>
 
       <div style={{ marginBottom:'1.5rem' }}>
         <div style={{ display:'inline-flex', background:'rgba(249,115,22,0.08)', border:'1px solid rgba(249,115,22,0.2)', color:'#f97316', padding:'4px 12px', borderRadius:'100px', fontSize:'0.62rem', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:'0.6rem' }}>Master</div>
@@ -126,9 +154,14 @@ export default function TestsCatalog() {
                 <td style={{ padding:'0.9rem 1.2rem', color:'#475569', fontSize:'0.82rem' }}>{tubeName(t.sample_tube_id)}</td>
                 <td style={{ padding:'0.9rem 1.2rem', color:'#475569', fontSize:'0.82rem' }}>{doctorName(t.assigned_doctor_id)}</td>
                 <td style={{ padding:'0.9rem 1.2rem' }}>
-                  <button title="Edit" onClick={()=>startEdit(t)} style={iconBtn('#2563eb')}>
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
-                  </button>
+                  <div style={{ display:'flex', gap:'0.4rem' }}>
+                    <button title="Edit" onClick={()=>startEdit(t)} style={iconBtn('#2563eb')}>
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+                    </button>
+                    <button title="Delete" onClick={()=>setConfirmDel(t)} style={iconBtn('#dc2626')}>
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
