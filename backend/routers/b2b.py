@@ -90,11 +90,11 @@ def delete_tube(tube_id: int, db: Session = Depends(get_db), user: User = Depend
 # =================================================================== doctors
 @router.get("/doctors")
 def list_doctors(db: Session = Depends(get_db), scope: Scope = Depends(get_scope)):
-    """Users who can be assigned to validate tests. Includes pathologists and
-    lab admins (so there's always someone assignable). is_active NULL counts as active."""
+    """Doctors = pathologist users (created on the Users/Doctors screen). They
+    later gate tested -> validated. is_active NULL counts as active."""
     from sqlalchemy import or_
     q = db.query(User).filter(
-        User.role.in_((Role.PATHOLOGIST, Role.LAB_ADMIN)),
+        User.role == Role.PATHOLOGIST,
         or_(User.is_active.is_(True), User.is_active.is_(None)),
     )
     if scope.tenant_id is not None:
