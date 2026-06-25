@@ -31,6 +31,7 @@ class Patient(Base):
     doctor_name  = Column(String)
     sample_type  = Column(String, default="Blood")
     abha_number  = Column(String, nullable=True, index=True)   # ABHA / ABDM 14-digit health ID
+    phone        = Column(String, nullable=True)               # patient mobile (for WhatsApp bill)
     # --- Phase 1: multi-tenant scoping (nullable; ingestion path untouched) ---
     tenant_id              = Column(Integer, ForeignKey("tenants.id"),    nullable=True, index=True)
     branch_id              = Column(Integer, ForeignKey("branches.id"),   nullable=True, index=True)
