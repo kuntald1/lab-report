@@ -23,6 +23,7 @@ class PatientCreate(BaseModel):
     abha_number:  Optional[str] = None
     branch_id:               Optional[int] = None
     registered_franchise_id: Optional[int] = None
+    organization_id:         Optional[int] = None   # B2B link; NULL = Direct/walk-in
 
 
 class PatientUpdate(BaseModel):
@@ -35,6 +36,7 @@ class PatientUpdate(BaseModel):
     abha_number:  Optional[str] = None
     branch_id:               Optional[int] = None
     registered_franchise_id: Optional[int] = None
+    organization_id:         Optional[int] = None
 
 
 def generate_barcode():
@@ -56,7 +58,8 @@ def _serialize(p: Patient) -> dict:
         "sample_type": p.sample_type, "status": p.status,
         "abha_number": p.abha_number, "is_active": p.is_active,
         "tenant_id": p.tenant_id, "branch_id": p.branch_id,
-        "registered_franchise_id": p.registered_franchise_id, "created_at": p.created_at,
+        "registered_franchise_id": p.registered_franchise_id,
+        "organization_id": p.organization_id, "created_at": p.created_at,
     }
 
 
@@ -87,6 +90,7 @@ def create_patient(patient: PatientCreate, request: Request,
         registered_franchise_id=(patient.registered_franchise_id
                                  if patient.registered_franchise_id is not None
                                  else user.franchise_id),
+        organization_id=patient.organization_id,
         is_active=True,
     )
     db.add(db_patient)

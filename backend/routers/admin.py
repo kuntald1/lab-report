@@ -162,6 +162,65 @@ def list_users(db: Session = Depends(get_db), scope: Scope = Depends(get_scope))
              "franchise_id": u.franchise_id, "is_active": u.is_active} for u in rows]
 
 
+class UserUpdate(BaseModel):
+    full_name: Optional[str] = None
+    role: Optional[str] = None
+    franchise_id: Optional[int] = None
+    branch_id: Optional[int] = None
+    is_active: Optional[bool] = None
+    password: Optional[str] = None        # if provided, resets the password
+
+
+@router.put("/users/{user_id}", dependencies=[Depends(require_roles(Role.SUPER_ADMIN, Role.LAB_ADMIN))])
+def update_user(user_id: int, payload: UserUpdate, request: Request,
+                db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    target = db.query(User).filter(User.id == user_id).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="user not found")
+    # lab_admin may only touch users in its own tenant, and not admins
+    if user.role == Role.LAB_ADMIN:
+        if target.tenant_id != user.tenant_id:
+            raise HTTPException(status_code=403, detail="outside your tenant")
+        if target.role in (Role.SUPER_ADMIN, Role.LAB_ADMIN):
+            raise HTTPException(status_code=403, detail="cannot edit that role")
+    if payload.role is not None:
+        if payload.role not in ROLES:
+            raise HTTPException(status_code=400, detail="unknown role")
+        if user.role == Role.LAB_ADMIN and payload.role in (Role.SUPER_ADMIN, Role.LAB_ADMIN):
+            raise HTTPException(status_code=403, detail="cannot assign that role")
+        target.role = payload.role
+    if payload.full_name is not None:    target.full_name = payload.full_name
+    if payload.franchise_id is not None: target.franchise_id = payload.franchise_id
+    if payload.branch_id is not None:    target.branch_id = payload.branch_id
+    if payload.is_active is not None:    target.is_active = payload.is_active
+    if payload.password:                 target.hashed_password = hash_password(payload.password)
+    db.commit(); db.refresh(target)
+    write_audit(db, action="update", user=user, entity="user", entity_id=target.id,
+                after={"role": target.role, "is_active": target.is_active}, ip=_ip(request))
+    return {"id": target.id, "email": target.email, "role": target.role,
+            "full_name": target.full_name, "is_active": target.is_active}
+
+
+@router.delete("/users/{user_id}", dependencies=[Depends(require_roles(Role.SUPER_ADMIN, Role.LAB_ADMIN))])
+def delete_user(user_id: int, request: Request,
+                db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    target = db.query(User).filter(User.id == user_id).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="user not found")
+    if target.id == user.id:
+        raise HTTPException(status_code=400, detail="you cannot delete your own login")
+    if user.role == Role.LAB_ADMIN:
+        if target.tenant_id != user.tenant_id:
+            raise HTTPException(status_code=403, detail="outside your tenant")
+        if target.role in (Role.SUPER_ADMIN, Role.LAB_ADMIN):
+            raise HTTPException(status_code=403, detail="cannot delete that role")
+    target.is_active = False
+    db.commit()
+    write_audit(db, action="delete", user=user, entity="user", entity_id=target.id,
+                after={"is_active": False}, ip=_ip(request))
+    return {"id": target.id, "is_active": False}
+
+
 # --------------------------------------------------------------------------- audit
 @router.get("/audit", dependencies=[Depends(require_roles(Role.SUPER_ADMIN, Role.LAB_ADMIN))])
 def list_audit(db: Session = Depends(get_db), scope: Scope = Depends(get_scope), limit: int = 100):
