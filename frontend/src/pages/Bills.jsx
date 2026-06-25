@@ -22,6 +22,42 @@ export default function Bills() {
 
   const showToast = (kind, msg) => { setToast({ kind, msg }); setTimeout(()=>setToast(null), 3200); };
 
+  // load the Razorpay checkout script once
+  useEffect(() => {
+    if (document.getElementById('rzp-sdk')) return;
+    const s = document.createElement('script');
+    s.id = 'rzp-sdk'; s.src = 'https://checkout.razorpay.com/v1/checkout.js'; s.async = true;
+    document.body.appendChild(s);
+  }, []);
+
+  const payWithRazorpay = async (bill) => {
+    try {
+      const ordRes = await authedFetch(`/billing/bills/${bill.id}/razorpay/order`, { method:'POST' });
+      if (!ordRes.ok) { const e = await ordRes.json().catch(()=>({})); throw new Error(e.detail||'order failed'); }
+      const ord = await ordRes.json();
+      if (!window.Razorpay) return showToast('error', 'Razorpay not loaded — retry in a moment');
+      const rzp = new window.Razorpay({
+        key: ord.key_id, order_id: ord.order_id, amount: ord.amount, currency: ord.currency,
+        name: ord.name, description: ord.description,
+        handler: async (resp) => {
+          try {
+            const vRes = await authedFetch(`/billing/bills/${bill.id}/razorpay/verify`, { method:'POST',
+              headers:{'Content-Type':'application/json'},
+              body: JSON.stringify({ razorpay_order_id: resp.razorpay_order_id,
+                razorpay_payment_id: resp.razorpay_payment_id, razorpay_signature: resp.razorpay_signature }) });
+            if (!vRes.ok) { const e = await vRes.json().catch(()=>({})); throw new Error(e.detail||'verify failed'); }
+            const updated = await authedFetch(`/billing/bills/${bill.id}`).then(r=>r.json());
+            setDetail(updated); load();
+            showToast('success', 'Razorpay payment verified');
+          } catch (e) { showToast('error', String(e.message||'Verify failed')); }
+        },
+        modal: { ondismiss: () => showToast('error', 'Payment cancelled') },
+        theme: { color: '#f97316' },
+      });
+      rzp.open();
+    } catch (e) { showToast('error', String(e.message||'Razorpay failed')); }
+  };
+
   const load = () => {
     setLoading(true);
     const qs = Object.entries(f).filter(([,v])=>v!=='').map(([k,v])=>`${k}=${encodeURIComponent(v)}`).join('&');
@@ -36,6 +72,7 @@ export default function Bills() {
   const openBill = (b) => { setDetail(b); setPayAmt(String(Math.max(0,(b.total||0)-(b.paid||0)))); setPayMethod('cash'); };
   const takePayment = async () => {
     if (!detail) return;
+    if (payMethod === 'razorpay') return payWithRazorpay(detail);
     const amt = Number(payAmt)||0;
     if (amt <= 0) return showToast('error', 'Enter an amount');
     try {
@@ -186,8 +223,13 @@ export default function Bills() {
                     <option value="upi">UPI</option>
                     <option value="razorpay">Razorpay</option>
                   </select>
-                  <input style={{ ...inp, flex:1 }} type="number" value={payAmt} onChange={e=>setPayAmt(e.target.value)} />
-                  <button onClick={takePayment} style={{ background:'#16a34a', color:'#fff', border:'none', borderRadius:'9px', padding:'0.55rem 1.2rem', fontWeight:700, cursor:'pointer', fontFamily:'Manrope,sans-serif' }}>Record</button>
+                  <input style={{ ...inp, flex:1, ...(payMethod==='razorpay'?{ background:'#f1f3f7', color:'#8892a4' }:{}) }} type="number"
+                    value={payMethod==='razorpay' ? String(Math.max(0,(detail.total||0)-(detail.paid||0))) : payAmt}
+                    disabled={payMethod==='razorpay'}
+                    onChange={e=>setPayAmt(e.target.value)} />
+                  <button onClick={takePayment} style={{ background: payMethod==='razorpay' ? '#3b82f6' : '#16a34a', color:'#fff', border:'none', borderRadius:'9px', padding:'0.55rem 1.2rem', fontWeight:700, cursor:'pointer', fontFamily:'Manrope,sans-serif', whiteSpace:'nowrap' }}>
+                    {payMethod==='razorpay' ? 'Pay Online' : 'Record'}
+                  </button>
                 </div>
               </div>
             )}

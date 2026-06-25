@@ -13,6 +13,7 @@ from routers import abdm
 import models.abdm  # registers the abdm tables on metadata
 from routers import b2b as b2b_router
 from routers import billing as billing_router
+from routers import payments_rzp
    
 
 
@@ -43,7 +44,7 @@ app.include_router(sample_status.router, prefix="/api/sample-status", tags=["Sam
 app.include_router(abdm.router, prefix="/api/abdm", tags=["ABDM"])
 app.include_router(b2b_router.router, prefix="/api/b2b", tags=["B2B"])
 app.include_router(billing_router.router, prefix="/api/billing", tags=["Billing"])
-
+app.include_router(payments_rzp.router, prefix="/api/billing", tags=["Razorpay"])
 
 @app.get("/")
 def root():
