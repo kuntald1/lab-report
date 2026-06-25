@@ -17,6 +17,9 @@ export default function Pricing() {
   const [search, setSearch]   = useState('');
   const [saving, setSaving]   = useState(false);
   const [loaded, setLoaded]   = useState(false);
+  const [toast, setToast]     = useState(null);   // { kind:'success'|'error'|'info', msg }
+
+  const showToast = (kind, msg) => { setToast({ kind, msg }); setTimeout(()=>setToast(null), 3200); };
 
   // load lists once
   useEffect(() => {
@@ -69,7 +72,7 @@ export default function Pricing() {
   const filtered = tests.filter(t => !search || t.name.toLowerCase().includes(search.toLowerCase()));
 
   const save = async () => {
-    if (!contextId) return alert('Pick a group or organization first');
+    if (!contextId) return showToast('info', 'Pick a group or organization first');
     setSaving(true);
     const items = checkedIds.map(id => ({
       test_id: id, mrp: Number(sel[id].mrp)||0, price: Number(sel[id].price)||0 }));
@@ -80,8 +83,9 @@ export default function Pricing() {
       const res = await authedFetch(url, { method:'PUT',
         headers:{'Content-Type':'application/json'}, body: JSON.stringify(items) });
       if (!res.ok) throw new Error();
-      alert(`Saved ${items.length} test(s).`);
-    } catch { alert('Save failed'); }
+      const label = (mode==='group' ? groups : orgs).find(c=>String(c.id)===String(contextId))?.name || '';
+      showToast('success', `Saved ${items.length} test${items.length===1?'':'s'} for ${label}`);
+    } catch { showToast('error', 'Save failed — please try again'); }
     setSaving(false);
   };
 
@@ -89,6 +93,31 @@ export default function Pricing() {
 
   return (
     <div>
+      {toast && (
+        <div style={{ position:'fixed', top:'1.5rem', right:'1.5rem', zIndex:9999,
+                      display:'flex', alignItems:'center', gap:'0.75rem',
+                      background:'#fff', borderRadius:'13px', padding:'0.9rem 1.2rem',
+                      minWidth:'280px', maxWidth:'380px',
+                      boxShadow:'0 12px 40px rgba(15,18,24,0.18)',
+                      border:'1px solid #eef1f6',
+                      borderLeft:`4px solid ${toast.kind==='success' ? '#16a34a' : toast.kind==='error' ? '#dc2626' : '#f97316'}`,
+                      animation:'toastIn 0.3s cubic-bezier(0.16,1,0.3,1)' }}>
+          <div style={{ width:'30px', height:'30px', borderRadius:'9px', flexShrink:0,
+                        display:'flex', alignItems:'center', justifyContent:'center', fontSize:'1rem',
+                        background: toast.kind==='success' ? 'rgba(22,163,74,0.12)' : toast.kind==='error' ? 'rgba(220,38,38,0.12)' : 'rgba(249,115,22,0.12)' }}>
+            {toast.kind==='success' ? '✓' : toast.kind==='error' ? '✕' : 'ℹ'}
+          </div>
+          <div style={{ flex:1 }}>
+            <div style={{ fontSize:'0.8rem', fontWeight:700, color:'#0f1218', fontFamily:'Manrope,sans-serif' }}>
+              {toast.kind==='success' ? 'Saved' : toast.kind==='error' ? 'Something went wrong' : 'Heads up'}
+            </div>
+            <div style={{ fontSize:'0.76rem', color:'#8892a4', marginTop:'0.1rem' }}>{toast.msg}</div>
+          </div>
+          <div onClick={()=>setToast(null)} style={{ cursor:'pointer', color:'#c4cad6', fontSize:'1.1rem', lineHeight:1, padding:'0 0.2rem' }}>×</div>
+        </div>
+      )}
+      <style>{`@keyframes toastIn { from { opacity:0; transform:translateX(40px); } to { opacity:1; transform:translateX(0); } }`}</style>
+
       <div style={{ marginBottom:'1.5rem' }}>
         <div style={{ display:'inline-flex', background:'rgba(249,115,22,0.08)', border:'1px solid rgba(249,115,22,0.2)', color:'#f97316', padding:'4px 12px', borderRadius:'100px', fontSize:'0.62rem', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:'0.6rem' }}>Master</div>
         <h1 style={{ fontFamily:'Manrope,sans-serif', fontSize:'2rem', fontWeight:800, color:'#0f1218', letterSpacing:'-0.025em' }}>Group / Org Pricing</h1>
