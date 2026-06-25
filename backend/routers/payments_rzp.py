@@ -30,6 +30,7 @@ from auth.audit import write_audit
 from models.org import User
 from models.billing import Bill, Payment
 from models.b2b import OrgLedger
+from models.messaging import PaymentTransaction
 
 router = APIRouter()
 
@@ -128,6 +129,12 @@ def verify_rzp_payment(bill_id: int, payload: VerifyIn, request: Request,
                        rzp_order_id=payload.razorpay_order_id,
                        rzp_payment_id=payload.razorpay_payment_id,
                        note="signature mismatch", created_by=user.id))
+        db.add(PaymentTransaction(tenant_id=bill.tenant_id, bill_id=bill.id, bill_no=bill.bill_no,
+                       kind="checkout", amount=_due(bill), method="razorpay", status="failed",
+                       razorpay_order_id=payload.razorpay_order_id,
+                       razorpay_payment_id=payload.razorpay_payment_id,
+                       razorpay_signature=payload.razorpay_signature,
+                       error_description="signature mismatch", created_by=user.id))
         db.commit()
         raise HTTPException(400, "signature verification failed")
 
@@ -137,6 +144,11 @@ def verify_rzp_payment(bill_id: int, payload: VerifyIn, request: Request,
                   rzp_order_id=payload.razorpay_order_id,
                   rzp_payment_id=payload.razorpay_payment_id, created_by=user.id)
     db.add(pay); db.flush()
+    db.add(PaymentTransaction(tenant_id=bill.tenant_id, bill_id=bill.id, bill_no=bill.bill_no,
+                   kind="checkout", amount=amount, method="razorpay", status="success",
+                   razorpay_order_id=payload.razorpay_order_id,
+                   razorpay_payment_id=payload.razorpay_payment_id,
+                   razorpay_signature=payload.razorpay_signature, created_by=user.id))
     _recompute_bill(db, bill)
     if bill.organization_id:
         bal = _org_outstanding(db, bill.organization_id) - amount
