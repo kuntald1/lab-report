@@ -19,6 +19,9 @@ export default function Organizations() {
   const [saving, setSaving]     = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [form, setForm]         = useState(BLANK);
+  const [confirmDel, setConfirmDel] = useState(null);
+  const [toast, setToast]       = useState(null);
+  const showToast = (kind, msg) => { setToast({ kind, msg }); setTimeout(()=>setToast(null), 3000); };
 
   const load = () => {
     authedFetch('/b2b/organizations').then(r=>r.ok?r.json():[]).then(setOrgs).catch(()=>{});
@@ -27,6 +30,15 @@ export default function Organizations() {
   useEffect(() => { load(); }, []);
 
   const groupName = (id) => groups.find(g=>g.id===id)?.name || '—';
+
+  const doDelete = async () => {
+    const o = confirmDel; if (!o) return;
+    try {
+      const res = await authedFetch(`/b2b/organizations/${o.id}`, { method:'DELETE' });
+      if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.detail||'failed'); }
+      setConfirmDel(null); load(); showToast('success', `Deleted ${o.name}`);
+    } catch (e) { setConfirmDel(null); showToast('error', String(e.message||'Delete failed')); }
+  };
 
   const openCreate = () => { setEditingId(null); setForm(BLANK); setShowForm(true); };
   const startEdit  = (o) => {
@@ -67,6 +79,29 @@ export default function Organizations() {
 
   return (
     <div>
+      {toast && (
+        <div style={{ position:'fixed', top:'1.5rem', right:'1.5rem', zIndex:9999, display:'flex', alignItems:'center', gap:'0.75rem', background:'#fff', borderRadius:'13px', padding:'0.9rem 1.2rem', minWidth:'260px', boxShadow:'0 12px 40px rgba(15,18,24,0.18)', border:'1px solid #eef1f6', borderLeft:`4px solid ${toast.kind==='success'?'#16a34a':'#dc2626'}`, animation:'toastIn 0.3s cubic-bezier(0.16,1,0.3,1)' }}>
+          <div style={{ width:'30px', height:'30px', borderRadius:'9px', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center', fontSize:'1rem', background: toast.kind==='success'?'rgba(22,163,74,0.12)':'rgba(220,38,38,0.12)' }}>{toast.kind==='success'?'✓':'✕'}</div>
+          <div style={{ fontSize:'0.8rem', fontWeight:700, color:'#0f1218' }}>{toast.msg}</div>
+        </div>
+      )}
+      {confirmDel && (
+        <div onClick={()=>setConfirmDel(null)} style={{ position:'fixed', inset:0, zIndex:9998, background:'rgba(15,18,24,0.45)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+          <div onClick={e=>e.stopPropagation()} style={{ background:'#fff', borderRadius:'16px', padding:'1.8rem', width:'400px', maxWidth:'90vw', boxShadow:'0 20px 60px rgba(15,18,24,0.3)' }}>
+            <div style={{ width:'48px', height:'48px', borderRadius:'12px', background:'rgba(220,38,38,0.1)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'1.4rem', marginBottom:'1rem' }}>🗑️</div>
+            <div style={{ fontFamily:'Manrope,sans-serif', fontSize:'1.15rem', fontWeight:800, color:'#0f1218', marginBottom:'0.4rem' }}>Delete this organization?</div>
+            <div style={{ color:'#8892a4', fontSize:'0.85rem', marginBottom:'1.5rem', lineHeight:1.5 }}>
+              <strong style={{ color:'#0f1218' }}>{confirmDel.name}</strong> will be removed from the list. Existing bills, ledger entries and saved pricing are kept for history.
+            </div>
+            <div style={{ display:'flex', gap:'0.6rem', justifyContent:'flex-end' }}>
+              <button onClick={()=>setConfirmDel(null)} style={{ background:'transparent', color:'#8892a4', border:'1px solid #e8ecf4', borderRadius:'10px', padding:'0.65rem 1.3rem', cursor:'pointer', fontWeight:600, fontFamily:'Manrope,sans-serif' }}>Cancel</button>
+              <button onClick={doDelete} style={{ background:'#dc2626', color:'#fff', border:'none', borderRadius:'10px', padding:'0.65rem 1.5rem', cursor:'pointer', fontWeight:700, fontFamily:'Manrope,sans-serif' }}>Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
+      <style>{`@keyframes toastIn { from { opacity:0; transform:translateX(40px);} to { opacity:1; transform:translateX(0);} }`}</style>
+
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:'2rem' }}>
         <div>
           <div style={{ display:'inline-flex', background:'rgba(249,115,22,0.08)', border:'1px solid rgba(249,115,22,0.2)', color:'#f97316', padding:'4px 12px', borderRadius:'100px', fontSize:'0.62rem', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:'0.6rem' }}>Master</div>
@@ -140,9 +175,14 @@ export default function Organizations() {
                 <td style={{ padding:'0.9rem 1.3rem', color:'#0f1218', fontSize:'0.83rem', fontWeight:600 }}>{inr(o.credit_limit)}</td>
                 <td style={{ padding:'0.9rem 1.3rem', color:'#475569', fontSize:'0.78rem', fontFamily:'monospace' }}>{o.pan||'—'}</td>
                 <td style={{ padding:'0.9rem 1.3rem' }}>
-                  <button title="Edit" onClick={()=>startEdit(o)} style={iconBtn('#2563eb')}>
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
-                  </button>
+                  <div style={{ display:'flex', gap:'0.4rem' }}>
+                    <button title="Edit" onClick={()=>startEdit(o)} style={iconBtn('#2563eb')}>
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+                    </button>
+                    <button title="Delete" onClick={()=>setConfirmDel(o)} style={iconBtn('#dc2626')}>
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}

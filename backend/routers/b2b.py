@@ -235,6 +235,24 @@ def update_org_group(group_id: int, payload: OrgGroupIn, db: Session = Depends(g
     return g
 
 
+@router.delete("/org-groups/{group_id}")
+def delete_org_group(group_id: int, request: Request,
+                     db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    _require_admin(user)
+    g = db.query(OrgGroup).filter(OrgGroup.id == group_id).first()
+    if not g: raise HTTPException(404, "group not found")
+    # guard: don't delete a group that still has organizations in it
+    members = db.query(Franchise).filter(Franchise.org_group_id == group_id).count()
+    if members > 0:
+        raise HTTPException(400, f"{members} organization(s) still in this group — move them out first")
+    g.is_active = False
+    db.query(OrgGroupTest).filter(OrgGroupTest.org_group_id == group_id).delete()
+    db.commit()
+    write_audit(db, action="delete", user=user, entity="org_group", entity_id=group_id,
+                after={"is_active": False}, ip=_ip(request))
+    return {"id": group_id, "is_active": False}
+
+
 # ---- priced test list for a group (the tick + own mrp/price builder) ----
 class PricedTestIn(BaseModel):
     test_id: int
@@ -288,7 +306,8 @@ def _org_dict(o: Franchise) -> dict:
 
 @router.get("/organizations")
 def list_organizations(db: Session = Depends(get_db), scope: Scope = Depends(get_scope)):
-    q = db.query(Franchise)
+    from sqlalchemy import or_
+    q = db.query(Franchise).filter(or_(Franchise.is_active.is_(True), Franchise.is_active.is_(None)))
     if scope.tenant_id is not None:
         q = q.filter(Franchise.tenant_id == scope.tenant_id)
     if scope.role == Role.FRANCHISE and scope.franchise_id is not None:
@@ -319,6 +338,19 @@ def update_organization(org_id: int, payload: OrganizationIn, request: Request,
     write_audit(db, action="update", user=user, entity="organization", entity_id=o.id,
                 after=payload.model_dump(), ip=_ip(request))
     return _org_dict(o)
+
+
+@router.delete("/organizations/{org_id}")
+def delete_organization(org_id: int, request: Request,
+                        db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    _require_admin(user)
+    o = db.query(Franchise).filter(Franchise.id == org_id).first()
+    if not o: raise HTTPException(404, "organization not found")
+    o.is_active = False
+    db.commit()
+    write_audit(db, action="delete", user=user, entity="organization", entity_id=org_id,
+                after={"is_active": False}, ip=_ip(request))
+    return {"id": org_id, "is_active": False}
 
 
 @router.get("/organizations/{org_id}/tests")
