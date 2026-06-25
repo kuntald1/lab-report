@@ -1,0 +1,237 @@
+import { useEffect, useMemo, useState } from 'react';
+import { authedFetch } from '../services/auth';
+
+const inp = { background:'#fafbfc', border:'1.5px solid #e8ecf4', borderRadius:'9px', padding:'0.6rem 0.85rem', color:'#0f1218', fontFamily:'Manrope,sans-serif', fontSize:'0.85rem', outline:'none', width:'100%' };
+const lbl = { fontSize:'0.7rem', color:'#8892a4', fontWeight:600, textTransform:'uppercase', letterSpacing:'0.06em', display:'block', marginBottom:'0.35rem' };
+const S   = { card: { background:'#fff', border:'1px solid #e8ecf4', borderRadius:'14px', padding:'1.5rem', boxShadow:'0 2px 16px rgba(15,18,24,0.07)' } };
+const inr = (n) => '₹' + (Number(n)||0).toLocaleString('en-IN', { maximumFractionDigits:2 });
+
+const sourceBadge = (src) => {
+  const map = { group:['#6366f1','Group'], org:['#f97316','Org'], base:['#64748b','Base'] };
+  const [c,label] = map[src] || ['#64748b', src||'—'];
+  return <span style={{ background:c+'18', color:c, padding:'0.1rem 0.5rem', borderRadius:'20px', fontSize:'0.65rem', fontWeight:700 }}>{label}</span>;
+};
+
+export default function Billing({ isAdmin = true }) {
+  const [patients, setPatients] = useState([]);
+  const [tests, setTests]       = useState([]);
+  const [orgs, setOrgs]         = useState([]);
+  const [patientId, setPatientId] = useState('');
+  const [picked, setPicked]     = useState({});     // {test_id: {name, mrp, price, source}}
+  const [search, setSearch]     = useState('');
+  const [discType, setDiscType] = useState('');     // '' | 'flat' | 'percent'
+  const [discVal, setDiscVal]   = useState('');
+  const [onCredit, setOnCredit] = useState(false);
+  const [saving, setSaving]     = useState(false);
+  const [toast, setToast]       = useState(null);
+  const [lastBill, setLastBill] = useState(null);
+
+  const showToast = (kind, msg) => { setToast({ kind, msg }); setTimeout(()=>setToast(null), 3500); };
+
+  useEffect(() => {
+    authedFetch('/patients/').then(r=>r.ok?r.json():[]).then(setPatients).catch(()=>{});
+    authedFetch('/b2b/tests').then(r=>r.ok?r.json():[]).then(setTests).catch(()=>{});
+    authedFetch('/b2b/organizations').then(r=>r.ok?r.json():[]).then(setOrgs).catch(()=>{});
+  }, []);
+
+  const patient = patients.find(p => String(p.id) === String(patientId));
+  const orgId = patient?.organization_id || null;
+  const orgName = orgId ? (orgs.find(o=>o.id===orgId)?.name || 'Organization') : 'Direct / Walk-in';
+
+  // when patient or picked set changes, re-resolve prices for the picked tests against this org
+  useEffect(() => {
+    const ids = Object.keys(picked);
+    if (!patientId || ids.length === 0) return;
+    const qs = `organization_id=${orgId ?? ''}&test_ids=${ids.join(',')}`;
+    authedFetch(`/billing/resolve?${qs}`).then(r=>r.ok?r.json():[]).then(rows => {
+      setPicked(prev => {
+        const next = { ...prev };
+        rows.forEach(r => { if (next[r.test_id]) next[r.test_id] = { name:r.name, mrp:r.mrp, price:r.price, source:r.source }; });
+        return next;
+      });
+    }).catch(()=>{});
+  }, [patientId]);   // eslint-disable-line
+
+  const addTest = (t) => {
+    if (picked[t.id]) return;
+    // optimistic base price; the resolve call corrects to group/org price
+    setPicked(prev => ({ ...prev, [t.id]: { name:t.name, mrp:t.mrp, price:t.price, source:'base' } }));
+    const qs = `organization_id=${orgId ?? ''}&test_ids=${t.id}`;
+    authedFetch(`/billing/resolve?${qs}`).then(r=>r.ok?r.json():[]).then(rows => {
+      if (rows[0]) setPicked(prev => ({ ...prev, [t.id]: { name:rows[0].name, mrp:rows[0].mrp, price:rows[0].price, source:rows[0].source } }));
+    }).catch(()=>{});
+  };
+  const removeTest = (id) => setPicked(prev => { const n = { ...prev }; delete n[id]; return n; });
+
+  const pickedIds = Object.keys(picked).map(Number);
+  const subtotal = useMemo(() => pickedIds.reduce((s,id)=>s+(Number(picked[id].price)||0),0), [picked]); // eslint-disable-line
+  const discAmount = useMemo(() => {
+    if (!isAdmin || !discType || !discVal) return 0;
+    const v = Number(discVal)||0;
+    if (discType==='flat') return Math.min(v, subtotal);
+    if (discType==='percent') return Math.round(subtotal*(v/100)*100)/100;
+    return 0;
+  }, [discType, discVal, subtotal, isAdmin]);
+  const total = Math.max(0, subtotal - discAmount);
+
+  const filtered = tests.filter(t => !search || t.name.toLowerCase().includes(search.toLowerCase()));
+
+  const generate = async () => {
+    if (!patientId) return showToast('error', 'Select a patient');
+    if (pickedIds.length === 0) return showToast('error', 'Add at least one test');
+    setSaving(true);
+    const payload = {
+      patient_id: parseInt(patientId),
+      organization_id: orgId,
+      test_ids: pickedIds,
+      discount_type: isAdmin ? (discType || null) : null,
+      discount_value: isAdmin ? (Number(discVal)||0) : 0,
+      on_credit: onCredit && !!orgId,
+    };
+    try {
+      const res = await authedFetch('/billing/bills', { method:'POST',
+        headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+      if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.detail||'failed'); }
+      const bill = await res.json();
+      setLastBill(bill); setPicked({}); setDiscType(''); setDiscVal(''); setOnCredit(false);
+      showToast('success', `Bill ${bill.bill_no} created · ${inr(bill.total)}`);
+    } catch (e) { showToast('error', String(e.message||'Bill failed')); }
+    setSaving(false);
+  };
+
+  return (
+    <div>
+      {toast && (
+        <div style={{ position:'fixed', top:'1.5rem', right:'1.5rem', zIndex:9999, display:'flex', alignItems:'center', gap:'0.75rem', background:'#fff', borderRadius:'13px', padding:'0.9rem 1.2rem', minWidth:'260px', boxShadow:'0 12px 40px rgba(15,18,24,0.18)', border:'1px solid #eef1f6', borderLeft:`4px solid ${toast.kind==='success'?'#16a34a':'#dc2626'}`, animation:'toastIn 0.3s cubic-bezier(0.16,1,0.3,1)' }}>
+          <div style={{ width:'30px', height:'30px', borderRadius:'9px', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center', fontSize:'1rem', background: toast.kind==='success'?'rgba(22,163,74,0.12)':'rgba(220,38,38,0.12)' }}>{toast.kind==='success'?'✓':'✕'}</div>
+          <div style={{ fontSize:'0.8rem', fontWeight:700, color:'#0f1218' }}>{toast.msg}</div>
+        </div>
+      )}
+      <style>{`@keyframes toastIn { from { opacity:0; transform:translateX(40px);} to { opacity:1; transform:translateX(0);} }`}</style>
+
+      <div style={{ marginBottom:'1.5rem' }}>
+        <div style={{ display:'inline-flex', background:'rgba(249,115,22,0.08)', border:'1px solid rgba(249,115,22,0.2)', color:'#f97316', padding:'4px 12px', borderRadius:'100px', fontSize:'0.62rem', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:'0.6rem' }}>Billing</div>
+        <h1 style={{ fontFamily:'Manrope,sans-serif', fontSize:'2rem', fontWeight:800, color:'#0f1218', letterSpacing:'-0.025em' }}>New Bill</h1>
+        <p style={{ color:'#8892a4', fontSize:'0.82rem', marginTop:'0.2rem' }}>Prices resolve automatically by the patient's organization (Group → Org → Base).</p>
+      </div>
+
+      {/* patient picker */}
+      <div style={{ ...S.card, marginBottom:'1.2rem' }}>
+        <div style={{ display:'flex', gap:'1rem', alignItems:'flex-end', flexWrap:'wrap' }}>
+          <div style={{ minWidth:'320px', flex:1 }}>
+            <label style={lbl}>Patient</label>
+            <select style={inp} value={patientId} onChange={e=>{ setPatientId(e.target.value); setPicked({}); }}>
+              <option value="">— Select patient —</option>
+              {patients.map(p => <option key={p.id} value={p.id}>{p.patient_name} · {p.barcode}</option>)}
+            </select>
+          </div>
+          {patientId && (
+            <div style={{ paddingBottom:'0.1rem' }}>
+              <label style={lbl}>Billing to</label>
+              <div style={{ display:'flex', alignItems:'center', gap:'0.5rem', fontSize:'0.9rem', fontWeight:700, color: orgId ? '#6366f1' : '#475569' }}>
+                {orgId ? '🏥' : '🚶'} {orgName}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {patientId && (
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'1.2rem' }}>
+          {/* left: test catalog */}
+          <div style={{ ...S.card, padding:0, overflow:'hidden' }}>
+            <div style={{ padding:'1rem 1.3rem', borderBottom:'1px solid #f4f6fa' }}>
+              <input style={inp} placeholder="Search tests to add…" value={search} onChange={e=>setSearch(e.target.value)} />
+            </div>
+            <div style={{ maxHeight:'420px', overflowY:'auto' }}>
+              {filtered.map(t => (
+                <div key={t.id} onClick={()=>addTest(t)}
+                  style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'0.7rem 1.3rem', borderBottom:'1px solid #f7f8fb', cursor: picked[t.id]?'default':'pointer', background: picked[t.id]?'rgba(22,163,74,0.05)':'transparent' }}>
+                  <span style={{ fontSize:'0.85rem', fontWeight:600, color:'#0f1218' }}>{t.name}</span>
+                  <span style={{ fontSize:'0.8rem', color:'#8892a4' }}>
+                    {picked[t.id] ? <span style={{ color:'#16a34a', fontWeight:700 }}>✓ added</span> : inr(t.price)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* right: selected + totals */}
+          <div style={{ ...S.card }}>
+            <div style={{ fontWeight:800, color:'#0f1218', marginBottom:'0.8rem', fontFamily:'Manrope,sans-serif' }}>Bill items</div>
+            {pickedIds.length === 0 && <div style={{ color:'#8892a4', fontSize:'0.85rem', padding:'1rem 0' }}>Click tests on the left to add them.</div>}
+            {pickedIds.map(id => (
+              <div key={id} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'0.5rem 0', borderBottom:'1px solid #f7f8fb' }}>
+                <div style={{ display:'flex', alignItems:'center', gap:'0.5rem' }}>
+                  <button onClick={()=>removeTest(id)} style={{ border:'none', background:'rgba(220,38,38,0.1)', color:'#dc2626', borderRadius:'6px', width:'22px', height:'22px', cursor:'pointer', fontWeight:700 }}>×</button>
+                  <span style={{ fontSize:'0.85rem', color:'#0f1218' }}>{picked[id].name}</span>
+                  {sourceBadge(picked[id].source)}
+                </div>
+                <span style={{ fontSize:'0.85rem', fontWeight:600, color:'#0f1218' }}>{inr(picked[id].price)}</span>
+              </div>
+            ))}
+
+            {/* discount (admin only) */}
+            {isAdmin && pickedIds.length > 0 && (
+              <div style={{ marginTop:'1rem', paddingTop:'1rem', borderTop:'1px dashed #e8ecf4' }}>
+                <label style={lbl}>Discount (admin only)</label>
+                <div style={{ display:'flex', gap:'0.5rem' }}>
+                  <select style={{ ...inp, width:'130px' }} value={discType} onChange={e=>setDiscType(e.target.value)}>
+                    <option value="">No discount</option>
+                    <option value="flat">Flat ₹</option>
+                    <option value="percent">Percent %</option>
+                  </select>
+                  <input style={{ ...inp, width:'110px' }} type="number" disabled={!discType} placeholder={discType==='percent'?'%':'₹'} value={discVal} onChange={e=>setDiscVal(e.target.value)} />
+                </div>
+              </div>
+            )}
+
+            {/* totals */}
+            <div style={{ marginTop:'1rem', paddingTop:'1rem', borderTop:'1px solid #e8ecf4' }}>
+              <Row k="Subtotal" v={inr(subtotal)} />
+              {discAmount > 0 && <Row k="Discount" v={'– ' + inr(discAmount)} color="#dc2626" />}
+              <div style={{ display:'flex', justifyContent:'space-between', marginTop:'0.5rem' }}>
+                <span style={{ fontWeight:800, fontSize:'1.05rem', color:'#0f1218' }}>Total</span>
+                <span style={{ fontWeight:800, fontSize:'1.25rem', color:'#16a34a' }}>{inr(total)}</span>
+              </div>
+            </div>
+
+            {/* credit toggle for B2B */}
+            {orgId && (
+              <label style={{ display:'flex', alignItems:'center', gap:'0.5rem', marginTop:'1rem', fontSize:'0.82rem', color:'#475569', cursor:'pointer' }}>
+                <input type="checkbox" checked={onCredit} onChange={e=>setOnCredit(e.target.checked)} style={{ accentColor:'#f97316', width:'16px', height:'16px' }} />
+                Bill to organization on credit (adds to {orgName}'s ledger)
+              </label>
+            )}
+
+            <button onClick={generate} disabled={saving || pickedIds.length===0} style={{ width:'100%', marginTop:'1.2rem', background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', border:'none', borderRadius:'10px', padding:'0.8rem', fontWeight:700, cursor:'pointer', fontSize:'0.95rem', fontFamily:'Manrope,sans-serif', boxShadow:'0 4px 16px rgba(249,115,22,0.3)', opacity: pickedIds.length===0?0.5:1 }}>
+              {saving ? 'Generating…' : `Generate Bill · ${inr(total)}`}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* last created bill */}
+      {lastBill && (
+        <div style={{ ...S.card, marginTop:'1.2rem', border:'1px solid rgba(22,163,74,0.3)' }}>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+            <div>
+              <div style={{ fontWeight:800, color:'#16a34a', fontSize:'1rem' }}>✓ Bill {lastBill.bill_no} created</div>
+              <div style={{ color:'#8892a4', fontSize:'0.82rem', marginTop:'0.2rem' }}>{lastBill.patient_name} · {lastBill.items.length} test(s) · {lastBill.status}</div>
+            </div>
+            <div style={{ fontWeight:800, fontSize:'1.3rem', color:'#0f1218' }}>{inr(lastBill.total)}</div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Row({ k, v, color }) {
+  return (
+    <div style={{ display:'flex', justifyContent:'space-between', padding:'0.2rem 0' }}>
+      <span style={{ color:'#8892a4', fontSize:'0.85rem' }}>{k}</span>
+      <span style={{ color: color||'#475569', fontSize:'0.85rem', fontWeight:600 }}>{v}</span>
+    </div>
+  );
+}
