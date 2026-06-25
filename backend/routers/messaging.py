@@ -21,7 +21,8 @@ from auth.deps import get_current_user, get_scope, Scope
 from auth.audit import write_audit
 from models.org import User, Role
 from models.models import Patient
-from models.billing import Bill
+from models.billing import Bill, Payment
+from models.b2b import OrgLedger
 from models.messaging import PaymentTransaction, MessagingSettings
 from services.whatsapp import send_whatsapp, get_settings, render_bill_message
 
@@ -106,10 +107,12 @@ def send_bill_whatsapp(bill_id: int, payload: SendWhatsAppIn, request: Request,
         db.commit()
 
     link_url = ""
+    plink_id = None
     if payload.include_payment_link and _due(bill) > 0:
         try:
             pl = create_payment_link(bill_id, request, db, user)
             link_url = pl.get("short_url") or ""
+            plink_id = pl.get("id")
         except HTTPException:
             link_url = ""   # non-blocking: still send the bill text
 
@@ -124,7 +127,7 @@ def send_bill_whatsapp(bill_id: int, payload: SendWhatsAppIn, request: Request,
                 after={"to": payload.to_number, "ok": res.get("ok")}, ip=_ip(request))
     if not res.get("ok"):
         raise HTTPException(502, res.get("error", "whatsapp failed"))
-    return {"ok": True, "sid": res.get("sid"), "payment_link": link_url or None}
+    return {"ok": True, "sid": res.get("sid"), "payment_link": link_url or None, "plink_id": plink_id}
 
 
 # --------------------------------------------------------- send receipt on WhatsApp
@@ -156,6 +159,78 @@ def send_receipt_whatsapp(bill_id: int, payload: SendReceiptIn, request: Request
     if not res.get("ok"):
         raise HTTPException(502, res.get("error", "whatsapp failed"))
     return {"ok": True, "sid": res.get("sid")}
+
+
+# --------------------------------------------------------- payment link status (polling)
+def _recompute_and_settle(db: Session, bill: Bill, amount: float, rzp_payment_id: str = None):
+    """Record a successful payment on the bill and reduce org ledger."""
+    pay = Payment(tenant_id=bill.tenant_id, bill_id=bill.id, method="razorpay",
+                  amount=amount, status="success", rzp_payment_id=rzp_payment_id,
+                  note="payment link")
+    db.add(pay); db.flush()
+    paid = sum(p.amount for p in db.query(Payment)
+               .filter(Payment.bill_id == bill.id, Payment.status == "success").all())
+    bill.paid = round(paid, 2)
+    if bill.status != "credit":
+        bill.status = "paid" if paid >= bill.total else ("partial" if paid > 0 else "unpaid")
+    if bill.organization_id:
+        last = (db.query(OrgLedger).filter(OrgLedger.organization_id == bill.organization_id)
+                  .order_by(OrgLedger.id.desc()).first())
+        bal = (float(last.balance_after) if last and last.balance_after is not None else 0.0) - amount
+        db.add(OrgLedger(organization_id=bill.organization_id, entry_type="payment",
+                         amount=amount, balance_after=bal, ref=bill.bill_no))
+
+
+@router.get("/payment-link/{plink_id}/status")
+def payment_link_status(plink_id: str, db: Session = Depends(get_db),
+                        user: User = Depends(get_current_user)):
+    """Poll Razorpay for a payment link's status. When it becomes paid, record
+    the payment on the bill (idempotent) and send the money receipt on WhatsApp.
+    Returns {status, paid, bill_status}."""
+    if not RZP_KEY_ID or not RZP_KEY_SECRET:
+        raise HTTPException(500, "Razorpay keys not configured")
+    txn = (db.query(PaymentTransaction)
+             .filter(PaymentTransaction.razorpay_link_id == plink_id)
+             .order_by(PaymentTransaction.id.desc()).first())
+    if not txn:
+        raise HTTPException(404, "payment link not found")
+    bill = db.query(Bill).filter(Bill.id == txn.bill_id).first()
+    if not bill:
+        raise HTTPException(404, "bill not found")
+
+    # already settled?
+    if txn.status == "success" or (bill.status == "paid"):
+        return {"status": "paid", "paid": True, "bill_status": bill.status}
+
+    try:
+        resp = requests.get(f"{RZP_API}/payment_links/{plink_id}",
+                            auth=(RZP_KEY_ID, RZP_KEY_SECRET), timeout=15)
+    except requests.RequestException as e:
+        raise HTTPException(502, f"Razorpay unreachable: {e}")
+    if resp.status_code >= 400:
+        raise HTTPException(502, f"status check failed: {resp.text[:200]}")
+    link = resp.json()
+    rzp_status = link.get("status")    # created | partially_paid | paid | cancelled | expired
+
+    if rzp_status == "paid":
+        amount = (link.get("amount_paid", 0) or 0) / 100.0 or txn.amount
+        rzp_pid = None
+        pmts = link.get("payments") or []
+        if pmts:
+            rzp_pid = pmts[0].get("payment_id")
+        _recompute_and_settle(db, bill, amount, rzp_pid)
+        txn.status = "success"
+        txn.razorpay_payment_id = rzp_pid
+        db.commit()
+        # send receipt on whatsapp (non-blocking)
+        patient = db.query(Patient).filter(Patient.id == bill.patient_id).first()
+        if patient and getattr(patient, "phone", None):
+            body = (f"Dear {patient.patient_name}, we received \u20b9{amount:.0f} for "
+                    f"Bill {bill.bill_no} at MediCloud. Your money receipt is ready. Thank you!")
+            send_whatsapp(db, bill.tenant_id, patient.phone, body)
+        return {"status": "paid", "paid": True, "bill_status": bill.status}
+
+    return {"status": rzp_status, "paid": False, "bill_status": bill.status}
 
 
 # --------------------------------------------------------- transactions list

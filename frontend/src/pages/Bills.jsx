@@ -22,6 +22,8 @@ export default function Bills() {
   const [waLink, setWaLink]     = useState(true);
   const [waSending, setWaSending] = useState(false);
   const [waDone, setWaDone]     = useState(null);   // success popup payload
+  const [waiting, setWaiting]   = useState(false);
+  const pollRef = useState({ current: null })[0];
   const [toast, setToast]       = useState(null);
 
   const showToast = (kind, msg) => { setToast({ kind, msg }); setTimeout(()=>setToast(null), 3200); };
@@ -87,9 +89,34 @@ export default function Bills() {
       if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.detail||'failed'); }
       const out = await res.json();
       setWaDone({ number: waNumber.trim(), bill: detail.bill_no, link: out.payment_link });
+      if (out.plink_id && waLink) startPolling(out.plink_id, detail.id);
     } catch (e) { showToast('error', String(e.message||'WhatsApp failed')); }
     setWaSending(false);
   };
+
+  const startPolling = (plinkId, billId) => {
+    setWaiting(true);
+    if (pollRef.current) clearInterval(pollRef.current);
+    pollRef.current = setInterval(async () => {
+      try {
+        const r = await authedFetch(`/billing/payment-link/${plinkId}/status`);
+        if (!r.ok) return;
+        const st = await r.json();
+        if (st.paid) {
+          clearInterval(pollRef.current); pollRef.current = null;
+          setWaiting(false);
+          const updated = await authedFetch(`/billing/bills/${billId}`).then(x=>x.json()).catch(()=>null);
+          if (updated) setDetail(updated);
+          load();
+          showToast('success', 'Payment received · status updated to Paid');
+          if (updated) downloadReceipt({ id: billId, bill_no: updated.bill_no });
+        }
+      } catch { /* keep polling */ }
+    }, 4000);
+  };
+
+  const stopWaiting = () => { if (pollRef.current) clearInterval(pollRef.current); pollRef.current = null; setWaiting(false); };
+  useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);   // eslint-disable-line
   const sendReceiptWA = async (bill) => {
     const num = (waNumber && waNumber.trim()) || bill?.phone || '';
     if (!num) return;   // no number → skip silently
@@ -127,6 +154,17 @@ export default function Bills() {
     } catch { showToast('error', 'PDF download failed'); }
   };
 
+  const downloadReceipt = async (b) => {
+    try {
+      const res = await authedFetch(`/billing/bills/${b.id}/receipt`);
+      if (!res.ok) throw new Error();
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = `Receipt_${b.bill_no}.pdf`; a.click();
+      URL.revokeObjectURL(url);
+    } catch { showToast('error', 'Receipt download failed'); }
+  };
+
   const due = (b) => Math.max(0, (b.total||0) - (b.paid||0));
 
   return (
@@ -137,7 +175,7 @@ export default function Bills() {
           <div style={{ fontSize:'0.8rem', fontWeight:700, color:'#0f1218' }}>{toast.msg}</div>
         </div>
       )}
-      <style>{`@keyframes toastIn { from { opacity:0; transform:translateX(40px);} to { opacity:1; transform:translateX(0);} }`}</style>
+      <style>{`@keyframes toastIn { from { opacity:0; transform:translateX(40px);} to { opacity:1; transform:translateX(0);} } @keyframes spin { to { transform: rotate(360deg);} }`}</style>
 
       {waDone && (
         <div onClick={()=>setWaDone(null)} style={{ position:'fixed', inset:0, zIndex:10000, background:'rgba(15,18,24,0.5)', display:'flex', alignItems:'center', justifyContent:'center', padding:'1rem' }}>
@@ -293,6 +331,15 @@ export default function Bills() {
                   <input type="checkbox" checked={waLink} onChange={e=>setWaLink(e.target.checked)} style={{ accentColor:'#f97316', width:'15px', height:'15px' }} />
                   Include a payment link (patient can pay online)
                 </label>
+              )}
+              {waiting && (
+                <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginTop:'0.7rem', background:'rgba(139,92,246,0.08)', border:'1px solid rgba(139,92,246,0.2)', borderRadius:'9px', padding:'0.6rem 0.9rem' }}>
+                  <span style={{ display:'flex', alignItems:'center', gap:'0.5rem', color:'#7c3aed', fontWeight:700, fontSize:'0.82rem' }}>
+                    <span style={{ width:'14px', height:'14px', border:'2px solid #c4b5fd', borderTopColor:'#7c3aed', borderRadius:'50%', display:'inline-block', animation:'spin 0.8s linear infinite' }} />
+                    Waiting for customer payment…
+                  </span>
+                  <button onClick={stopWaiting} style={{ background:'transparent', border:'1px solid #e8ecf4', color:'#8892a4', borderRadius:'7px', padding:'0.3rem 0.8rem', fontSize:'0.78rem', cursor:'pointer' }}>Stop</button>
+                </div>
               )}
             </div>
 

@@ -28,6 +28,8 @@ export default function Billing({ isAdmin = true, initialPatientId = '' }) {
   const [payingMethod, setPayingMethod] = useState(null);   // 'cash'|'upi'|'razorpay'|null
   const [waPhone, setWaPhone]   = useState('');
   const [waBusy, setWaBusy]     = useState(false);
+  const [waiting, setWaiting]   = useState(false);   // waiting for customer payment
+  const pollRef = useState({ current: null })[0];
 
   const showToast = (kind, msg) => { setToast({ kind, msg }); setTimeout(()=>setToast(null), 3500); };
 
@@ -114,10 +116,36 @@ export default function Billing({ isAdmin = true, initialPatientId = '' }) {
         headers:{'Content-Type':'application/json'},
         body: JSON.stringify({ to_number: waPhone.trim(), include_payment_link: true, save_patient_phone: true }) });
       if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.detail||'failed'); }
+      const out = await res.json();
       showToast('success', `Payment link sent to ${waPhone.trim()}`);
+      if (out.plink_id) startPolling(out.plink_id);
     } catch (e) { showToast('error', String(e.message||'WhatsApp failed')); }
     setWaBusy(false);
   };
+
+  // poll the payment-link status until paid (CurryCloud-style)
+  const startPolling = (plinkId) => {
+    setWaiting(true);
+    if (pollRef.current) clearInterval(pollRef.current);
+    pollRef.current = setInterval(async () => {
+      try {
+        const r = await authedFetch(`/billing/payment-link/${plinkId}/status`);
+        if (!r.ok) return;
+        const st = await r.json();
+        if (st.paid) {
+          clearInterval(pollRef.current); pollRef.current = null;
+          setWaiting(false);
+          const updated = await refreshBill(lastBill.id);
+          showToast('success', 'Payment received · receipt ready');
+          if (updated) downloadReceipt(updated);   // open the money receipt
+        }
+      } catch { /* keep polling */ }
+    }, 4000);
+  };
+
+  const stopWaiting = () => { if (pollRef.current) clearInterval(pollRef.current); pollRef.current = null; setWaiting(false); };
+
+  useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);   // eslint-disable-line
 
   // auto-send the money receipt to WhatsApp once paid (if we have a number)
   const sendReceiptWA = async (bill) => {
@@ -211,7 +239,7 @@ export default function Billing({ isAdmin = true, initialPatientId = '' }) {
           <div style={{ fontSize:'0.8rem', fontWeight:700, color:'#0f1218' }}>{toast.msg}</div>
         </div>
       )}
-      <style>{`@keyframes toastIn { from { opacity:0; transform:translateX(40px);} to { opacity:1; transform:translateX(0);} }`}</style>
+      <style>{`@keyframes toastIn { from { opacity:0; transform:translateX(40px);} to { opacity:1; transform:translateX(0);} } @keyframes spin { to { transform: rotate(360deg);} }`}</style>
 
       <div style={{ marginBottom:'1.5rem' }}>
         <div style={{ display:'inline-flex', background:'rgba(249,115,22,0.08)', border:'1px solid rgba(249,115,22,0.2)', color:'#f97316', padding:'4px 12px', borderRadius:'100px', fontSize:'0.62rem', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:'0.6rem' }}>Billing</div>
@@ -346,14 +374,24 @@ export default function Billing({ isAdmin = true, initialPatientId = '' }) {
               <div style={{ marginTop:'1rem' }}>
                 <div style={{ fontSize:'0.72rem', color:'#8892a4', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:'0.5rem' }}>Or send payment link on WhatsApp</div>
                 <div style={{ display:'flex', gap:'0.5rem' }}>
-                  <input style={{ ...inp, flex:1 }} placeholder="Patient WhatsApp number" value={waPhone} onChange={e=>setWaPhone(e.target.value)} />
-                  <button onClick={sendBillLink} disabled={waBusy} style={{ background:'#25D366', color:'#fff', border:'none', borderRadius:'9px', padding:'0.55rem 1.2rem', fontWeight:700, cursor:'pointer', fontFamily:'Manrope,sans-serif', whiteSpace:'nowrap' }}>
+                  <input style={{ ...inp, flex:1 }} placeholder="Patient WhatsApp number" value={waPhone} onChange={e=>setWaPhone(e.target.value)} disabled={waiting} />
+                  <button onClick={sendBillLink} disabled={waBusy || waiting} style={{ background:'#25D366', color:'#fff', border:'none', borderRadius:'9px', padding:'0.55rem 1.2rem', fontWeight:700, cursor:'pointer', fontFamily:'Manrope,sans-serif', whiteSpace:'nowrap', opacity: waiting?0.5:1 }}>
                     {waBusy ? 'Sending…' : '💬 Send Bill'}
                   </button>
                 </div>
-                <div style={{ fontSize:'0.72rem', color:'#8892a4', marginTop:'0.4rem' }}>
-                  Patient gets a Razorpay link to pay. The money receipt is sent automatically once they pay.
-                </div>
+                {waiting ? (
+                  <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginTop:'0.7rem', background:'rgba(139,92,246,0.08)', border:'1px solid rgba(139,92,246,0.2)', borderRadius:'9px', padding:'0.6rem 0.9rem' }}>
+                    <span style={{ display:'flex', alignItems:'center', gap:'0.5rem', color:'#7c3aed', fontWeight:700, fontSize:'0.82rem' }}>
+                      <span style={{ width:'14px', height:'14px', border:'2px solid #c4b5fd', borderTopColor:'#7c3aed', borderRadius:'50%', display:'inline-block', animation:'spin 0.8s linear infinite' }} />
+                      Waiting for customer payment…
+                    </span>
+                    <button onClick={stopWaiting} style={{ background:'transparent', border:'1px solid #e8ecf4', color:'#8892a4', borderRadius:'7px', padding:'0.3rem 0.8rem', fontSize:'0.78rem', cursor:'pointer' }}>Stop</button>
+                  </div>
+                ) : (
+                  <div style={{ fontSize:'0.72rem', color:'#8892a4', marginTop:'0.4rem' }}>
+                    Patient gets a Razorpay link to pay. The money receipt is sent automatically once they pay.
+                  </div>
+                )}
               </div>
             </div>
           )}
