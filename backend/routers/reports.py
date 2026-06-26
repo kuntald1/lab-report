@@ -110,7 +110,19 @@ def report_bundle(patient_id: int, db: Session = Depends(get_db),
     p = db.query(Patient).filter(Patient.id == patient_id).first()
     if not p:
         raise HTTPException(404, "patient not found")
-    results = db.query(LabResult).filter(LabResult.patient_id == patient_id).all()
+    # newest first; keep only the latest result per (test_name, calendar day).
+    # Same test re-run on the SAME day -> keep latest only.
+    # Same test on DIFFERENT days -> keep each day (legitimate repeat).
+    all_results = (db.query(LabResult).filter(LabResult.patient_id == patient_id)
+                     .order_by(LabResult.created_at.desc()).all())
+    seen, results = set(), []
+    for r in all_results:
+        day = r.created_at.date().isoformat() if r.created_at else ""
+        key = ((r.test_name or "").strip().lower(), day)
+        if key in seen:
+            continue
+        seen.add(key)
+        results.append(r)
     open_req = (db.query(HistoryRequest)
                   .filter(HistoryRequest.patient_id == patient_id,
                           HistoryRequest.status == "open")
