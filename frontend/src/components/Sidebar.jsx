@@ -17,9 +17,9 @@ const nav = [
   { id:'bills',   icon:'📑', label:'Bills',    section:'master' },
   { id:'simulator', icon:'⚡', label:'Simulator',     section:'tools', tag:'DEMO' },
   { id:'tcp',       icon:'🔌', label:'Live Connect',  section:'tools', tag:'PHASE 2' },
-  { id:'reportvalidate', icon:'🩺', label:'Report Validate',  section:'reports' },
-  { id:'validatehistory', icon:'📋', label:'Validate History', section:'reports' },
-  { id:'historyneeded', icon:'📥', label:'History Needed', section:'reports' },
+  { id:'reportvalidate', icon:'🩺', label:'Report Validate',  section:'reports', who:'doctor' },
+  { id:'validatehistory', icon:'📋', label:'Validate History', section:'reports', who:'doctor' },
+  { id:'historyneeded', icon:'📥', label:'History Needed', section:'reports', who:'lab' },
 ];
 
 export default function Sidebar({ current, onChange, counts = {}, user = null, onLogout = () => {} }) {
@@ -68,7 +68,7 @@ export default function Sidebar({ current, onChange, counts = {}, user = null, o
         {isDoctor ? (
           <>
             <div style={s.navLabel}>Reports</div>
-            {nav.filter(n=>n.section==='reports').map(item => <NavItem key={item.id} item={item} active={current===item.id} onClick={()=>onChange(item.id)} />)}
+            {nav.filter(n=>n.section==='reports' && n.who==='doctor').map(item => <NavItem key={item.id} item={item} active={current===item.id} onClick={()=>onChange(item.id)} />)}
           </>
         ) : (
           <>
@@ -77,7 +77,7 @@ export default function Sidebar({ current, onChange, counts = {}, user = null, o
             <div style={s.navLabel}>Master</div>
             {nav.filter(n=>n.section==='master').map(item => <NavItem key={item.id} item={item} active={current===item.id} onClick={()=>onChange(item.id)} />)}
             <div style={s.navLabel}>Reports</div>
-            {nav.filter(n=>n.section==='reports').map(item => <NavItem key={item.id} item={item} active={current===item.id} onClick={()=>onChange(item.id)} />)}
+            {nav.filter(n=>n.section==='reports' && n.who!=='doctor').map(item => <NavItem key={item.id} item={item} active={current===item.id} onClick={()=>onChange(item.id)} />)}
             <div style={s.navLabel}>Tools</div>
             {nav.filter(n=>n.section==='tools').map(item => <NavItem key={item.id} item={item} active={current===item.id} onClick={()=>onChange(item.id)} />)}
           </>

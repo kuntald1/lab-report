@@ -36,6 +36,8 @@ from services.whatsapp import send_whatsapp
 
 router = APIRouter()
 ADMIN_ROLES = (Role.SUPER_ADMIN, Role.LAB_ADMIN)
+# internal lab staff who can see + fill the History Needed queue and notifications
+LAB_ROLES = (Role.SUPER_ADMIN, Role.LAB_ADMIN, Role.TECHNICIAN, Role.RECEPTIONIST)
 
 
 def _ip(request: Request) -> Optional[str]:
@@ -215,12 +217,12 @@ def need_history(patient_id: int, payload: NeedHistoryIn, request: Request,
 # ------------------------------------------------------------------ history-needed queue
 @router.get("/queue/history-needed")
 def history_needed_queue(db: Session = Depends(get_db), scope: Scope = Depends(get_scope)):
+    # lab-side only: doctors, franchises, patients must not see this queue
+    if scope.role not in LAB_ROLES:
+        raise HTTPException(403, "lab staff only")
     q = db.query(Patient).filter(Patient.needs_history.is_(True), Patient.is_active.is_(True))
     if scope.tenant_id is not None:
         q = q.filter(Patient.tenant_id == scope.tenant_id)
-    # org-login sees only its own patients
-    if scope.role == Role.FRANCHISE and scope.franchise_id is not None:
-        q = q.filter(Patient.organization_id == scope.franchise_id)
     rows = q.order_by(Patient.created_at.desc()).limit(500).all()
     out = []
     for p in rows:
@@ -241,6 +243,8 @@ class FillHistoryIn(BaseModel):
 @router.post("/{patient_id}/fill-history")
 def fill_history(patient_id: int, payload: FillHistoryIn, request: Request,
                  db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    if user.role not in LAB_ROLES:
+        raise HTTPException(403, "lab staff only")
     p = db.query(Patient).filter(Patient.id == patient_id).first()
     if not p:
         raise HTTPException(404, "patient not found")
@@ -276,12 +280,13 @@ def fill_history(patient_id: int, payload: FillHistoryIn, request: Request,
 # ------------------------------------------------------------------ notifications (badge)
 @router.get("/notifications/history")
 def history_notifications(db: Session = Depends(get_db), scope: Scope = Depends(get_scope)):
-    """For the top-right badge: patients needing history (lab-wide / org-scoped)."""
+    """For the top-right badge: patients needing history. Lab staff only;
+    doctors/franchises/patients get an empty list (no badge)."""
+    if scope.role not in LAB_ROLES:
+        return {"count": 0, "items": []}
     q = db.query(Patient).filter(Patient.needs_history.is_(True), Patient.is_active.is_(True))
     if scope.tenant_id is not None:
         q = q.filter(Patient.tenant_id == scope.tenant_id)
-    if scope.role == Role.FRANCHISE and scope.franchise_id is not None:
-        q = q.filter(Patient.organization_id == scope.franchise_id)
     rows = q.order_by(Patient.created_at.desc()).limit(50).all()
     return {"count": len(rows),
             "items": [{"patient_id": p.id, "barcode": p.barcode, "patient_name": p.patient_name}
