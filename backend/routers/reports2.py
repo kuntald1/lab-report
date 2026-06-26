@@ -211,7 +211,7 @@ def _norm_method(raw: Optional[str]) -> str:
     if m in ("upi", "gpay", "googlepay", "phonepe", "paytm", "bhim", "qr"): return "UPI"
     if m in ("card", "credit_card", "debit_card", "creditcard", "debitcard"): return "CARD"
     if m in ("credit", "due", "outstanding"): return "CREDIT"
-    if m in ("netbanking", "net_banking", "online", "razorpay", "wallet"): return "ONLINE"
+    if m in ("netbanking", "net_banking", "online", "razorpay", "wallet", "payment_link", "paymentlink", "link"): return "ONLINE"
     if not m: return "CASH"          # blank mode on a manual payment = cash
     return m.upper()
 
@@ -268,14 +268,41 @@ def dashboard(
 
     # payment-method split from successful payments + transactions
     bill_ids = [b.id for b in bills]
-    # payment-method split from RECEIVED payments only (Payment table is the source of
-    # truth for money received; payment_transactions is the attempt log and would
-    # double-count online payments that also land in Payment).
+    # payment-method split. payments.mode is empty in this deployment, so the real
+    # method lives in payment_transactions. Each online settlement is recorded twice:
+    # a gateway row (method 'razorpay'/'payment_link'/'upi'/'card') AND a generic
+    # 'payment' row of the same amount/time. To count each rupee once with the RIGHT
+    # method: per bill, prefer the specific gateway/cash method; fall back to the
+    # generic 'payment' row only when no specific method exists for that bill.
     method_tot = {}
     if bill_ids:
-        for pay in db.query(Payment).filter(Payment.bill_id.in_(bill_ids)).all():
-            m = _norm_method(getattr(pay, "mode", None))
-            method_tot[m] = method_tot.get(m, 0.0) + (getattr(pay, "amount", 0.0) or 0.0)
+        txs = (db.query(PaymentTransaction)
+                 .filter(PaymentTransaction.bill_id.in_(bill_ids),
+                         PaymentTransaction.status == "success").all())
+        # group successful tx amounts per bill, split into specific vs generic
+        by_bill_specific = {}   # bill_id -> [(method, amount)]
+        by_bill_generic = {}    # bill_id -> total of generic 'payment' rows
+        for t in txs:
+            raw = (t.method or "").strip().lower()
+            kind = (t.kind or "").strip().lower()
+            amt = t.amount or 0.0
+            is_generic = (raw in ("", "payment") or kind == "payment")
+            if is_generic:
+                by_bill_generic[t.bill_id] = by_bill_generic.get(t.bill_id, 0.0) + amt
+            else:
+                by_bill_specific.setdefault(t.bill_id, []).append((raw, amt))
+
+        for bid in set(list(by_bill_specific) + list(by_bill_generic)):
+            spec = by_bill_specific.get(bid, [])
+            if spec:
+                # use specific gateway/cash methods; ignore the duplicate generic rows
+                for raw, amt in spec:
+                    m = _norm_method(raw)
+                    method_tot[m] = method_tot.get(m, 0.0) + amt
+            else:
+                # no specific method recorded -> treat generic as cash
+                amt = by_bill_generic.get(bid, 0.0)
+                method_tot["CASH"] = method_tot.get("CASH", 0.0) + amt
     methods = [{"method": k, "amount": round(v, 2)} for k, v in sorted(method_tot.items(), key=lambda x: -x[1])]
 
     # franchise breakdown
