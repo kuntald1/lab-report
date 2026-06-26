@@ -128,6 +128,14 @@ def sample_details(
             "answer": h.answer, "answered_at": h.answered_at, "created_at": h.created_at,
         })
 
+    # --- lab results keyed by (patient_id, normalized test_name) -> latest result_id (for PDF link) ---
+    result_id_by_key = {}
+    for r in (db.query(LabResult).filter(LabResult.patient_id.in_(pids))
+                .order_by(LabResult.created_at.desc()).all()):
+        key = (r.patient_id, (r.test_name or "").strip().lower())
+        if key not in result_id_by_key:        # keep latest (desc order)
+            result_id_by_key[key] = r.id
+
     # --- assemble one row per patient ---
     rows, tot_billed, tot_collected = [], 0.0, 0.0
     for p in patients:
@@ -140,11 +148,13 @@ def sample_details(
             billed += (b.total or 0.0)
             collected += (b.paid or 0.0)
             for it in items_by_bill.get(b.id, []):
+                rid = result_id_by_key.get((p.id, (it.test_name or "").strip().lower()))
                 tests.append({
                     "test_name": it.test_name,
                     "doctor": doc_names.get(tc_doc.get(it.test_id), None),
                     "price": it.price, "mrp": it.mrp,
                     "bill_no": b.bill_no,
+                    "result_id": rid,        # for the per-test Report PDF link
                 })
             # payment history: every transaction attempt (incl. failures)
             for t in tx_by_bill.get(b.id, []):
@@ -191,3 +201,92 @@ def sample_details(
                        "billed": round(tot_billed, 2),
                        "collected": round(tot_collected, 2),
                        "balance": round(tot_billed - tot_collected, 2)}}
+
+
+# ============================================================ DASHBOARD (revenue)
+@router.get("/dashboard")
+def dashboard(
+    franchise_id: Optional[int] = None,
+    branch_id: Optional[int] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """CurryCloud-style revenue dashboard. Shows BOTH billed (bill totals) and
+    collected (payments received). Filters: franchise, branch, from, to."""
+    q = db.query(Bill)
+    if franchise_id:
+        q = q.filter(Bill.organization_id == franchise_id)
+    if branch_id:
+        q = q.filter(Bill.branch_id == branch_id)
+    if date_from:
+        q = q.filter(Bill.created_at >= date_from)
+    if date_to:
+        q = q.filter(Bill.created_at <= date_to + " 23:59:59")
+    bills = q.order_by(Bill.created_at.desc()).limit(5000).all()
+
+    n = len(bills)
+    billed    = sum(b.total or 0.0 for b in bills)
+    collected = sum(b.paid or 0.0 for b in bills)
+    discount  = sum(b.discount_amount or 0.0 for b in bills)
+    credit    = sum((b.total or 0.0) - (b.paid or 0.0) for b in bills if (b.status or "") == "credit")
+    balance   = billed - collected
+    avg_bill  = (billed / n) if n else 0.0
+
+    # daily series (billed + collected per day)
+    daily = {}
+    for b in bills:
+        d = (b.created_at.date().isoformat() if b.created_at else "—")
+        slot = daily.setdefault(d, {"date": d, "billed": 0.0, "collected": 0.0, "bills": 0})
+        slot["billed"] += (b.total or 0.0)
+        slot["collected"] += (b.paid or 0.0)
+        slot["bills"] += 1
+    daily_list = sorted(daily.values(), key=lambda x: x["date"])
+
+    # payment-method split from successful payments + transactions
+    bill_ids = [b.id for b in bills]
+    method_tot = {}
+    if bill_ids:
+        for pay in db.query(Payment).filter(Payment.bill_id.in_(bill_ids)).all():
+            m = (getattr(pay, "mode", None) or "other").upper()
+            method_tot[m] = method_tot.get(m, 0.0) + (getattr(pay, "amount", 0.0) or 0.0)
+        for t in (db.query(PaymentTransaction)
+                    .filter(PaymentTransaction.bill_id.in_(bill_ids),
+                            PaymentTransaction.status == "success").all()):
+            m = (t.method or "online").upper()
+            method_tot[m] = method_tot.get(m, 0.0) + (t.amount or 0.0)
+    methods = [{"method": k, "amount": round(v, 2)} for k, v in sorted(method_tot.items(), key=lambda x: -x[1])]
+
+    # franchise breakdown
+    fr_ids = {b.organization_id for b in bills}
+    fr_names = _name_map(db, Franchise, fr_ids)
+    fr_break = {}
+    for b in bills:
+        key = b.organization_id
+        name = fr_names.get(key, "Direct / Walk-in") if key else "Direct / Walk-in"
+        slot = fr_break.setdefault(name, {"company": name, "bills": 0, "billed": 0.0, "collected": 0.0, "credit": 0.0})
+        slot["bills"] += 1
+        slot["billed"] += (b.total or 0.0)
+        slot["collected"] += (b.paid or 0.0)
+        if (b.status or "") == "credit":
+            slot["credit"] += (b.total or 0.0) - (b.paid or 0.0)
+    for s in fr_break.values():
+        s["avg_bill"] = round(s["billed"] / s["bills"], 2) if s["bills"] else 0.0
+        s["share"] = round((s["billed"] / billed * 100), 1) if billed else 0.0
+        s["billed"] = round(s["billed"], 2); s["collected"] = round(s["collected"], 2); s["credit"] = round(s["credit"], 2)
+    breakdown = sorted(fr_break.values(), key=lambda x: -x["billed"])
+
+    # recent bills list
+    recent = [{
+        "bill_no": b.bill_no, "company": (fr_names.get(b.organization_id) if b.organization_id else "Direct / Walk-in"),
+        "status": b.status, "total": round(b.total or 0.0, 2), "paid": round(b.paid or 0.0, 2),
+        "created_at": b.created_at,
+    } for b in bills[:30]]
+
+    return {
+        "kpis": {"bills": n, "billed": round(billed, 2), "collected": round(collected, 2),
+                 "balance": round(balance, 2), "discount": round(discount, 2),
+                 "credit": round(credit, 2), "avg_bill": round(avg_bill, 2)},
+        "daily": daily_list, "methods": methods, "breakdown": breakdown, "recent": recent,
+    }

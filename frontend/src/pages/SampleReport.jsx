@@ -14,6 +14,17 @@ export default function SampleReport() {
   const [loading, setLoading] = useState(false);
   const [franchises, setFranchises] = useState([]);
   const [expanded, setExpanded] = useState({});
+  const [tab, setTab] = useState({});   // per-row active tab: tests | payments | history
+
+  const openReportPdf = async (resultId) => {
+    if (!resultId) return;
+    try {
+      const res = await authedFetch(`/results/${resultId}/pdf`);
+      if (!res.ok) throw new Error();
+      const blob = await res.blob(); const url = URL.createObjectURL(blob);
+      window.open(url, '_blank'); setTimeout(()=>URL.revokeObjectURL(url), 60000);
+    } catch { alert('Report PDF not available for this test'); }
+  };
 
   useEffect(() => {
     authedFetch('/franchises').then(r=>r.ok?r.json():[]).then(d=>setFranchises(Array.isArray(d)?d:(d.items||[]))).catch(()=>{});
@@ -27,7 +38,7 @@ export default function SampleReport() {
   };
 
   const set = (k,v) => setF(prev=>({ ...prev, [k]:v }));
-  const toggle = (id) => setExpanded(e=>({ ...e, [id]:!e[id] }));
+  const toggle = (id) => { setExpanded(e=>({ ...e, [id]:!e[id] })); setTab(t=>({ ...t, [id]: t[id]||'tests' })); };
 
   const exportCsv = () => {
     const head = ['Patient ID','Barcode','Patient','Status','Franchise','Branch','Ref Doctor','Tests','Billed','Collected','Balance','Payment Modes'];
@@ -118,44 +129,71 @@ export default function SampleReport() {
                 {expanded[r.patient_id] && (
                   <tr key={r.patient_id+'-d'}>
                     <td colSpan={9} style={{ padding:'0', background:'#fbfcfe' }}>
-                      <div style={{ padding:'1rem 1.5rem', display:'grid', gridTemplateColumns:'1fr 1fr', gap:'1.2rem' }}>
-                        {/* tests */}
-                        <div>
-                          <div style={{ fontWeight:800, fontSize:'0.78rem', color:'#0f1218', marginBottom:'0.5rem' }}>Tests</div>
-                          {r.tests.length===0 && <div style={{ color:'#8892a4', fontSize:'0.78rem' }}>No tests billed.</div>}
-                          {r.tests.map((t,i)=>(
-                            <div key={i} style={{ display:'flex', justifyContent:'space-between', padding:'0.3rem 0', borderBottom:'1px solid #f1f3f7', fontSize:'0.78rem' }}>
-                              <span style={{ color:'#0f1218', fontWeight:600 }}>{t.test_name}<span style={{ color:'#8892a4', fontWeight:400 }}> · {t.doctor||'No doctor'}</span></span>
-                              <span style={{ color:'#475569' }}>{money(t.price)}</span>
-                            </div>
-                          ))}
+                      <div style={{ padding:'1rem 1.5rem 1.4rem' }}>
+                        {/* tabs */}
+                        <div style={{ display:'flex', gap:'0.4rem', marginBottom:'0.9rem', borderBottom:'1.5px solid #eef1f6' }}>
+                          {[['tests',`Tests (${r.tests.length})`],['payments',`Payments (${r.payment_history.length})`],['history',`History (${r.clinical_history.length})`]].map(([key,label])=>{
+                            const active = (tab[r.patient_id]||'tests')===key;
+                            return (
+                              <button key={key} onClick={()=>setTab(t=>({ ...t, [r.patient_id]:key }))}
+                                style={{ background:'transparent', border:'none', borderBottom: active?'2px solid #6366f1':'2px solid transparent', color: active?'#6366f1':'#8892a4', fontWeight:700, fontSize:'0.78rem', padding:'0.4rem 0.8rem', cursor:'pointer', marginBottom:'-1.5px', fontFamily:'Manrope,sans-serif' }}>{label}</button>
+                            );
+                          })}
                         </div>
-                        {/* payment history */}
-                        <div>
-                          <div style={{ fontWeight:800, fontSize:'0.78rem', color:'#0f1218', marginBottom:'0.5rem' }}>Payment History</div>
-                          {r.payment_history.length===0 && <div style={{ color:'#8892a4', fontSize:'0.78rem' }}>No payment attempts.</div>}
-                          {r.payment_history.map((ph,i)=>(
-                            <div key={i} style={{ display:'flex', justifyContent:'space-between', padding:'0.3rem 0', borderBottom:'1px solid #f1f3f7', fontSize:'0.76rem' }}>
-                              <span style={{ color:'#475569' }}>
-                                <span style={{ fontWeight:700, color: ph.status==='success'?'#16a34a':(ph.status==='failed'||ph.status==='timeout'||ph.status==='cancelled')?'#dc2626':'#b45309', textTransform:'uppercase', fontSize:'0.66rem' }}>{ph.status}</span>
-                                {' '}{ph.method||ph.kind} {money(ph.amount)}{ph.error?` · ${ph.error}`:''}
-                              </span>
-                              <span style={{ color:'#8892a4' }}>{fmt(ph.at)}</span>
-                            </div>
-                          ))}
-                        </div>
-                        {/* clinical history full width */}
-                        <div style={{ gridColumn:'1 / -1' }}>
-                          <div style={{ fontWeight:800, fontSize:'0.78rem', color:'#0f1218', marginBottom:'0.5rem' }}>Clinical History</div>
-                          {r.clinical_history.length===0 && <div style={{ color:'#8892a4', fontSize:'0.78rem' }}>No history requests.</div>}
-                          {r.clinical_history.map((h,i)=>(
-                            <div key={i} style={{ padding:'0.4rem 0.7rem', marginBottom:'0.3rem', borderRadius:'7px', fontSize:'0.76rem', background: h.status==='answered'?'rgba(22,163,74,0.06)':'rgba(245,158,11,0.06)' }}>
-                              <span style={{ fontWeight:700, color: h.status==='answered'?'#16a34a':'#b45309' }}>{(h.asked_for||[]).join(', ')||'History request'}</span>
-                              {h.note && <span style={{ color:'#475569' }}> — asked: {h.note}</span>}
-                              {h.answer && <div style={{ color:'#0f1218', marginTop:'0.2rem' }}>Answer: {h.answer}</div>}
-                            </div>
-                          ))}
-                        </div>
+
+                        {/* TESTS tab */}
+                        {(tab[r.patient_id]||'tests')==='tests' && (
+                          <div>
+                            {r.tests.length===0 && <div style={{ color:'#8892a4', fontSize:'0.8rem', padding:'0.5rem 0' }}>No tests billed.</div>}
+                            {r.tests.map((t,i)=>(
+                              <div key={i} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0.5rem 0.7rem', borderBottom:'1px solid #f1f3f7', fontSize:'0.82rem', gap:'1rem' }}>
+                                <span style={{ color:'#0f1218', fontWeight:600, flex:1 }}>{t.test_name}<span style={{ color:'#8892a4', fontWeight:400 }}> · {t.doctor||'No doctor'}</span></span>
+                                <span style={{ color:'#475569', fontWeight:700, width:'90px', textAlign:'right' }}>{money(t.price)}</span>
+                                {t.result_id
+                                  ? <button onClick={()=>openReportPdf(t.result_id)} style={{ background:'rgba(249,115,22,0.1)', color:'#f97316', border:'1px solid rgba(249,115,22,0.3)', borderRadius:'7px', padding:'0.3rem 0.7rem', fontWeight:700, cursor:'pointer', fontSize:'0.72rem', whiteSpace:'nowrap', fontFamily:'Manrope,sans-serif' }}>📄 Report PDF</button>
+                                  : <span style={{ color:'#c4cad6', fontSize:'0.7rem', width:'92px', textAlign:'center' }}>No report</span>}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* PAYMENTS tab */}
+                        {tab[r.patient_id]==='payments' && (
+                          <div>
+                            {r.payment_history.length===0 && <div style={{ color:'#8892a4', fontSize:'0.8rem', padding:'0.5rem 0' }}>No payment attempts.</div>}
+                            {r.payment_history.map((ph,i)=>{
+                              const col = ph.status==='success'?'#16a34a':(['failed','timeout','cancelled'].includes(ph.status))?'#dc2626':'#b45309';
+                              return (
+                                <div key={i} style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', padding:'0.45rem 0.7rem', borderBottom:'1px solid #f1f3f7', fontSize:'0.78rem', gap:'1rem' }}>
+                                  <div style={{ flex:1 }}>
+                                    <span style={{ display:'inline-block', minWidth:'62px', fontWeight:800, color:col, textTransform:'uppercase', fontSize:'0.62rem', letterSpacing:'0.03em' }}>{ph.status}</span>
+                                    <span style={{ color:'#0f1218', fontWeight:600 }}>{ph.method||ph.kind}</span>
+                                    <span style={{ color:'#475569' }}> · {money(ph.amount)}</span>
+                                    {ph.error && <div style={{ color:'#dc2626', fontSize:'0.7rem', marginTop:'0.15rem' }}>{ph.error.length>90?ph.error.slice(0,90)+'…':ph.error}</div>}
+                                  </div>
+                                  <span style={{ color:'#8892a4', fontSize:'0.72rem', whiteSpace:'nowrap' }}>{fmt(ph.at)}</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+
+                        {/* HISTORY tab */}
+                        {tab[r.patient_id]==='history' && (
+                          <div>
+                            {r.clinical_history.length===0 && <div style={{ color:'#8892a4', fontSize:'0.8rem', padding:'0.5rem 0' }}>No history requests.</div>}
+                            {r.clinical_history.map((h,i)=>(
+                              <div key={i} style={{ padding:'0.5rem 0.8rem', marginBottom:'0.4rem', borderRadius:'8px', fontSize:'0.8rem', background: h.status==='answered'?'rgba(22,163,74,0.06)':'rgba(245,158,11,0.06)', border:`1px solid ${h.status==='answered'?'rgba(22,163,74,0.18)':'rgba(245,158,11,0.18)'}` }}>
+                                <div style={{ display:'flex', justifyContent:'space-between' }}>
+                                  <span style={{ fontWeight:700, color: h.status==='answered'?'#16a34a':'#b45309' }}>{(h.asked_for||[]).join(', ')||'History request'}</span>
+                                  <span style={{ color:'#8892a4', fontSize:'0.7rem' }}>{fmt(h.created_at)}</span>
+                                </div>
+                                {h.note && <div style={{ color:'#475569', marginTop:'0.2rem' }}>Asked: {h.note}</div>}
+                                {h.answer && <div style={{ color:'#0f1218', marginTop:'0.2rem' }}><strong>Answer:</strong> {h.answer}</div>}
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     </td>
                   </tr>
