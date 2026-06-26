@@ -22,6 +22,7 @@ const nav = [
 ];
 
 export default function Sidebar({ current, onChange, counts = {}, user = null, onLogout = () => {} }) {
+  const isDoctor = (user?.role || '').toLowerCase() === 'pathologist';
   const s = {
     aside: { position:'fixed', top:0, left:0, bottom:0, width:'235px', background:'#1a1f2e', display:'flex', flexDirection:'column', zIndex:50, boxShadow:'4px 0 24px rgba(0,0,0,0.15)' },
     logoWrap: { padding:'1.4rem 1.3rem 1.2rem', borderBottom:'1px solid rgba(255,255,255,0.06)' },
@@ -63,12 +64,23 @@ export default function Sidebar({ current, onChange, counts = {}, user = null, o
 
       {/* Nav */}
       <div style={s.navSection}>
-        <div style={s.navLabel}>Main Menu</div>
-        {nav.filter(n=>n.section==='main').map(item => <NavItem key={item.id} item={item} active={current===item.id} onClick={()=>onChange(item.id)} count={counts[item.badge]} />)}
-         <div style={s.navLabel}>Master</div>
-        {nav.filter(n=>n.section==='master').map(item => <NavItem key={item.id} item={item} active={current===item.id} onClick={()=>onChange(item.id)} />)}
-        <div style={s.navLabel}>Tools</div>
-        {nav.filter(n=>n.section==='tools').map(item => <NavItem key={item.id} item={item} active={current===item.id} onClick={()=>onChange(item.id)} />)}
+        {isDoctor ? (
+          <>
+            <div style={s.navLabel}>Reports</div>
+            {nav.filter(n=>n.section==='reports').map(item => <NavItem key={item.id} item={item} active={current===item.id} onClick={()=>onChange(item.id)} />)}
+          </>
+        ) : (
+          <>
+            <div style={s.navLabel}>Main Menu</div>
+            {nav.filter(n=>n.section==='main').map(item => <NavItem key={item.id} item={item} active={current===item.id} onClick={()=>onChange(item.id)} count={counts[item.badge]} />)}
+            <div style={s.navLabel}>Master</div>
+            {nav.filter(n=>n.section==='master').map(item => <NavItem key={item.id} item={item} active={current===item.id} onClick={()=>onChange(item.id)} />)}
+            <div style={s.navLabel}>Reports</div>
+            {nav.filter(n=>n.section==='reports').map(item => <NavItem key={item.id} item={item} active={current===item.id} onClick={()=>onChange(item.id)} />)}
+            <div style={s.navLabel}>Tools</div>
+            {nav.filter(n=>n.section==='tools').map(item => <NavItem key={item.id} item={item} active={current===item.id} onClick={()=>onChange(item.id)} />)}
+          </>
+        )}
       </div>
 
       {/* Footer */}
