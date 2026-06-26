@@ -18,6 +18,8 @@ import TestsCatalog from './pages/TestsCatalog';
 import Users from './pages/Users';
 import Billing from './pages/Billing';
 import Bills from './pages/Bills';
+import ReportValidate from './pages/ReportValidate';
+import ValidateHistory from './pages/ValidateHistory';
 
 export default function App() {
   const [authed, setAuthed] = useState(auth.isAuthed());
