@@ -16,6 +16,8 @@ from routers import billing as billing_router
 from routers import payments_rzp
 from routers import messaging as messaging_router
 import models.messaging
+from routers import reports as reports_router
+import models.reports
    
 
 
@@ -48,6 +50,7 @@ app.include_router(b2b_router.router, prefix="/api/b2b", tags=["B2B"])
 app.include_router(billing_router.router, prefix="/api/billing", tags=["Billing"])
 app.include_router(payments_rzp.router, prefix="/api/billing", tags=["Razorpay"])
 app.include_router(messaging_router.router, prefix="/api/billing", tags=["Messaging"])
+app.include_router(reports_router.router, prefix="/api/reports", tags=["Reports"])
 
 @app.get("/")
 def root():

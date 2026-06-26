@@ -17,6 +17,8 @@ const nav = [
   { id:'bills',   icon:'📑', label:'Bills',    section:'master' },
   { id:'simulator', icon:'⚡', label:'Simulator',     section:'tools', tag:'DEMO' },
   { id:'tcp',       icon:'🔌', label:'Live Connect',  section:'tools', tag:'PHASE 2' },
+  { id:'reportvalidate', icon:'🩺', label:'Report Validate',  section:'reports' },
+  { id:'validatehistory', icon:'📋', label:'Validate History', section:'reports' },
 ];
 
 export default function Sidebar({ current, onChange, counts = {}, user = null, onLogout = () => {} }) {
