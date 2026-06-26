@@ -30,6 +30,7 @@ from auth.audit import write_audit
 from models.org import User, Role, Franchise
 from models.models import Patient, LabResult
 from models.clinical import TestCatalog
+from models.billing import Bill, BillItem
 from models.reports import HistoryRequest
 from services.whatsapp import send_whatsapp
 
@@ -53,22 +54,32 @@ def _patient_brief(p: Patient) -> dict:
 # ------------------------------------------------------------------ doctor queue
 @router.get("/pending")
 def pending_reports(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    """Patients in 'tested' status whose tests are assigned to this doctor.
+    """Patients in 'tested' status whose chosen tests are assigned to this doctor.
 
-    A patient surfaces for a doctor if EITHER:
-      - the patient is directly assigned to the doctor (patient.assigned_doctor_id), OR
-      - the patient has a lab result for a test that is assigned to this doctor in
-        the Tests Catalog (LabResult.test_name -> TestCatalog.name -> assigned_doctor_id).
+    A patient surfaces for a doctor if ANY of these hold:
+      1. patient.assigned_doctor_id == doctor            (direct/manual assignment)
+      2. the patient has a BILL ITEM for a test assigned to this doctor
+         (Patient -> Bill -> BillItem.test_id -> TestCatalog.assigned_doctor_id)
+         -- this is the reliable path: tests are chosen when billing.
+      3. the patient has a LAB RESULT for a test assigned to this doctor
+         (LabResult.test_name -> TestCatalog.name -> assigned_doctor_id)
     Admins see all tested patients.
     """
     q = db.query(Patient).filter(Patient.status == "tested", Patient.is_active.is_(True))
     q = q.filter(Patient.needs_history.isnot(True))
     if user.role not in ADMIN_ROLES:
-        # patient ids that have a result for a test assigned to this doctor
-        sub = (db.query(LabResult.patient_id)
-                 .join(TestCatalog, TestCatalog.name == LabResult.test_name)
-                 .filter(TestCatalog.assigned_doctor_id == user.id))
-        q = q.filter(or_(Patient.assigned_doctor_id == user.id, Patient.id.in_(sub)))
+        # (2) patient ids whose bill items are for a test assigned to this doctor
+        by_bill = (db.query(Bill.patient_id)
+                     .join(BillItem, BillItem.bill_id == Bill.id)
+                     .join(TestCatalog, TestCatalog.id == BillItem.test_id)
+                     .filter(TestCatalog.assigned_doctor_id == user.id))
+        # (3) patient ids with a result for a test assigned to this doctor
+        by_result = (db.query(LabResult.patient_id)
+                       .join(TestCatalog, TestCatalog.name == LabResult.test_name)
+                       .filter(TestCatalog.assigned_doctor_id == user.id))
+        q = q.filter(or_(Patient.assigned_doctor_id == user.id,
+                         Patient.id.in_(by_bill),
+                         Patient.id.in_(by_result)))
     rows = q.order_by(Patient.created_at.desc()).limit(500).all()
     return [_patient_brief(p) for p in rows]
 
