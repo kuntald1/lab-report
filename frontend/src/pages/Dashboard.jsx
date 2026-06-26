@@ -5,7 +5,7 @@ const S = { card:{ background:'#fff', border:'1px solid #e8ecf4', borderRadius:'
 const inp = { background:'#fafbfc', border:'1.5px solid #e8ecf4', borderRadius:'9px', padding:'0.5rem 0.75rem', color:'#0f1218', fontFamily:'Manrope,sans-serif', fontSize:'0.82rem', outline:'none' };
 const money = (n) => '₹' + (Number(n||0)).toLocaleString('en-IN', { minimumFractionDigits:2, maximumFractionDigits:2 });
 const fmt = (d) => d ? new Date(d).toLocaleString('en-IN', { dateStyle:'short', timeStyle:'short' }) : '—';
-const METHOD_COLORS = { CASH:'#16a34a', UPI:'#2563eb', CARD:'#7c3aed', CREDIT:'#9ca3af', ONLINE:'#0891b2', RAZORPAY:'#6366f1', OTHER:'#f59e0b' };
+const METHOD_COLORS = { CASH:'#16a34a', UPI:'#2563eb', CARD:'#7c3aed', CREDIT:'#9ca3af', ONLINE:'#0891b2', OTHER:'#f59e0b' };
 
 function todayISO(d=0){ const t=new Date(); t.setDate(t.getDate()+d); return t.toISOString().slice(0,10); }
 
@@ -14,6 +14,20 @@ export default function Dashboard() {
   const [d, setD] = useState({ kpis:{}, daily:[], methods:[], breakdown:[], recent:[] });
   const [loading, setLoading] = useState(true);
   const [franchises, setFranchises] = useState([]);
+  const [detail, setDetail] = useState(null);
+  const [dTab, setDTab] = useState('tests');
+
+  const openDetail = (patientId) => {
+    if (!patientId) return;
+    setDetail('loading'); setDTab('tests');
+    authedFetch(`/reports2/patient-detail/${patientId}`).then(r=>r.ok?r.json():null).then(setDetail).catch(()=>setDetail(null));
+  };
+  const openReportPdf = async (resultId) => {
+    if (!resultId) return;
+    try { const res = await authedFetch(`/results/${resultId}/pdf`); if(!res.ok) throw new Error();
+      const b = await res.blob(); const u = URL.createObjectURL(b); window.open(u,'_blank'); setTimeout(()=>URL.revokeObjectURL(u),60000);
+    } catch { alert('Report PDF not available'); }
+  };
 
   useEffect(() => {
     authedFetch('/franchises').then(r=>r.ok?r.json():[]).then(x=>setFranchises(Array.isArray(x)?x:(x.items||[]))).catch(()=>{});
@@ -35,7 +49,7 @@ export default function Dashboard() {
   const KPIS = [
     ['Billed', money(k.billed), '#0f1218'], ['Collected', money(k.collected), '#16a34a'],
     ['Balance', money(k.balance), '#dc2626'], ['Bills', k.bills||0, '#6366f1'],
-    ['Avg / Bill', money(k.avg_bill), '#0891b2'], ['Discount', money(k.discount), '#f59e0b'],
+    ['Discount', money(k.discount), '#f59e0b'],
     ['Credit', money(k.credit), '#7c3aed'],
   ];
 
@@ -51,10 +65,10 @@ export default function Dashboard() {
             {franchises.map(fr => <option key={fr.id} value={fr.id}>{fr.name}</option>)}
           </select>
         </div>
-        <button onClick={load} style={{ background:'linear-gradient(135deg,#16a34a,#22c55e)', color:'#fff', border:'none', borderRadius:'9px', padding:'0.55rem 1.3rem', fontWeight:700, cursor:'pointer', fontFamily:'Manrope,sans-serif' }}>● Apply</button>
+        <button onClick={load} style={{ background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', border:'none', borderRadius:'9px', padding:'0.55rem 1.3rem', fontWeight:700, cursor:'pointer', fontFamily:'Manrope,sans-serif' }}>● Apply</button>
         <div style={{ display:'flex', gap:'0.3rem', marginLeft:'auto' }}>
           {[['Today',1],['7d',7],['30d',30],['90d',90]].map(([lbl,dys])=>(
-            <button key={lbl} onClick={()=>quick(dys)} style={{ background:'#f0fdf4', color:'#16a34a', border:'1px solid #bbf7d0', borderRadius:'8px', padding:'0.4rem 0.8rem', fontWeight:700, cursor:'pointer', fontSize:'0.76rem', fontFamily:'Manrope,sans-serif' }}>{lbl}</button>
+            <button key={lbl} onClick={()=>quick(dys)} style={{ background:'rgba(249,115,22,0.08)', color:'#f97316', border:'1px solid rgba(249,115,22,0.25)', borderRadius:'8px', padding:'0.4rem 0.8rem', fontWeight:700, cursor:'pointer', fontSize:'0.76rem', fontFamily:'Manrope,sans-serif' }}>{lbl}</button>
           ))}
         </div>
       </div>
@@ -78,7 +92,7 @@ export default function Dashboard() {
             {d.daily.map((x,i)=>(
               <div key={i} style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'flex-end', height:'100%' }}>
                 <div style={{ fontSize:'0.6rem', color:'#475569', fontWeight:700, marginBottom:'0.2rem' }}>{x.billed>0?money(x.billed).replace('₹','₹'):''}</div>
-                <div title={`Billed ${money(x.billed)} · Collected ${money(x.collected)}`} style={{ width:'100%', maxWidth:'48px', background:'linear-gradient(180deg,#22c55e,#16a34a)', borderRadius:'5px 5px 0 0', height:`${Math.max(2,(x.billed/maxBilled)*100)}%`, transition:'height 0.3s' }} />
+                <div title={`Billed ${money(x.billed)} · Collected ${money(x.collected)}`} style={{ width:'100%', maxWidth:'48px', background:'linear-gradient(180deg,#fbbf24,#f97316)', borderRadius:'5px 5px 0 0', height:`${Math.max(2,(x.billed/maxBilled)*100)}%`, transition:'height 0.3s' }} />
                 <div style={{ fontSize:'0.6rem', color:'#8892a4', marginTop:'0.3rem', whiteSpace:'nowrap' }}>{x.date.slice(5)}</div>
               </div>
             ))}
@@ -130,7 +144,7 @@ export default function Dashboard() {
                 <td style={{ padding:'0.7rem 1.3rem', textAlign:'right' }}>
                   <div style={{ display:'flex', alignItems:'center', justifyContent:'flex-end', gap:'0.5rem' }}>
                     <div style={{ width:'60px', height:'6px', background:'#f1f3f7', borderRadius:'10px', overflow:'hidden' }}>
-                      <div style={{ width:`${b.share}%`, height:'100%', background:'#16a34a' }} />
+                      <div style={{ width:`${b.share}%`, height:'100%', background:'#f97316' }} />
                     </div>
                     <span style={{ fontSize:'0.74rem', color:'#475569', fontWeight:700, minWidth:'42px' }}>{b.share}%</span>
                   </div>
@@ -147,26 +161,82 @@ export default function Dashboard() {
         <table style={{ width:'100%', borderCollapse:'collapse' }}>
           <thead>
             <tr style={{ background:'#fafbfc', borderTop:'1px solid #eef1f6', borderBottom:'1.5px solid #e8ecf4' }}>
-              {['Bill No','Franchise','Status','Total','Paid','Date'].map((h,i)=>(
-                <th key={i} style={{ textAlign: i>2&&i<5?'right':'left', padding:'0.65rem 1.3rem', fontSize:'0.62rem', color:'#8892a4', fontWeight:700, textTransform:'uppercase' }}>{h}</th>
+              {['Bill No','Patient ID','Barcode','Franchise','Status','Total','Paid','Date'].map((h,i)=>(
+                <th key={i} style={{ textAlign: i>4&&i<7?'right':'left', padding:'0.65rem 1.3rem', fontSize:'0.62rem', color:'#8892a4', fontWeight:700, textTransform:'uppercase' }}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {d.recent.length===0 && <tr><td colSpan={6} style={{ textAlign:'center', padding:'2rem', color:'#8892a4' }}>No bills.</td></tr>}
-            {d.recent.map((b,i)=>(
-              <tr key={i} style={{ borderBottom:'1px solid #f4f6fa' }}>
-                <td style={{ padding:'0.6rem 1.3rem', fontFamily:'monospace', fontWeight:700, color:'#6366f1', fontSize:'0.8rem' }}>{b.bill_no}</td>
-                <td style={{ padding:'0.6rem 1.3rem', color:'#475569', fontSize:'0.82rem' }}>{b.company}</td>
-                <td style={{ padding:'0.6rem 1.3rem' }}><span style={{ background:'rgba(99,102,241,0.1)', color:'#6366f1', padding:'0.15rem 0.55rem', borderRadius:'20px', fontSize:'0.68rem', fontWeight:700, textTransform:'capitalize' }}>{b.status}</span></td>
-                <td style={{ padding:'0.6rem 1.3rem', textAlign:'right', fontWeight:700, color:'#0f1218', fontSize:'0.82rem' }}>{money(b.total)}</td>
-                <td style={{ padding:'0.6rem 1.3rem', textAlign:'right', fontWeight:700, color:'#16a34a', fontSize:'0.82rem' }}>{money(b.paid)}</td>
-                <td style={{ padding:'0.6rem 1.3rem', color:'#8892a4', fontSize:'0.76rem' }}>{fmt(b.created_at)}</td>
-              </tr>
-            ))}
+            {d.recent.length===0 && <tr><td colSpan={8} style={{ textAlign:'center', padding:'2rem', color:'#8892a4' }}>No bills.</td></tr>}
+            {d.recent.map((b,i)=>{
+              const click = ()=>openDetail(b.patient_id);
+              const link = { cursor:'pointer', textDecoration:'underline' };
+              return (
+                <tr key={i} style={{ borderBottom:'1px solid #f4f6fa' }}>
+                  <td onClick={click} style={{ padding:'0.6rem 1.3rem', fontFamily:'monospace', fontWeight:700, color:'#f97316', fontSize:'0.8rem', ...link }}>{b.bill_no}</td>
+                  <td onClick={click} style={{ padding:'0.6rem 1.3rem', fontWeight:700, color:'#6366f1', fontSize:'0.8rem', ...link }}>{b.patient_id?`#${b.patient_id}`:'—'}</td>
+                  <td onClick={click} style={{ padding:'0.6rem 1.3rem', fontFamily:'monospace', color:'#6366f1', fontSize:'0.8rem', ...(b.barcode?link:{}) }}>{b.barcode||'—'}</td>
+                  <td style={{ padding:'0.6rem 1.3rem', color:'#475569', fontSize:'0.82rem' }}>{b.company}</td>
+                  <td style={{ padding:'0.6rem 1.3rem' }}><span style={{ background:'rgba(249,115,22,0.1)', color:'#f97316', padding:'0.15rem 0.55rem', borderRadius:'20px', fontSize:'0.68rem', fontWeight:700, textTransform:'capitalize' }}>{b.status}</span></td>
+                  <td style={{ padding:'0.6rem 1.3rem', textAlign:'right', fontWeight:700, color:'#0f1218', fontSize:'0.82rem' }}>{money(b.total)}</td>
+                  <td style={{ padding:'0.6rem 1.3rem', textAlign:'right', fontWeight:700, color:'#16a34a', fontSize:'0.82rem' }}>{money(b.paid)}</td>
+                  <td style={{ padding:'0.6rem 1.3rem', color:'#8892a4', fontSize:'0.76rem' }}>{fmt(b.created_at)}</td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
+
+      {/* drill-down detail modal */}
+      {detail && (
+        <div onClick={()=>setDetail(null)} style={{ position:'fixed', inset:0, zIndex:9998, background:'rgba(15,18,24,0.45)', display:'flex', alignItems:'center', justifyContent:'center', padding:'1rem' }}>
+          <div onClick={e=>e.stopPropagation()} style={{ background:'#fff', borderRadius:'16px', padding:'1.6rem', width:'620px', maxWidth:'95vw', maxHeight:'88vh', overflowY:'auto', boxShadow:'0 20px 60px rgba(15,18,24,0.3)' }}>
+            {detail==='loading' ? <div style={{ padding:'2rem', textAlign:'center', color:'#8892a4' }}>Loading…</div> : (
+              <>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:'1rem' }}>
+                  <div>
+                    <div style={{ fontFamily:'Manrope,sans-serif', fontWeight:800, fontSize:'1.15rem', color:'#0f1218' }}>{detail.patient_name}</div>
+                    <div style={{ color:'#8892a4', fontSize:'0.8rem', fontFamily:'monospace' }}>#{detail.patient_id} · {detail.barcode} · {detail.status}</div>
+                    <div style={{ marginTop:'0.4rem', fontSize:'0.82rem', color:'#475569' }}>Billed {money(detail.billed)} · Collected <span style={{ color:'#16a34a', fontWeight:700 }}>{money(detail.collected)}</span> · Balance <span style={{ color: detail.balance>0?'#dc2626':'#8892a4', fontWeight:700 }}>{money(detail.balance)}</span></div>
+                  </div>
+                  <button onClick={()=>setDetail(null)} style={{ border:'none', background:'transparent', fontSize:'1.4rem', color:'#c4cad6', cursor:'pointer' }}>×</button>
+                </div>
+                {/* tabs */}
+                <div style={{ display:'flex', gap:'0.4rem', marginBottom:'0.9rem', borderBottom:'1.5px solid #eef1f6' }}>
+                  {[['tests',`Tests (${detail.tests?.length||0})`],['payments',`Payments (${detail.payment_history?.length||0})`],['history',`History (${detail.clinical_history?.length||0})`]].map(([key,label])=>{
+                    const active=dTab===key;
+                    return <button key={key} onClick={()=>setDTab(key)} style={{ background:'transparent', border:'none', borderBottom:active?'2px solid #f97316':'2px solid transparent', color:active?'#f97316':'#8892a4', fontWeight:700, fontSize:'0.8rem', padding:'0.4rem 0.8rem', cursor:'pointer', marginBottom:'-1.5px', fontFamily:'Manrope,sans-serif' }}>{label}</button>;
+                  })}
+                </div>
+                {dTab==='tests' && (detail.tests||[]).map((t,i)=>(
+                  <div key={i} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0.5rem 0.5rem', borderBottom:'1px solid #f1f3f7', fontSize:'0.82rem', gap:'1rem' }}>
+                    <span style={{ color:'#0f1218', fontWeight:600, flex:1 }}>{t.test_name}<span style={{ color:'#8892a4', fontWeight:400 }}> · {t.doctor||'No doctor'}</span></span>
+                    <span style={{ color:'#475569', fontWeight:700 }}>{money(t.price)}</span>
+                    {t.result_id ? <button onClick={()=>openReportPdf(t.result_id)} style={{ background:'rgba(249,115,22,0.1)', color:'#f97316', border:'1px solid rgba(249,115,22,0.3)', borderRadius:'7px', padding:'0.3rem 0.7rem', fontWeight:700, cursor:'pointer', fontSize:'0.72rem', whiteSpace:'nowrap' }}>📄 PDF</button> : <span style={{ color:'#c4cad6', fontSize:'0.7rem' }}>No report</span>}
+                  </div>
+                ))}
+                {dTab==='payments' && (detail.payment_history||[]).map((ph,i)=>{
+                  const col = ph.status==='success'?'#16a34a':(['failed','timeout','cancelled'].includes(ph.status))?'#dc2626':'#b45309';
+                  return <div key={i} style={{ display:'flex', justifyContent:'space-between', padding:'0.45rem 0.5rem', borderBottom:'1px solid #f1f3f7', fontSize:'0.8rem', gap:'1rem' }}>
+                    <div style={{ flex:1 }}><span style={{ minWidth:'58px', display:'inline-block', fontWeight:800, color:col, textTransform:'uppercase', fontSize:'0.62rem' }}>{ph.status}</span><span style={{ color:'#0f1218', fontWeight:600 }}>{ph.method||ph.kind}</span><span style={{ color:'#475569' }}> · {money(ph.amount)}</span>{ph.error && <div style={{ color:'#dc2626', fontSize:'0.7rem' }}>{ph.error.slice(0,90)}</div>}</div>
+                    <span style={{ color:'#8892a4', fontSize:'0.72rem', whiteSpace:'nowrap' }}>{fmt(ph.at)}</span>
+                  </div>;
+                })}
+                {dTab==='history' && ((detail.clinical_history||[]).length===0
+                  ? <div style={{ color:'#8892a4', fontSize:'0.8rem', padding:'0.5rem' }}>No history requests.</div>
+                  : (detail.clinical_history||[]).map((h,i)=>(
+                    <div key={i} style={{ padding:'0.5rem 0.8rem', marginBottom:'0.4rem', borderRadius:'8px', fontSize:'0.8rem', background: h.status==='answered'?'rgba(22,163,74,0.06)':'rgba(245,158,11,0.06)' }}>
+                      <span style={{ fontWeight:700, color: h.status==='answered'?'#16a34a':'#b45309' }}>{(h.asked_for||[]).join(', ')||'History request'}</span>
+                      {h.note && <span style={{ color:'#475569' }}> — asked: {h.note}</span>}
+                      {h.answer && <div style={{ color:'#0f1218', marginTop:'0.2rem' }}><strong>Answer:</strong> {h.answer}</div>}
+                    </div>
+                  )))}
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -204,6 +204,28 @@ def sample_details(
 
 
 # ============================================================ DASHBOARD (revenue)
+def _norm_method(raw: Optional[str]) -> str:
+    """Map stored payment methods to canonical buckets: CASH / UPI / CARD / CREDIT / ONLINE."""
+    m = (raw or "").strip().lower()
+    if m in ("cash",): return "CASH"
+    if m in ("upi", "gpay", "googlepay", "phonepe", "paytm", "bhim", "qr"): return "UPI"
+    if m in ("card", "credit_card", "debit_card", "creditcard", "debitcard"): return "CARD"
+    if m in ("credit", "due", "outstanding"): return "CREDIT"
+    if m in ("netbanking", "net_banking", "online", "razorpay", "wallet"): return "ONLINE"
+    if not m: return "CASH"          # blank mode on a manual payment = cash
+    return m.upper()
+
+
+@router.get("/patient-detail/{patient_id}")
+def patient_detail(patient_id: int, db: Session = Depends(get_db),
+                   user: User = Depends(get_current_user)):
+    """Full drill-down for one patient: tests, payment history, clinical history.
+    Reuses the same assembly as /sample-details for a single patient."""
+    res = sample_details(patient_id=str(patient_id), db=db, user=user)
+    rows = res.get("rows", [])
+    return rows[0] if rows else None
+
+
 @router.get("/dashboard")
 def dashboard(
     franchise_id: Optional[int] = None,
@@ -246,16 +268,14 @@ def dashboard(
 
     # payment-method split from successful payments + transactions
     bill_ids = [b.id for b in bills]
+    # payment-method split from RECEIVED payments only (Payment table is the source of
+    # truth for money received; payment_transactions is the attempt log and would
+    # double-count online payments that also land in Payment).
     method_tot = {}
     if bill_ids:
         for pay in db.query(Payment).filter(Payment.bill_id.in_(bill_ids)).all():
-            m = (getattr(pay, "mode", None) or "other").upper()
+            m = _norm_method(getattr(pay, "mode", None))
             method_tot[m] = method_tot.get(m, 0.0) + (getattr(pay, "amount", 0.0) or 0.0)
-        for t in (db.query(PaymentTransaction)
-                    .filter(PaymentTransaction.bill_id.in_(bill_ids),
-                            PaymentTransaction.status == "success").all()):
-            m = (t.method or "online").upper()
-            method_tot[m] = method_tot.get(m, 0.0) + (t.amount or 0.0)
     methods = [{"method": k, "amount": round(v, 2)} for k, v in sorted(method_tot.items(), key=lambda x: -x[1])]
 
     # franchise breakdown
@@ -277,11 +297,19 @@ def dashboard(
         s["billed"] = round(s["billed"], 2); s["collected"] = round(s["collected"], 2); s["credit"] = round(s["credit"], 2)
     breakdown = sorted(fr_break.values(), key=lambda x: -x["billed"])
 
-    # recent bills list
+    # recent bills list (with patient id + barcode for drill-down)
+    rb_pids = {b.patient_id for b in bills[:30] if b.patient_id}
+    pat_map = {}
+    if rb_pids:
+        for pt in db.query(Patient).filter(Patient.id.in_(rb_pids)).all():
+            pat_map[pt.id] = {"barcode": pt.barcode, "patient_name": pt.patient_name}
     recent = [{
         "bill_no": b.bill_no, "company": (fr_names.get(b.organization_id) if b.organization_id else "Direct / Walk-in"),
         "status": b.status, "total": round(b.total or 0.0, 2), "paid": round(b.paid or 0.0, 2),
         "created_at": b.created_at,
+        "patient_id": b.patient_id,
+        "barcode": pat_map.get(b.patient_id, {}).get("barcode"),
+        "patient_name": pat_map.get(b.patient_id, {}).get("patient_name"),
     } for b in bills[:30]]
 
     return {
