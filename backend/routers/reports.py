@@ -188,20 +188,20 @@ def validate_report(patient_id: int, request: Request,
     # only the assigned doctor (or admin) can validate
     if user.role not in ADMIN_ROLES and p.assigned_doctor_id not in (None, user.id):
         raise HTTPException(403, "not your assigned report")
-    # immutable once reported/validated
-    if p.status == "reported" or p.validated_by is not None:
-        raise HTTPException(400, "report already validated — cannot change")
-    if p.status != "tested":
-        raise HTTPException(400, f"can only validate a 'tested' report (current: {p.status})")
+    # history must be resolved before validating
     if p.needs_history:
         raise HTTPException(400, "history is pending — fill it before validating")
+    # re-validation is allowed: re-stamp validator + timestamp each time
+    was_reported = (p.status == "reported")
     p.status = "reported"
     p.validated_by = user.id
     p.validated_at = datetime.utcnow()
     db.commit()
-    write_audit(db, action="validate", user=user, entity="patient", entity_id=p.id,
+    write_audit(db, action=("revalidate" if was_reported else "validate"),
+                user=user, entity="patient", entity_id=p.id,
                 after={"status": "reported"}, ip=_ip(request))
-    return {"ok": True, "status": p.status, "validated_at": p.validated_at}
+    return {"ok": True, "status": p.status, "validated_at": p.validated_at,
+            "revalidated": was_reported}
 
 
 # ------------------------------------------------------------------ need more history
