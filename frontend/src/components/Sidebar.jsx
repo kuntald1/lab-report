@@ -20,6 +20,7 @@ const nav = [
   { id:'reportvalidate', icon:'🩺', label:'Report Validate',  section:'reports', who:'doctor' },
   { id:'validatehistory', icon:'📋', label:'Validate History', section:'reports', who:'doctor' },
   { id:'historyneeded', icon:'📥', label:'History Needed', section:'reports', who:'lab' },
+  { id:'samplereport', icon:'📊', label:'Sample Report', section:'reports', who:'lab' },
 ];
 
 export default function Sidebar({ current, onChange, counts = {}, user = null, onLogout = () => {} }) {
