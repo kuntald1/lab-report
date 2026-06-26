@@ -30,7 +30,7 @@ export default function ReportValidate() {
     setLoading(true);
     authedFetch('/reports/pending').then(r=>r.ok?r.json():[]).then(d=>{ setRows(d); setLoading(false); }).catch(()=>setLoading(false));
   };
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); const t = setInterval(load, 12000); return () => clearInterval(t); }, []);
 
   const open = (p) => {
     setMode('view'); setChecks({}); setNote('');
@@ -106,7 +106,7 @@ export default function ReportValidate() {
             {rows.length === 0 && <tr><td colSpan={7} style={{ textAlign:'center', padding:'3rem', color:'#8892a4' }}>{loading?'Loading…':'No reports pending validation.'}</td></tr>}
             {rows.map(p => (
               <tr key={p.id} style={{ borderBottom:'1px solid #f4f6fa' }} onMouseEnter={e=>e.currentTarget.style.background='#fafbfc'} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
-                <td style={{ padding:'0.8rem 1.1rem', fontFamily:'monospace', fontWeight:700, color:'#6366f1', fontSize:'0.8rem' }}>{p.barcode}</td>
+                <td style={{ padding:'0.8rem 1.1rem', fontFamily:'monospace', fontWeight:700, color:'#6366f1', fontSize:'0.8rem', cursor:'pointer', textDecoration:'underline' }} onClick={()=>open(p)}>{p.barcode}</td>
                 <td style={{ padding:'0.8rem 1.1rem', fontWeight:600, color:'#0f1218', fontSize:'0.85rem' }}>{p.patient_name}</td>
                 <td style={{ padding:'0.8rem 1.1rem', color:'#8892a4', fontSize:'0.82rem' }}>{p.age||'—'} / {p.gender||'—'}</td>
                 <td style={{ padding:'0.8rem 1.1rem', color:'#475569', fontSize:'0.82rem' }}>{p.sample_type||'—'}</td>
@@ -133,10 +133,11 @@ export default function ReportValidate() {
               <button onClick={()=>setDetail(null)} style={{ border:'none', background:'transparent', fontSize:'1.4rem', color:'#c4cad6', cursor:'pointer' }}>×</button>
             </div>
 
-            {/* filled history, if any */}
-            {detail.clinical_history && (
-              <div style={{ background:'rgba(22,163,74,0.06)', border:'1px solid rgba(22,163,74,0.2)', borderRadius:'10px', padding:'0.8rem 1rem', marginBottom:'1rem', fontSize:'0.82rem' }}>
-                <strong style={{ color:'#16a34a' }}>Clinical history:</strong> {detail.clinical_history}
+            {/* history trail: every request the doctor raised, latest on top, collapsible */}
+            {detail.history_trail && detail.history_trail.length > 0 && (
+              <div style={{ marginBottom:'1rem' }}>
+                <div style={{ fontWeight:800, color:'#0f1218', marginBottom:'0.5rem', fontFamily:'Manrope,sans-serif', fontSize:'0.9rem' }}>History Information</div>
+                {detail.history_trail.map((h) => <HistoryItem key={h.id} h={h} />)}
               </div>
             )}
 
@@ -234,6 +235,43 @@ function ResultPreview({ data }) {
           })}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+// One history request in the trail — collapsible. Shows what was asked + the answer.
+function HistoryItem({ h }) {
+  const [open, setOpen] = useState(false);
+  const fmt = (d) => d ? new Date(d).toLocaleString('en-IN', { dateStyle:'medium', timeStyle:'short' }) : '';
+  const answered = h.status === 'answered';
+  const asked = (h.asked_for || []).join(', ');
+  return (
+    <div style={{ border:'1px solid #eef1f6', borderRadius:'10px', marginBottom:'0.5rem', overflow:'hidden' }}>
+      <div onClick={()=>setOpen(o=>!o)} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0.6rem 0.85rem', cursor:'pointer', background: answered ? 'rgba(22,163,74,0.05)' : 'rgba(245,158,11,0.06)' }}>
+        <div style={{ display:'flex', alignItems:'center', gap:'0.6rem', minWidth:0 }}>
+          <span style={{ fontSize:'0.7rem' }}>{open ? '▾' : '▸'}</span>
+          <span style={{ fontWeight:700, color:'#0f1218', fontSize:'0.82rem' }}>{asked || 'History request'}</span>
+          <span style={{ fontSize:'0.62rem', fontWeight:700, padding:'0.1rem 0.5rem', borderRadius:'100px', textTransform:'uppercase', letterSpacing:'0.04em',
+            background: answered ? 'rgba(22,163,74,0.15)' : 'rgba(245,158,11,0.18)', color: answered ? '#16a34a' : '#b45309' }}>{answered ? 'Answered' : 'Open'}</span>
+        </div>
+        <span style={{ color:'#8892a4', fontSize:'0.7rem', whiteSpace:'nowrap' }}>{fmt(h.created_at)}</span>
+      </div>
+      {open && (
+        <div style={{ padding:'0.7rem 0.95rem', fontSize:'0.8rem', color:'#475569', borderTop:'1px solid #f4f6fa' }}>
+          {h.note && <div style={{ marginBottom:'0.5rem' }}><strong style={{ color:'#0f1218' }}>Doctor asked:</strong> {h.note}</div>}
+          {answered ? (
+            <div style={{ background:'rgba(22,163,74,0.06)', borderRadius:'8px', padding:'0.6rem 0.8rem' }}>
+              <strong style={{ color:'#16a34a' }}>Answer:</strong> {h.answer || '—'}
+              {h.answer_checklist && h.answer_checklist.length > 0 && (
+                <div style={{ marginTop:'0.3rem', color:'#475569' }}>Confirmed: {h.answer_checklist.join(', ')}</div>
+              )}
+              {h.answered_at && <div style={{ color:'#8892a4', fontSize:'0.72rem', marginTop:'0.3rem' }}>Answered {fmt(h.answered_at)}</div>}
+            </div>
+          ) : (
+            <div style={{ color:'#b45309' }}>Waiting for lab to provide history…</div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

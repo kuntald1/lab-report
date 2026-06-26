@@ -28,7 +28,7 @@ export default function HistoryNeeded() {
     setLoading(true);
     authedFetch('/reports/queue/history-needed').then(r=>r.ok?r.json():[]).then(d=>{ setRows(d); setLoading(false); }).catch(()=>setLoading(false));
   };
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); const t = setInterval(load, 12000); return () => clearInterval(t); }, []);
 
   const open = (p) => {
     setDetail(p); setAnswer(''); 
@@ -81,7 +81,7 @@ export default function HistoryNeeded() {
               const asked = p.request?.checklist ? Object.keys(p.request.checklist).filter(k=>p.request.checklist[k]) : [];
               return (
                 <tr key={p.id} style={{ borderBottom:'1px solid #f4f6fa' }}>
-                  <td style={{ padding:'0.8rem 1.1rem', fontFamily:'monospace', fontWeight:700, color:'#b45309', fontSize:'0.8rem' }}>{p.barcode}</td>
+                  <td style={{ padding:'0.8rem 1.1rem', fontFamily:'monospace', fontWeight:700, color:'#b45309', fontSize:'0.8rem', cursor:'pointer', textDecoration:'underline' }} onClick={()=>open(p)}>{p.barcode}</td>
                   <td style={{ padding:'0.8rem 1.1rem', fontWeight:600, color:'#0f1218', fontSize:'0.85rem' }}>{p.patient_name}</td>
                   <td style={{ padding:'0.8rem 1.1rem', color:'#475569', fontSize:'0.8rem' }}>
                     {asked.length ? asked.join(', ') : '—'}

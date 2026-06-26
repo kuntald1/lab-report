@@ -129,6 +129,27 @@ def report_bundle(patient_id: int, db: Session = Depends(get_db),
                   .filter(HistoryRequest.patient_id == patient_id,
                           HistoryRequest.status == "open")
                   .order_by(HistoryRequest.id.desc()).first())
+    # full history trail: every request the doctor(s) raised, latest first
+    all_reqs = (db.query(HistoryRequest)
+                  .filter(HistoryRequest.patient_id == patient_id)
+                  .order_by(HistoryRequest.id.desc()).all())
+
+    def _asked(req):
+        if req.checklist:
+            return [k for k, v in req.checklist.items() if v]
+        return []
+
+    history_trail = [{
+        "id": r.id,
+        "asked_for": _asked(r),
+        "note": r.note,
+        "status": r.status,                      # open | answered
+        "answer": r.answer,
+        "answer_checklist": ([k for k, v in (r.answer_checklist or {}).items() if v]),
+        "created_at": r.created_at,
+        "answered_at": r.answered_at,
+    } for r in all_reqs]
+
     d = _patient_brief(p)
     d.update({
         "doctor_name": p.doctor_name,
@@ -139,6 +160,7 @@ def report_bundle(patient_id: int, db: Session = Depends(get_db),
                      "status": r.status, "created_at": r.created_at} for r in results],
         "open_history_request": ({"id": open_req.id, "note": open_req.note,
                                   "checklist": open_req.checklist} if open_req else None),
+        "history_trail": history_trail,
     })
     return d
 
