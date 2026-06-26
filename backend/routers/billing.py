@@ -196,8 +196,39 @@ def get_bill(bill_id: int, db: Session = Depends(get_db), scope: Scope = Depends
     return _bill_dict(db, b)
 
 
-# ----------------------------------------------------------------- payments
-class PaymentIn(BaseModel):
+# ----------------------------------------------------------------- update discount
+class DiscountIn(BaseModel):
+    discount_type: Optional[str] = None     # 'flat' | 'percent' | None
+    discount_value: float = 0.0
+
+
+@router.put("/bills/{bill_id}/discount")
+def update_discount(bill_id: int, payload: DiscountIn, request: Request,
+                    db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    if user.role not in ADMIN_ROLES:
+        raise HTTPException(403, "discount is admin-only")
+    bill = db.query(Bill).filter(Bill.id == bill_id).first()
+    if not bill:
+        raise HTTPException(404, "bill not found")
+    if (bill.paid or 0) > 0:
+        raise HTTPException(400, "cannot change discount after payment started")
+
+    subtotal = bill.subtotal or 0.0
+    d_type = payload.discount_type or None
+    d_value = payload.discount_value or 0.0
+    d_amount = 0.0
+    if d_type == "flat":
+        d_amount = min(d_value, subtotal)
+    elif d_type == "percent":
+        d_amount = round(subtotal * (d_value / 100.0), 2)
+    bill.discount_type = d_type
+    bill.discount_value = d_value
+    bill.discount_amount = d_amount
+    bill.total = round(subtotal - d_amount, 2)
+    db.commit()
+    write_audit(db, action="discount", user=user, entity="bill", entity_id=bill.id,
+                after={"type": d_type, "value": d_value, "amount": d_amount, "total": bill.total}, ip=_ip(request))
+    return _bill_dict(db, bill)
     method: str                    # cash | upi | razorpay | credit
     amount: float
     rzp_order_id: Optional[str] = None

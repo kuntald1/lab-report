@@ -18,6 +18,9 @@ export default function Bills() {
   const [detail, setDetail]     = useState(null);     // bill open in modal
   const [payAmt, setPayAmt]     = useState('');
   const [payMethod, setPayMethod] = useState('cash');
+  const [discType, setDiscType] = useState('');
+  const [discVal, setDiscVal]   = useState('');
+  const [discBusy, setDiscBusy] = useState(false);
   const [waNumber, setWaNumber] = useState('');
   const [waLink, setWaLink]     = useState(true);
   const [waSending, setWaSending] = useState(false);
@@ -76,7 +79,22 @@ export default function Bills() {
     authedFetch('/admin/branches').then(r=>r.ok?r.json():[]).then(setBranches).catch(()=>{});
   }, []);   // eslint-disable-line
 
-  const openBill = (b) => { setDetail(b); setPayAmt(String(Math.max(0,(b.total||0)-(b.paid||0)))); setPayMethod('cash'); setWaNumber(b.phone||''); setWaLink(true); };
+  const openBill = (b) => { setDetail(b); setPayAmt(String(Math.max(0,(b.total||0)-(b.paid||0)))); setPayMethod('cash'); setWaNumber(b.phone||''); setWaLink(true); setDiscType(b.discount_type||''); setDiscVal(b.discount_value?String(b.discount_value):''); };
+
+  const applyDiscount = async () => {
+    if (!detail) return;
+    setDiscBusy(true);
+    try {
+      const res = await authedFetch(`/billing/bills/${detail.id}/discount`, { method:'PUT',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ discount_type: discType || null, discount_value: Number(discVal)||0 }) });
+      if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.detail||'failed'); }
+      const updated = await res.json();
+      setDetail(updated); setPayAmt(String(Math.max(0,(updated.total||0)-(updated.paid||0)))); load();
+      showToast('success', 'Discount applied');
+    } catch (e) { showToast('error', String(e.message||'Discount failed')); }
+    setDiscBusy(false);
+  };
 
   const sendWhatsApp = async () => {
     if (!detail) return;
@@ -250,7 +268,7 @@ export default function Bills() {
                   <td style={{ padding:'0.8rem 1.1rem' }}>
                     <div style={{ display:'flex', gap:'0.35rem' }}>
                       <button title="View / Pay" onClick={()=>openBill(b)} style={iconBtn('#2563eb')}>👁</button>
-                      <button title="Download PDF" onClick={()=>downloadPdf(b)} style={iconBtn('#f97316')}>⬇</button>
+                      <button title="Download Receipt" onClick={()=>downloadReceipt(b)} style={iconBtn('#f97316')}>⬇</button>
                     </div>
                   </td>
                 </tr>
@@ -293,6 +311,22 @@ export default function Bills() {
             {detail.payments?.length > 0 && (
               <div style={{ marginTop:'0.8rem', fontSize:'0.78rem', color:'#8892a4' }}>
                 Payments: {detail.payments.map(p=>`${p.method} ${inr(p.amount)}`).join(' · ')}
+              </div>
+            )}
+
+            {/* discount (admin, only before any payment) */}
+            {(detail.paid||0) <= 0 && detail.status !== 'credit' && (
+              <div style={{ marginTop:'1rem', paddingTop:'1rem', borderTop:'1px dashed #e8ecf4' }}>
+                <label style={lbl}>Discount (admin only)</label>
+                <div style={{ display:'flex', gap:'0.5rem' }}>
+                  <select style={{ ...inp, width:'130px' }} value={discType} onChange={e=>setDiscType(e.target.value)}>
+                    <option value="">No discount</option>
+                    <option value="flat">Flat ₹</option>
+                    <option value="percent">Percent %</option>
+                  </select>
+                  <input style={{ ...inp, width:'110px' }} type="number" disabled={!discType} placeholder={discType==='percent'?'%':'₹'} value={discVal} onChange={e=>setDiscVal(e.target.value)} />
+                  <button onClick={applyDiscount} disabled={discBusy} style={{ background:'#0f1218', color:'#fff', border:'none', borderRadius:'9px', padding:'0.55rem 1.1rem', fontWeight:700, cursor:'pointer', fontFamily:'Manrope,sans-serif', whiteSpace:'nowrap' }}>{discBusy?'…':'Apply'}</button>
+                </div>
               </div>
             )}
 
@@ -343,7 +377,7 @@ export default function Bills() {
               )}
             </div>
 
-            <button onClick={()=>downloadPdf(detail)} style={{ width:'100%', marginTop:'1.2rem', background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', border:'none', borderRadius:'10px', padding:'0.7rem', fontWeight:700, cursor:'pointer', fontFamily:'Manrope,sans-serif' }}>⬇ Download PDF</button>
+            <button onClick={()=>downloadReceipt(detail)} style={{ width:'100%', marginTop:'1.2rem', background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', border:'none', borderRadius:'10px', padding:'0.7rem', fontWeight:700, cursor:'pointer', fontFamily:'Manrope,sans-serif' }}>⬇ Download Money Receipt</button>
           </div>
         </div>
       )}
