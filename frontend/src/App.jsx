@@ -22,10 +22,15 @@ import ReportValidate from './pages/ReportValidate';
 import ValidateHistory from './pages/ValidateHistory';
 import HistoryNeeded from './pages/HistoryNeeded';
 import HistoryBell from './components/HistoryBell';
+import DoctorBell from './components/DoctorBell';
 
 export default function App() {
   const [authed, setAuthed] = useState(auth.isAuthed());
-  const [page, setPage] = useState('dashboard');
+  const me = auth.user();
+  const role = (me?.role || '').toLowerCase();
+  const isLab = ['super_admin','lab_admin','technician','receptionist'].includes(role);
+  const isDoctor = role === 'pathologist';
+  const [page, setPage] = useState(isDoctor ? 'reportvalidate' : 'dashboard');
   const [billPatientId, setBillPatientId] = useState('');
 
   if (!authed) return <Login onLogin={() => setAuthed(true)} />;
@@ -47,12 +52,16 @@ export default function App() {
           </div>
           <div style={{ display:'flex', alignItems:'center', gap:'0.6rem' }}>
             <div style={{ width:'8px', height:'8px', borderRadius:'50%', background:'#f97316', boxShadow:'0 0 8px rgba(249,115,22,0.6)', animation:'pulse 2s infinite' }}></div>
-            <span style={{ fontSize:'0.72rem', color:'#8892a4', fontWeight:600 }}>All systems operational</span><HistoryBell onOpen={()=>setPage('historyneeded')} />
+            <span style={{ fontSize:'0.72rem', color:'#8892a4', fontWeight:600 }}>All systems operational</span>
+            {isLab    && <HistoryBell onOpen={()=>setPage('historyneeded')} />}
+            {isDoctor && <DoctorBell  onOpen={()=>setPage('reportvalidate')} />}
           </div>
         </div>
         {/* Page content */}
         <div style={{ flex:1, padding:'2rem', maxWidth:'100%' }}>
-          {pages[page] || <Dashboard />}
+          {(isDoctor && !['reportvalidate','validatehistory'].includes(page))
+            ? pages['reportvalidate']
+            : (pages[page] || <Dashboard />)}
         </div>
       </main>
     </div>

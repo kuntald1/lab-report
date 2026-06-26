@@ -54,6 +54,25 @@ def _patient_brief(p: Patient) -> dict:
 
 
 # ------------------------------------------------------------------ doctor queue
+def _pending_query(db: Session, user: User):
+    """Shared filter for a doctor's pending queue (tested + assigned to this doctor).
+    Admins get all tested patients."""
+    q = db.query(Patient).filter(Patient.status == "tested", Patient.is_active.is_(True))
+    q = q.filter(Patient.needs_history.isnot(True))
+    if user.role not in ADMIN_ROLES:
+        by_bill = (db.query(Bill.patient_id)
+                     .join(BillItem, BillItem.bill_id == Bill.id)
+                     .join(TestCatalog, TestCatalog.id == BillItem.test_id)
+                     .filter(TestCatalog.assigned_doctor_id == user.id))
+        by_result = (db.query(LabResult.patient_id)
+                       .join(TestCatalog, TestCatalog.name == LabResult.test_name)
+                       .filter(TestCatalog.assigned_doctor_id == user.id))
+        q = q.filter(or_(Patient.assigned_doctor_id == user.id,
+                         Patient.id.in_(by_bill),
+                         Patient.id.in_(by_result)))
+    return q
+
+
 @router.get("/pending")
 def pending_reports(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     """Patients in 'tested' status whose chosen tests are assigned to this doctor.
@@ -61,29 +80,23 @@ def pending_reports(db: Session = Depends(get_db), user: User = Depends(get_curr
     A patient surfaces for a doctor if ANY of these hold:
       1. patient.assigned_doctor_id == doctor            (direct/manual assignment)
       2. the patient has a BILL ITEM for a test assigned to this doctor
-         (Patient -> Bill -> BillItem.test_id -> TestCatalog.assigned_doctor_id)
-         -- this is the reliable path: tests are chosen when billing.
       3. the patient has a LAB RESULT for a test assigned to this doctor
-         (LabResult.test_name -> TestCatalog.name -> assigned_doctor_id)
     Admins see all tested patients.
     """
-    q = db.query(Patient).filter(Patient.status == "tested", Patient.is_active.is_(True))
-    q = q.filter(Patient.needs_history.isnot(True))
-    if user.role not in ADMIN_ROLES:
-        # (2) patient ids whose bill items are for a test assigned to this doctor
-        by_bill = (db.query(Bill.patient_id)
-                     .join(BillItem, BillItem.bill_id == Bill.id)
-                     .join(TestCatalog, TestCatalog.id == BillItem.test_id)
-                     .filter(TestCatalog.assigned_doctor_id == user.id))
-        # (3) patient ids with a result for a test assigned to this doctor
-        by_result = (db.query(LabResult.patient_id)
-                       .join(TestCatalog, TestCatalog.name == LabResult.test_name)
-                       .filter(TestCatalog.assigned_doctor_id == user.id))
-        q = q.filter(or_(Patient.assigned_doctor_id == user.id,
-                         Patient.id.in_(by_bill),
-                         Patient.id.in_(by_result)))
-    rows = q.order_by(Patient.created_at.desc()).limit(500).all()
+    rows = _pending_query(db, user).order_by(Patient.created_at.desc()).limit(500).all()
     return [_patient_brief(p) for p in rows]
+
+
+@router.get("/notifications/pending")
+def pending_notifications(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Doctor bell: count + list of reports awaiting THIS doctor's validation.
+    Scoped to the logged-in doctor only (same filter as the pending queue),
+    so one doctor never sees another doctor's reports. Non-doctor lab/admin
+    roles can still call it; it just reflects their own pending scope."""
+    rows = _pending_query(db, user).order_by(Patient.created_at.desc()).limit(50).all()
+    return {"count": len(rows),
+            "items": [{"patient_id": p.id, "barcode": p.barcode, "patient_name": p.patient_name}
+                      for p in rows]}
 
 
 @router.get("/validated")
