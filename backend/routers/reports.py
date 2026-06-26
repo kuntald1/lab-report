@@ -19,7 +19,7 @@ Endpoints (mounted under /api/reports):
 """
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
-from sqlalchemy import and_
+from sqlalchemy import and_, or_
 from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime
@@ -29,6 +29,7 @@ from auth.deps import get_current_user, get_scope, Scope
 from auth.audit import write_audit
 from models.org import User, Role, Franchise
 from models.models import Patient, LabResult
+from models.clinical import TestCatalog
 from models.reports import HistoryRequest
 from services.whatsapp import send_whatsapp
 
@@ -52,12 +53,22 @@ def _patient_brief(p: Patient) -> dict:
 # ------------------------------------------------------------------ doctor queue
 @router.get("/pending")
 def pending_reports(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    """Patients in 'tested' status assigned to this doctor (or all, for admins)."""
+    """Patients in 'tested' status whose tests are assigned to this doctor.
+
+    A patient surfaces for a doctor if EITHER:
+      - the patient is directly assigned to the doctor (patient.assigned_doctor_id), OR
+      - the patient has a lab result for a test that is assigned to this doctor in
+        the Tests Catalog (LabResult.test_name -> TestCatalog.name -> assigned_doctor_id).
+    Admins see all tested patients.
+    """
     q = db.query(Patient).filter(Patient.status == "tested", Patient.is_active.is_(True))
-    if user.role not in ADMIN_ROLES:
-        q = q.filter(Patient.assigned_doctor_id == user.id)
-    # don't show ones currently waiting on history
     q = q.filter(Patient.needs_history.isnot(True))
+    if user.role not in ADMIN_ROLES:
+        # patient ids that have a result for a test assigned to this doctor
+        sub = (db.query(LabResult.patient_id)
+                 .join(TestCatalog, TestCatalog.name == LabResult.test_name)
+                 .filter(TestCatalog.assigned_doctor_id == user.id))
+        q = q.filter(or_(Patient.assigned_doctor_id == user.id, Patient.id.in_(sub)))
     rows = q.order_by(Patient.created_at.desc()).limit(500).all()
     return [_patient_brief(p) for p in rows]
 
