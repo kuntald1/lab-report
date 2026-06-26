@@ -20,6 +20,8 @@ import Billing from './pages/Billing';
 import Bills from './pages/Bills';
 import ReportValidate from './pages/ReportValidate';
 import ValidateHistory from './pages/ValidateHistory';
+import HistoryNeeded from './pages/HistoryNeeded';
+import HistoryBell from './components/HistoryBell';
 
 export default function App() {
   const [authed, setAuthed] = useState(auth.isAuthed());
@@ -28,7 +30,7 @@ export default function App() {
 
   if (!authed) return <Login onLogin={() => setAuthed(true)} />;
 
-  const pages = { dashboard:<Dashboard />, devices:<Devices />, patients:<Patients onBill={(id)=>{ setBillPatientId(String(id)); setPage('billing'); }} />, results:<Results />, simulator:<Simulator />, tcp:<TCPLive />, tat:<TAT />, status:<ChangeStatus />,tubes:<SampleTubes />, orggroups:<OrgGroups />, organizations:<Organizations />, pricing:<Pricing />, testscatalog:<TestsCatalog />, users:<Users />, billing:<Billing initialPatientId={billPatientId} />, bills:<Bills />, reportvalidate:<ReportValidate />, validatehistory:<ValidateHistory />  };
+  const pages = { dashboard:<Dashboard />, devices:<Devices />, patients:<Patients onBill={(id)=>{ setBillPatientId(String(id)); setPage('billing'); }} />, results:<Results />, simulator:<Simulator />, tcp:<TCPLive />, tat:<TAT />, status:<ChangeStatus />,tubes:<SampleTubes />, orggroups:<OrgGroups />, organizations:<Organizations />, pricing:<Pricing />, testscatalog:<TestsCatalog />, users:<Users />, billing:<Billing initialPatientId={billPatientId} />, bills:<Bills />, reportvalidate:<ReportValidate />, validatehistory:<ValidateHistory />, historyneeded:<HistoryNeeded />  };
   // sidebar/nav handler: opening "New Bill" from the menu starts fresh (no pre-filled patient)
   const handleNav = (p) => { if (p === 'billing') setBillPatientId(''); setPage(p); };
   const logout = () => { auth.logout(); setAuthed(false); setPage('dashboard'); };
@@ -41,11 +43,11 @@ export default function App() {
           <div style={{ display:'flex', alignItems:'center', gap:'0.5rem', fontSize:'0.78rem', color:'#8892a4' }}>
             <span>Home</span>
             <span style={{ color:'#d1d5db' }}>/</span>
-           <span style={{ color:'#0f1218', fontWeight:600, textTransform:'capitalize' }}>{page === 'tcp' ? 'Live Connect' : page === 'simulator' ? 'Simulator Test' : page === 'tat' ? 'Turnaround Time' : page === 'status' ? 'Change Report Status' : page === 'tubes' ? 'Sample Tubes' : page === 'orggroups' ? 'Organization Groups' : page === 'organizations' ? 'Organizations' : page === 'pricing' ? 'Group / Org Pricing' : page === 'testscatalog' ? 'Tests Catalog' : page === 'users' ? 'Users & Staff' : page === 'billing' ? 'New Bill' : page === 'bills' ? 'Bills' : page}</span>
+           <span style={{ color:'#0f1218', fontWeight:600, textTransform:'capitalize' }}>{page === 'tcp' ? 'Live Connect' : page === 'simulator' ? 'Simulator Test' : page === 'tat' ? 'Turnaround Time' : page === 'status' ? 'Change Report Status' : page === 'tubes' ? 'Sample Tubes' : page === 'orggroups' ? 'Organization Groups' : page === 'organizations' ? 'Organizations' : page === 'pricing' ? 'Group / Org Pricing' : page === 'testscatalog' ? 'Tests Catalog' : page === 'users' ? 'Users & Staff' : page === 'billing' ? 'New Bill' : page === 'bills' ? 'Bills' : page === 'historyneeded' ? 'History Needed' : page}</span>
           </div>
           <div style={{ display:'flex', alignItems:'center', gap:'0.6rem' }}>
             <div style={{ width:'8px', height:'8px', borderRadius:'50%', background:'#f97316', boxShadow:'0 0 8px rgba(249,115,22,0.6)', animation:'pulse 2s infinite' }}></div>
-            <span style={{ fontSize:'0.72rem', color:'#8892a4', fontWeight:600 }}>All systems operational</span>
+            <span style={{ fontSize:'0.72rem', color:'#8892a4', fontWeight:600 }}>All systems operational</span><HistoryBell onOpen={()=>setPage('historyneeded')} />
           </div>
         </div>
         {/* Page content */}

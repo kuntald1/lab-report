@@ -19,6 +19,7 @@ const nav = [
   { id:'tcp',       icon:'🔌', label:'Live Connect',  section:'tools', tag:'PHASE 2' },
   { id:'reportvalidate', icon:'🩺', label:'Report Validate',  section:'reports' },
   { id:'validatehistory', icon:'📋', label:'Validate History', section:'reports' },
+  { id:'historyneeded', icon:'📥', label:'History Needed', section:'reports' },
 ];
 
 export default function Sidebar({ current, onChange, counts = {}, user = null, onLogout = () => {} }) {
