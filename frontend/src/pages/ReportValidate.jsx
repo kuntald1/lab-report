@@ -37,6 +37,18 @@ export default function ReportValidate() {
     authedFetch(`/reports/${p.id}`).then(r=>r.ok?r.json():null).then(setDetail).catch(()=>{});
   };
 
+  // open the same clinical PDF the Results screen uses (/api/results/{result_id}/pdf)
+  const openReportPdf = async (resultId) => {
+    try {
+      const res = await authedFetch(`/results/${resultId}/pdf`);
+      if (!res.ok) throw new Error();
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank');
+      setTimeout(()=>URL.revokeObjectURL(url), 60000);
+    } catch { showToast('error', 'Could not open report PDF'); }
+  };
+
   const validate = async () => {
     if (!detail) return;
     setBusy(true);
@@ -133,9 +145,12 @@ export default function ReportValidate() {
             <div style={{ border:'1px solid #f4f6fa', borderRadius:'10px', overflow:'hidden', marginBottom:'1.2rem' }}>
               {(!detail.results || detail.results.length === 0) && <div style={{ padding:'1rem', color:'#8892a4', fontSize:'0.85rem' }}>No results recorded.</div>}
               {detail.results?.map((r,i) => (
-                <div key={i} style={{ padding:'0.7rem 1rem', borderBottom:'1px solid #f7f8fb' }}>
-                  <div style={{ fontWeight:700, color:'#0f1218', fontSize:'0.85rem' }}>{r.test_name}</div>
-                  <pre style={{ margin:'0.3rem 0 0', fontSize:'0.75rem', color:'#475569', whiteSpace:'pre-wrap', fontFamily:'monospace' }}>{typeof r.parsed_data === 'object' ? JSON.stringify(r.parsed_data, null, 2) : String(r.parsed_data||'')}</pre>
+                <div key={i} style={{ padding:'0.8rem 1rem', borderBottom:'1px solid #f7f8fb' }}>
+                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'0.5rem' }}>
+                    <div style={{ fontWeight:700, color:'#0f1218', fontSize:'0.88rem' }}>{r.test_name}</div>
+                    <button onClick={()=>openReportPdf(r.id)} style={{ background:'rgba(249,115,22,0.1)', color:'#f97316', border:'1px solid rgba(249,115,22,0.3)', borderRadius:'7px', padding:'0.35rem 0.8rem', fontWeight:700, cursor:'pointer', fontSize:'0.74rem', fontFamily:'Manrope,sans-serif', whiteSpace:'nowrap' }}>📄 View Full Report (PDF)</button>
+                  </div>
+                  <ResultPreview data={r.parsed_data} />
                 </div>
               ))}
             </div>
@@ -173,6 +188,52 @@ export default function ReportValidate() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// Render parsed_data in a readable way (handles flat objects, {parameters:[...]}, and arrays)
+function ResultPreview({ data }) {
+  if (data == null) return <div style={{ fontSize:'0.78rem', color:'#8892a4' }}>No parsed values.</div>;
+  if (typeof data !== 'object') return <div style={{ fontSize:'0.82rem', color:'#475569' }}>{String(data)}</div>;
+
+  // common shape: { parameters: [ {name, value, unit, range, flag} ] }
+  const rows = Array.isArray(data) ? data
+    : Array.isArray(data.parameters) ? data.parameters
+    : Object.entries(data).map(([k, v]) => ({ name: k, value: (typeof v === 'object' ? JSON.stringify(v) : v) }));
+
+  const cell = { padding:'0.3rem 0.6rem', fontSize:'0.78rem', borderBottom:'1px solid #f4f6fa' };
+  const flagColor = (f) => /high|↑/i.test(f||'') ? '#dc2626' : /low|↓/i.test(f||'') ? '#2563eb' : '#16a34a';
+
+  return (
+    <div style={{ border:'1px solid #f4f6fa', borderRadius:'8px', overflow:'hidden' }}>
+      <table style={{ width:'100%', borderCollapse:'collapse' }}>
+        <thead>
+          <tr style={{ background:'#fafbfc' }}>
+            {['Parameter','Result','Unit','Range','Flag'].map(h => (
+              <th key={h} style={{ ...cell, textAlign:'left', color:'#8892a4', fontWeight:700, fontSize:'0.66rem', textTransform:'uppercase', letterSpacing:'0.04em' }}>{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r, i) => {
+            const name  = r.name ?? r.parameter ?? r.test ?? '';
+            const value = r.value ?? r.result ?? '';
+            const unit  = r.unit ?? r.units ?? '';
+            const range = r.range ?? r.reference ?? r.ref ?? r.normal_value ?? '';
+            const flag  = r.flag ?? r.status ?? '';
+            return (
+              <tr key={i}>
+                <td style={{ ...cell, color:'#0f1218', fontWeight:600 }}>{name}</td>
+                <td style={{ ...cell, color:'#0f1218', fontWeight:700 }}>{String(value)}</td>
+                <td style={{ ...cell, color:'#8892a4' }}>{unit}</td>
+                <td style={{ ...cell, color:'#8892a4' }}>{range}</td>
+                <td style={{ ...cell, color:flagColor(flag), fontWeight:700 }}>{flag}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }
