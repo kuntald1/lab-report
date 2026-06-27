@@ -1,25 +1,23 @@
 """
-ABDM worker — processes pending outbox jobs (step 3, the linking).
+ABDM worker — drains pending outbox jobs and links care contexts (v3, per-tenant).
 
-Run it on a schedule (cron / APScheduler / a loop). It is safe to run repeatedly:
-jobs are claimed by flipping status to 'linking', and the gateway link is async-
-confirmed via the callback router, which flips 'linking' -> 'linked'.
+Each job carries the patient's tenant_id. The worker resolves that tenant's HIP
+facility, looks up a stored link token (from scan-and-share) if present, and
+calls the v3 link. Safe to run repeatedly: a job is claimed by flipping to
+'linking'; the on-link callback flips 'linking' -> 'linked'.
 
-Until ABDM credentials are configured, process_outbox() builds the FHIR bundle
-(fully working) and then stops at the gateway call with a clear 'not configured'
-note recorded on the job — so you can see the pipeline working end-to-end offline.
+Until ABDM credentials AND a facility mapping exist, the bundle is still built
+(works offline) and the job is left 'pending' with a clear note — so the whole
+pipeline is visible end-to-end before go-live.
 """
-from models.abdm import AbdmOutbox, AbdmLink
+from models.abdm import AbdmOutbox, AbdmLink, AbdmLinkToken
 from models.models import Patient, LabResult
 from services.abdm import gateway
+from services.abdm.facility import hip_for_tenant
 from services.abdm.fhir_builder import build_diagnostic_report_bundle
-
-# your lab identity for the FHIR Organization (move to env/config later)
-LAB_ORG = {"name": "Vorpet Diagnostics", "hfr_id": gateway.ABDM_HIP_ID or None}
 
 
 def _latest_parameters(db, barcode: str) -> list:
-    """Flatten parsed_data['parameters'] from this barcode's results."""
     rows = (db.query(LabResult)
               .filter(LabResult.barcode == barcode)
               .order_by(LabResult.created_at.desc()).all())
@@ -30,18 +28,29 @@ def _latest_parameters(db, barcode: str) -> list:
     return params
 
 
-def build_bundle_for(db, patient: Patient) -> dict:
-    """Pure-ish: assemble the FHIR document bundle for a patient's results."""
+def build_bundle_for(db, patient: Patient, hip_name: str | None = None) -> dict:
     params = _latest_parameters(db, patient.barcode)
     return build_diagnostic_report_bundle(
         patient={"id": patient.id, "name": patient.patient_name,
                  "gender": patient.gender, "barcode": patient.barcode,
                  "abha_number": patient.abha_number},
         parameters=params,
-        lab=LAB_ORG,
+        lab={"name": hip_name or "Vorpet Diagnostics", "hfr_id": None},
         practitioner={"name": patient.doctor_name} if patient.doctor_name else None,
         report_title=f"Lab Report — {patient.barcode}",
     )
+
+
+def _abha_address(patient: Patient, db, hip_id: str) -> str | None:
+    """Prefer a stored ABHA address (from scan-and-share); fall back to number."""
+    if patient.abha_number:
+        tok = (db.query(AbdmLinkToken)
+                 .filter(AbdmLinkToken.hip_id == hip_id,
+                         AbdmLinkToken.abha_number == patient.abha_number)
+                 .first())
+        if tok:
+            return tok.abha_address
+    return getattr(patient, "abha_address", None)
 
 
 def process_outbox(db, limit: int = 20) -> dict:
@@ -56,17 +65,30 @@ def process_outbox(db, limit: int = 20) -> dict:
             job.status = "failed"; job.last_error = "no patient / no ABHA"; failed += 1
             db.commit(); continue
 
+        # Resolve THIS tenant's facility. No mapping => tenant not ABDM-enabled.
+        fac = hip_for_tenant(db, job.tenant_id)
+
         job.status = "linking"; job.attempts += 1; db.commit()
         try:
-            bundle = build_bundle_for(db, patient)  # works offline ✓
-            if not gateway.is_configured():
-                job.status = "pending"      # leave it queued for when creds arrive
-                job.last_error = "ABDM not configured — bundle built OK, awaiting credentials"
+            bundle = build_bundle_for(db, patient, fac.hip_name if fac else None)  # offline ✓
+
+            if not gateway.is_configured() or fac is None:
+                why = ("ABDM not configured" if not gateway.is_configured()
+                       else f"tenant {job.tenant_id} has no abdm_facilities mapping")
+                job.status = "pending"
+                job.last_error = f"bundle built OK — awaiting: {why}"
                 skipped += 1; db.commit(); continue
 
-            care_ctx = {"referenceNumber": patient.barcode,
-                        "display": f"Lab report — {patient.barcode}"}
-            res = gateway.link_care_context(patient.abha_number, care_ctx)
+            abha_address = _abha_address(patient, db, fac.hip_id)
+            care_ctx = [{"referenceNumber": patient.barcode,
+                         "display": f"Lab report — {patient.barcode}"}]
+            res = gateway.link_care_contexts(
+                hip_id=fac.hip_id,
+                abha_address=abha_address or patient.abha_number,
+                patient_reference=str(patient.id),
+                patient_display=patient.patient_name,
+                care_contexts=care_ctx,
+            )
             ref = (res or {}).get("careContextReference", patient.barcode)
 
             db.add(AbdmLink(patient_id=patient.id, barcode=patient.barcode,
@@ -78,4 +100,4 @@ def process_outbox(db, limit: int = 20) -> dict:
             job.status = "failed"; job.last_error = str(e)[:500]; failed += 1
             db.commit()
 
-    return {"linked": done, "awaiting_credentials": skipped, "failed": failed}
+    return {"linked": done, "awaiting": skipped, "failed": failed}
