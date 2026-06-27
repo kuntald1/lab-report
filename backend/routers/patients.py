@@ -25,6 +25,8 @@ class PatientCreate(BaseModel):
     branch_id:               Optional[int] = None
     registered_franchise_id: Optional[int] = None
     organization_id:         Optional[int] = None   # B2B link; NULL = Direct/walk-in
+    clinical_history:        Optional[str]  = None   # free-text note captured at registration
+    history_checklist:       Optional[dict] = None   # {diabetic, fasting, on_medication, pregnant, hypertension}
 
 
 class PatientUpdate(BaseModel):
@@ -39,6 +41,8 @@ class PatientUpdate(BaseModel):
     branch_id:               Optional[int] = None
     registered_franchise_id: Optional[int] = None
     organization_id:         Optional[int] = None
+    clinical_history:        Optional[str]  = None
+    history_checklist:       Optional[dict] = None
 
 
 def generate_barcode():
@@ -62,6 +66,8 @@ def _serialize(p: Patient) -> dict:
         "tenant_id": p.tenant_id, "branch_id": p.branch_id,
         "registered_franchise_id": p.registered_franchise_id,
         "organization_id": p.organization_id, "created_at": p.created_at,
+        "clinical_history": p.clinical_history, "history_checklist": p.history_checklist,
+        "needs_history": p.needs_history,
     }
 
 
@@ -94,6 +100,8 @@ def create_patient(patient: PatientCreate, request: Request,
                                  if patient.registered_franchise_id is not None
                                  else user.franchise_id),
         organization_id=patient.organization_id,
+        clinical_history=patient.clinical_history,
+        history_checklist=patient.history_checklist,
         is_active=True,
     )
     db.add(db_patient)

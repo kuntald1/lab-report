@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { authedFetch } from '../services/auth';
+import { authedFetch, auth } from '../services/auth';
 
 const statusColor = { collected:'#0ea5e9', dispatched:'#6366f1', received:'#8b5cf6', tested:'#f59e0b', validated:'#16a34a', reported:'#0f766e' };
 
@@ -10,7 +10,16 @@ const S   = { card: { background:'#fff', border:'1px solid #e8ecf4', borderRadiu
 const sampleColor = { Blood:'#fff1ee', Serum:'#eff6ff', Urine:'#fefce8', Plasma:'#fdf4ff', Sodium:'#f0fdf4', Potassium:'#fef9c3', Electrolyte:'#f0fdf4' };
 const sampleText  = { Blood:'#c2410c', Serum:'#1d4ed8', Urine:'#854d0e', Plasma:'#7e22ce', Sodium:'#16a34a', Potassium:'#854d0e', Electrolyte:'#16a34a' };
 
-const BLANK = { patient_name:'', age:'', gender:'Male', doctor_name:'', sample_type:'Blood', barcode:'', abha_number:'', phone:'', branch_id:'', registered_franchise_id:'', organization_id:'' };
+// the five quick-history flags captured at registration
+const HISTORY_ITEMS = [
+  { key:'diabetic',     label:'Diabetic?' },
+  { key:'fasting',      label:'Fasting sample?' },
+  { key:'on_medication',label:'On medication?' },
+  { key:'pregnant',     label:'Pregnant?' },
+  { key:'hypertension', label:'Hypertension?' },
+];
+
+const BLANK = { patient_name:'', age:'', gender:'Male', doctor_name:'', sample_type:'Blood', barcode:'', abha_number:'', phone:'', branch_id:'', registered_franchise_id:'', organization_id:'', clinical_history:'', history_checklist:{} };
 
 // pretty-print a 14-digit ABHA as XX-XXXX-XXXX-XXXX
 const fmtAbha = (n) => {
@@ -28,6 +37,12 @@ export default function Patients({ onBill = () => {} }) {
   const [editingId, setEditingId] = useState(null);   // null = create mode
   const [form, setForm]           = useState(BLANK);
 
+  // logged-in user — a franchise user is locked to their own franchise
+  const me              = auth.user();
+  const myRole          = (me?.role || '').toLowerCase();
+  const isFranchiseUser = myRole === 'franchise';
+  const myFranchiseId   = me?.franchise_id ?? '';
+
   const load = () => authedFetch('/patients/').then(r=>r.json()).then(setPatients).catch(()=>{});
   useEffect(() => {
     load();
@@ -38,7 +53,13 @@ export default function Patients({ onBill = () => {} }) {
   const branchName    = (id) => branches.find(b=>b.id===id)?.name || (id ? `Branch ${id}` : '—');
   const franchiseName = (id) => franchises.find(f=>f.id===id)?.name || (id ? `Franchise ${id}` : '—');
 
-  const openCreate = () => { setEditingId(null); setForm(BLANK); setShowForm(true); };
+  const openCreate = () => {
+    setEditingId(null);
+    setForm({ ...BLANK, history_checklist:{},
+      registered_franchise_id: isFranchiseUser ? String(myFranchiseId) : '',
+      organization_id:         isFranchiseUser ? String(myFranchiseId) : '' });
+    setShowForm(true);
+  };
   const startEdit  = (p) => {
     setEditingId(p.id);
     setForm({
@@ -48,14 +69,19 @@ export default function Patients({ onBill = () => {} }) {
       phone: p.phone || '',
       branch_id: p.branch_id ?? '', registered_franchise_id: p.registered_franchise_id ?? '',
       organization_id: p.organization_id ?? '',
+      clinical_history: p.clinical_history || '',
+      history_checklist: p.history_checklist || {},
     });
     setShowForm(true);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const submit = async () => {
+  const submit = async (thenBill = false) => {
     if (!form.patient_name) return alert('Patient name required');
     setSaving(true);
+    // only send the checklist if anything was ticked; keep note as-is
+    const checklist = Object.fromEntries(
+      Object.entries(form.history_checklist || {}).filter(([, v]) => v));
     const payload = {
       patient_name: form.patient_name,
       age: form.age ? parseInt(form.age) : null,
@@ -67,15 +93,23 @@ export default function Patients({ onBill = () => {} }) {
       branch_id: form.branch_id ? parseInt(form.branch_id) : null,
       registered_franchise_id: form.registered_franchise_id ? parseInt(form.registered_franchise_id) : null,
       organization_id: form.organization_id ? parseInt(form.organization_id) : null,
+      clinical_history: form.clinical_history || null,
+      history_checklist: Object.keys(checklist).length ? checklist : null,
     };
     try {
       if (editingId) {
         await authedFetch(`/patients/${editingId}`, { method:'PUT',
           headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
       } else {
-        await authedFetch('/patients/', { method:'POST',
+        const res = await authedFetch('/patients/', { method:'POST',
           headers:{'Content-Type':'application/json'},
           body: JSON.stringify({ ...payload, barcode: form.barcode || undefined }) });
+        if (!res.ok) throw new Error('save failed');
+        const created = await res.json();          // has the new patient id
+        setForm(BLANK); setEditingId(null); setShowForm(false); setSaving(false);
+        load();
+        if (thenBill && created?.id) onBill(created.id);   // straight into bill + pay
+        return;
       }
       setForm(BLANK); setEditingId(null); setShowForm(false);
       load();
@@ -130,10 +164,17 @@ export default function Patients({ onBill = () => {} }) {
                 {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
               </select></div>
             <div><label style={lbl}>Franchise <span style={{ textTransform:'none', letterSpacing:0, fontWeight:400 }}>(also used for B2B billing)</span></label>
-              <select style={inp} value={form.registered_franchise_id} onChange={e=>setForm({...form,registered_franchise_id:e.target.value, organization_id:e.target.value})}>
-                <option value="">— Direct / Walk-in —</option>
-                {franchises.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
-              </select></div>
+              {isFranchiseUser ? (
+                <select style={{ ...inp, background:'#f1f3f7', color:'#475569', cursor:'not-allowed' }} value={String(myFranchiseId)} disabled>
+                  <option value={String(myFranchiseId)}>{franchiseName(Number(myFranchiseId))}</option>
+                </select>
+              ) : (
+                <select style={inp} value={form.registered_franchise_id} onChange={e=>setForm({...form,registered_franchise_id:e.target.value, organization_id:e.target.value})}>
+                  <option value="">— Direct / Walk-in —</option>
+                  {franchises.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+                </select>
+              )}
+            </div>
             {!editingId && (
               <div style={{ gridColumn:'1 / -1' }}><label style={lbl}>Barcode <span style={{ textTransform:'none', letterSpacing:0, fontWeight:400 }}>(leave blank to auto-generate)</span></label>
                 <input style={{ ...inp, fontFamily:'monospace', letterSpacing:'0.04em' }} placeholder="e.g. MC45265601" value={form.barcode} onChange={e=>setForm({...form,barcode:e.target.value})} /></div>
@@ -143,15 +184,48 @@ export default function Patients({ onBill = () => {} }) {
                 <input style={{ ...inp, fontFamily:'monospace', background:'#f1f3f7', color:'#8892a4' }} value={form.barcode} disabled /></div>
             )}
           </div>
+
+          {/* --- Patient history (captured at registration) --- */}
+          <div style={{ background:'#fffaf3', border:'1px solid rgba(249,115,22,0.25)', borderRadius:'12px', padding:'1.1rem 1.2rem', marginBottom:'1rem' }}>
+            <div style={{ fontFamily:'Manrope,sans-serif', fontWeight:800, color:'#c2410c', fontSize:'0.9rem', marginBottom:'0.8rem' }}>Patient History</div>
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.5rem 1.5rem', marginBottom:'0.9rem' }}>
+              {HISTORY_ITEMS.map(it => (
+                <label key={it.key} style={{ display:'flex', alignItems:'center', gap:'0.55rem', cursor:'pointer', fontSize:'0.85rem', color:'#0f1218' }}>
+                  <input type="checkbox"
+                    checked={!!form.history_checklist?.[it.key]}
+                    onChange={e=>setForm({...form, history_checklist:{...form.history_checklist, [it.key]:e.target.checked}})}
+                    style={{ width:'16px', height:'16px', accentColor:'#f97316', cursor:'pointer' }} />
+                  {it.label}
+                </label>
+              ))}
+            </div>
+            <label style={lbl}>Note <span style={{ textTransform:'none', letterSpacing:0, fontWeight:400 }}>(optional)</span></label>
+            <textarea style={{ ...inp, minHeight:'64px', resize:'vertical', fontFamily:'Manrope,sans-serif' }}
+              placeholder="e.g. Confirm last meal time and any thyroid medication"
+              value={form.clinical_history}
+              onChange={e=>setForm({...form, clinical_history:e.target.value})} />
+          </div>
+
           {!editingId && (
             <div style={{ fontSize:'0.75rem', color:'#8892a4', marginBottom:'1rem' }}>
               {form.barcode ? <span style={{ color:'#f97316', fontWeight:600 }}>✅ Custom barcode: {form.barcode}</span> : 'Barcode will be auto-generated by the system.'}
             </div>
           )}
-          <div style={{ display:'flex', gap:'0.6rem' }}>
-            <button onClick={submit} disabled={saving} style={{ background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', border:'none', borderRadius:'9px', padding:'0.65rem 1.5rem', fontWeight:700, cursor:'pointer', fontFamily:'Manrope,sans-serif', boxShadow:'0 4px 14px rgba(249,115,22,0.3)' }}>
-              {saving ? 'Saving...' : editingId ? 'Update Patient' : 'Register Patient'}
-            </button>
+          <div style={{ display:'flex', gap:'0.6rem', flexWrap:'wrap' }}>
+            {editingId ? (
+              <button onClick={()=>submit(false)} disabled={saving} style={{ background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', border:'none', borderRadius:'9px', padding:'0.65rem 1.5rem', fontWeight:700, cursor:'pointer', fontFamily:'Manrope,sans-serif', boxShadow:'0 4px 14px rgba(249,115,22,0.3)' }}>
+                {saving ? 'Saving...' : 'Update Patient'}
+              </button>
+            ) : (
+              <>
+                <button onClick={()=>submit(true)} disabled={saving} style={{ background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', border:'none', borderRadius:'9px', padding:'0.65rem 1.5rem', fontWeight:700, cursor:'pointer', fontFamily:'Manrope,sans-serif', boxShadow:'0 4px 14px rgba(249,115,22,0.3)', display:'flex', alignItems:'center', gap:'0.4rem' }}>
+                  {saving ? 'Saving...' : 'Register & Bill →'}
+                </button>
+                <button onClick={()=>submit(false)} disabled={saving} style={{ background:'#fff', color:'#f97316', border:'1.5px solid rgba(249,115,22,0.4)', borderRadius:'9px', padding:'0.65rem 1.3rem', fontWeight:700, cursor:'pointer', fontFamily:'Manrope,sans-serif' }}>
+                  Register only
+                </button>
+              </>
+            )}
             <button onClick={()=>{ setShowForm(false); setEditingId(null); setForm(BLANK); }} style={{ background:'transparent', color:'#8892a4', border:'1px solid #e8ecf4', borderRadius:'9px', padding:'0.65rem 1.2rem', cursor:'pointer', fontFamily:'Manrope,sans-serif' }}>Cancel</button>
           </div>
         </div>
