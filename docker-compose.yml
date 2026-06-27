@@ -19,6 +19,13 @@ services:
     container_name: medicloud_backend
     environment:
       DATABASE_URL: postgresql://medicloud:medicloud123@postgres:5432/medicloud_db
+      RAZORPAY_KEY_ID:     rzp_test_SYuRjpqkkJl1rB
+      RAZORPAY_KEY_SECRET: 4IAvT31k1TS4H6DWvQaE8o3X
+      ABDM_BASE_URL:       https://dev.abdm.gov.in
+      ABDM_CLIENT_ID:      SBXID_047494
+      ABDM_CLIENT_SECRET:  b3d9be4b-4507-4231-8ef7-5acd01d10b12
+      ABDM_CM_ID:          sbx
+      ABDM_HIP_ID:         ""
     ports:
       - "8001:8000"
     depends_on:
