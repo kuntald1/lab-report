@@ -36,19 +36,47 @@ export default function Patients({ onBill = () => {} }) {
   const [saving, setSaving]       = useState(false);
   const [editingId, setEditingId] = useState(null);   // null = create mode
   const [form, setForm]           = useState(BLANK);
+  const [doctors, setDoctors]     = useState([]);
+  const [showDocModal, setShowDocModal] = useState(false);
+  const [docForm, setDocForm]     = useState({ full_name:'', email:'', password:'' });
+  const [docSaving, setDocSaving] = useState(false);
 
   // logged-in user — a franchise user is locked to their own franchise
   const me              = auth.user();
   const myRole          = (me?.role || '').toLowerCase();
   const isFranchiseUser = myRole === 'franchise';
+  const isAdminUser     = ['super_admin','lab_admin'].includes(myRole);
   const myFranchiseId   = me?.franchise_id ?? '';
+
+  const loadDoctors = () => authedFetch('/admin/users')
+    .then(r=>r.ok?r.json():[])
+    .then(us => setDoctors(us.filter(u => (u.role||'').toLowerCase() === 'pathologist')))
+    .catch(()=>{});
 
   const load = () => authedFetch('/patients/').then(r=>r.json()).then(setPatients).catch(()=>{});
   useEffect(() => {
     load();
+    loadDoctors();
     authedFetch('/admin/branches').then(r=>r.ok?r.json():[]).then(setBranches).catch(()=>{});
     authedFetch('/admin/franchises').then(r=>r.ok?r.json():[]).then(setFranchises).catch(()=>{});
   }, []);
+
+  const docName = (u) => u.full_name || u.email;
+
+  const createDoctor = async () => {
+    if (!docForm.full_name || !docForm.email || !docForm.password) return alert('All fields required');
+    setDocSaving(true);
+    try {
+      const res = await authedFetch('/admin/users', { method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ ...docForm, role:'pathologist' }) });
+      if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.detail||'failed'); }
+      await loadDoctors();
+      setForm(f => ({ ...f, doctor_name: docForm.full_name }));   // auto-select the new doctor
+      setShowDocModal(false); setDocForm({ full_name:'', email:'', password:'' });
+    } catch (err) { alert('Could not add doctor: ' + err.message); }
+    setDocSaving(false);
+  };
 
   const branchName    = (id) => branches.find(b=>b.id===id)?.name || (id ? `Branch ${id}` : '—');
   const franchiseName = (id) => franchises.find(f=>f.id===id)?.name || (id ? `Franchise ${id}` : '—');
@@ -149,17 +177,31 @@ export default function Patients({ onBill = () => {} }) {
               <select style={inp} value={form.gender} onChange={e=>setForm({...form,gender:e.target.value})}>
                 <option>Male</option><option>Female</option><option>Other</option>
               </select></div>
-            <div><label style={lbl}>Doctor Name</label><input style={inp} placeholder="Dr. Sharma" value={form.doctor_name} onChange={e=>setForm({...form,doctor_name:e.target.value})} /></div>
-            <div><label style={lbl}>Sample Type</label>
-              <select style={inp} value={form.sample_type} onChange={e=>setForm({...form,sample_type:e.target.value})}>
-                <option>Blood</option><option>Serum</option><option>Urine</option><option>Plasma</option><option>Sodium</option><option>Potassium</option><option>Electrolyte</option>
-              </select></div>
+            <div><label style={lbl}>Doctor Name</label>
+              <div style={{ display:'flex', gap:'0.4rem' }}>
+                <select style={{ ...inp, flex:1 }} value={form.doctor_name} onChange={e=>setForm({...form,doctor_name:e.target.value})}>
+                  <option value="">— Select doctor —</option>
+                  {form.doctor_name && !doctors.some(d=>docName(d)===form.doctor_name) && (
+                    <option value={form.doctor_name}>{form.doctor_name}</option>
+                  )}
+                  {doctors.map(d => <option key={d.id} value={docName(d)}>{docName(d)}</option>)}
+                </select>
+                {isAdminUser && (
+                  <button type="button" title="Add a new doctor" onClick={()=>setShowDocModal(true)}
+                    style={{ width:'42px', flexShrink:0, background:'rgba(249,115,22,0.1)', color:'#f97316', border:'1.5px solid rgba(249,115,22,0.35)', borderRadius:'9px', fontSize:'1.2rem', fontWeight:700, cursor:'pointer', lineHeight:1 }}>+</button>
+                )}
+              </div>
+            </div>
             <div><label style={lbl}>ABHA Number <span style={{ textTransform:'none', letterSpacing:0, fontWeight:400 }}>(14-digit health ID)</span></label>
               <input style={{ ...inp, fontFamily:'monospace', letterSpacing:'0.04em' }} placeholder="e.g. 91-1234-5678-9012" value={form.abha_number} onChange={e=>setForm({...form,abha_number:e.target.value})} /></div>
             <div><label style={lbl}>Phone <span style={{ textTransform:'none', letterSpacing:0, fontWeight:400 }}>(for WhatsApp bill)</span></label>
               <input style={inp} placeholder="10-digit mobile" value={form.phone} onChange={e=>setForm({...form,phone:e.target.value})} /></div>
-            <div><label style={lbl}>Branch</label>
-              <select style={inp} value={form.branch_id} onChange={e=>setForm({...form,branch_id:e.target.value})}>
+            <div><label style={lbl}>Branch {(isFranchiseUser || form.registered_franchise_id) && <span style={{ textTransform:'none', letterSpacing:0, fontWeight:400, color:'#c2410c' }}>(locked — set by franchise)</span>}</label>
+              <select
+                style={(isFranchiseUser || form.registered_franchise_id) ? { ...inp, background:'#f1f3f7', color:'#94a3b8', cursor:'not-allowed' } : inp}
+                value={form.branch_id}
+                disabled={isFranchiseUser || !!form.registered_franchise_id}
+                onChange={e=>setForm({...form,branch_id:e.target.value})}>
                 <option value="">— Use my branch —</option>
                 {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
               </select></div>
@@ -169,7 +211,7 @@ export default function Patients({ onBill = () => {} }) {
                   <option value={String(myFranchiseId)}>{franchiseName(Number(myFranchiseId))}</option>
                 </select>
               ) : (
-                <select style={inp} value={form.registered_franchise_id} onChange={e=>setForm({...form,registered_franchise_id:e.target.value, organization_id:e.target.value})}>
+                <select style={inp} value={form.registered_franchise_id} onChange={e=>{ const v=e.target.value; setForm({...form, registered_franchise_id:v, organization_id:v, branch_id: v ? '' : form.branch_id }); }}>
                   <option value="">— Direct / Walk-in —</option>
                   {franchises.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
                 </select>
@@ -227,6 +269,25 @@ export default function Patients({ onBill = () => {} }) {
               </>
             )}
             <button onClick={()=>{ setShowForm(false); setEditingId(null); setForm(BLANK); }} style={{ background:'transparent', color:'#8892a4', border:'1px solid #e8ecf4', borderRadius:'9px', padding:'0.65rem 1.2rem', cursor:'pointer', fontFamily:'Manrope,sans-serif' }}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {showDocModal && (
+        <div onClick={()=>setShowDocModal(false)} style={{ position:'fixed', inset:0, background:'rgba(15,18,24,0.45)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:1000 }}>
+          <div onClick={e=>e.stopPropagation()} style={{ ...S.card, width:'440px', maxWidth:'92vw', border:'1px solid rgba(249,115,22,0.3)' }}>
+            <div style={{ fontFamily:'Manrope,sans-serif', fontWeight:800, color:'#0f1218', marginBottom:'1.1rem', fontSize:'1rem' }}>Add New Doctor</div>
+            <div style={{ display:'grid', gap:'0.85rem' }}>
+              <div><label style={lbl}>Full Name *</label><input style={inp} placeholder="Dr. A. Sharma" value={docForm.full_name} onChange={e=>setDocForm({...docForm,full_name:e.target.value})} /></div>
+              <div><label style={lbl}>Email (Login ID) *</label><input style={inp} placeholder="doctor@lab.com" value={docForm.email} onChange={e=>setDocForm({...docForm,email:e.target.value})} /></div>
+              <div><label style={lbl}>Password *</label><input style={inp} type="password" placeholder="set a password" value={docForm.password} onChange={e=>setDocForm({...docForm,password:e.target.value})} /></div>
+              <div><label style={lbl}>Role</label>
+                <input style={{ ...inp, background:'#f1f3f7', color:'#475569', cursor:'not-allowed' }} value="Doctor (Pathologist)" disabled readOnly /></div>
+            </div>
+            <div style={{ display:'flex', gap:'0.6rem', marginTop:'1.2rem' }}>
+              <button onClick={createDoctor} disabled={docSaving} style={{ background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', border:'none', borderRadius:'9px', padding:'0.6rem 1.4rem', fontWeight:700, cursor:'pointer', fontFamily:'Manrope,sans-serif' }}>{docSaving ? 'Adding…' : 'Add Doctor'}</button>
+              <button onClick={()=>setShowDocModal(false)} style={{ background:'transparent', color:'#8892a4', border:'1px solid #e8ecf4', borderRadius:'9px', padding:'0.6rem 1.2rem', cursor:'pointer', fontFamily:'Manrope,sans-serif' }}>Cancel</button>
+            </div>
           </div>
         </div>
       )}

@@ -10,6 +10,7 @@ const nav = [
   { id:'tubes',     icon:'🧫', label:'Sample Tubes',  section:'master', tag:'NEW' },
   { id:'orggroups', icon:'🏢', label:'Org Groups',    section:'master', tag:'NEW' },
   { id:'organizations', icon:'🏥', label:'Organizations', section:'master' },
+  { id:'branches', icon:'🏪', label:'Branches', section:'master', tag:'NEW' },
   { id:'pricing', icon:'💰', label:'Group / Org Pricing', section:'master', tag:'NEW' },
   { id:'testscatalog', icon:'🧾', label:'Tests Catalog', section:'master' },
   { id:'users', icon:'👥', label:'Users & Staff', section:'master' },

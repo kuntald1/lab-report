@@ -69,6 +69,30 @@ def list_branches(db: Session = Depends(get_db), scope: Scope = Depends(get_scop
     return apply_scope(db.query(Branch), Branch, scope).order_by(Branch.id).all()
 
 
+class BranchUpdate(BaseModel):
+    name:      Optional[str] = None
+    code:      Optional[str] = None
+    address:   Optional[str] = None
+    is_main:   Optional[bool] = None
+    is_active: Optional[bool] = None
+
+
+@router.put("/branches/{branch_id}", dependencies=[Depends(require_roles(Role.SUPER_ADMIN, Role.LAB_ADMIN))])
+def update_branch(branch_id: int, payload: BranchUpdate, request: Request,
+                  db: Session = Depends(get_db), user: User = Depends(get_current_user),
+                  scope: Scope = Depends(get_scope)):
+    b = apply_scope(db.query(Branch), Branch, scope).filter(Branch.id == branch_id).first()
+    if not b:
+        raise HTTPException(status_code=404, detail="Branch not found")
+    data = payload.model_dump(exclude_unset=True)
+    for field, value in data.items():
+        setattr(b, field, value)
+    db.commit(); db.refresh(b)
+    write_audit(db, action="update", user=user, entity="branch", entity_id=b.id,
+                after=data, ip=_ip(request))
+    return b
+
+
 # --------------------------------------------------------------------------- franchises
 class FranchiseCreate(BaseModel):
     name: str
