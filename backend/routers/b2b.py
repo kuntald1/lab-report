@@ -25,6 +25,7 @@ from auth.audit import write_audit
 from models.org import User, Franchise, Role
 from models.clinical import TestCatalog, Department, Package, PackageTest
 from models.b2b import OrgGroup, SampleTube, OrgGroupTest, OrgTest, OrgLedger
+from services.whatsapp import send_whatsapp
 
 router = APIRouter()
 
@@ -355,6 +356,30 @@ def org_ledger(org_id: int, db: Session = Depends(get_db),
     if not org:
         raise HTTPException(404, "organization not found")
     return _ledger_payload(db, org)
+
+
+class OrgWhatsAppIn(BaseModel):
+    message: str
+    to_number: Optional[str] = None     # defaults to the org's saved phone
+
+
+@router.post("/organizations/{org_id}/whatsapp")
+def org_whatsapp(org_id: int, payload: OrgWhatsAppIn, request: Request,
+                 db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Admin/super-admin sends a WhatsApp message to an organization's phone."""
+    _require_admin(user)
+    org = db.query(Franchise).filter(Franchise.id == org_id).first()
+    if not org:
+        raise HTTPException(404, "organization not found")
+    to_number = (payload.to_number or org.phone or "").strip()
+    if not to_number:
+        raise HTTPException(400, "no phone number on file for this organization")
+    res = send_whatsapp(db, org.tenant_id, to_number, payload.message)
+    write_audit(db, action="whatsapp", user=user, entity="organization", entity_id=org.id,
+                after={"to": to_number}, ip=_ip(request))
+    if not res.get("ok", True) and res.get("error"):
+        raise HTTPException(502, res.get("error", "whatsapp failed"))
+    return {"sent": True, "to": to_number}
 
 
 @router.post("/organizations")

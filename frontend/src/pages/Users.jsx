@@ -16,7 +16,7 @@ const ROLE_OPTIONS = [
 const roleLabel = (r) => ROLE_OPTIONS.find(o=>o.value===r)?.label || r;
 const roleColor = { pathologist:'#16a34a', technician:'#2563eb', receptionist:'#8b5cf6', phlebotomist:'#0ea5e9', franchise:'#f97316', lab_admin:'#dc2626', super_admin:'#dc2626', patient:'#64748b' };
 
-const BLANK = { full_name:'', email:'', password:'', role:'technician', franchise_id:'', branch_id:'' };
+const BLANK = { full_name:'', email:'', password:'', role:'technician', franchise_id:'', branch_id:'', phone:'' };
 
 export default function Users() {
   const [users, setUsers]       = useState([]);
@@ -44,7 +44,7 @@ export default function Users() {
   const startEdit = (u) => {
     setEditingId(u.id);
     setForm({ full_name:u.full_name||'', email:u.email||'', password:'', role:u.role,
-              franchise_id:u.franchise_id ?? '', branch_id:u.branch_id ?? '' });
+              franchise_id:u.franchise_id ?? '', branch_id:u.branch_id ?? '', phone:u.phone||'' });
     setShowForm(true);
     window.scrollTo({ top:0, behavior:'smooth' });
   };
@@ -68,6 +68,7 @@ export default function Users() {
       if (editingId) {
         const payload = {
           full_name: form.full_name.trim(), role: form.role,
+          phone: form.phone || null,
           franchise_id: form.franchise_id ? parseInt(form.franchise_id) : null,
           branch_id: form.branch_id ? parseInt(form.branch_id) : null,
         };
@@ -80,6 +81,7 @@ export default function Users() {
         const payload = {
           full_name: form.full_name.trim(), email: form.email.trim().toLowerCase(),
           password: form.password, role: form.role,
+          phone: form.phone || null,
           franchise_id: form.franchise_id ? parseInt(form.franchise_id) : null,
           branch_id: form.branch_id ? parseInt(form.branch_id) : null,
         };
@@ -143,6 +145,8 @@ export default function Users() {
               <input style={{ ...inp, ...(editingId ? { background:'#f1f3f7', color:'#8892a4' } : {}) }} type="email" placeholder="doctor@lab.com" value={form.email} disabled={!!editingId} onChange={e=>setForm({...form,email:e.target.value})} /></div>
             <div><label style={lbl}>Password {editingId ? <span style={{ textTransform:'none', letterSpacing:0, fontWeight:400 }}>(leave blank to keep)</span> : '*'}</label>
               <input style={inp} type="text" placeholder={editingId ? '••••••' : 'set a password'} value={form.password} onChange={e=>setForm({...form,password:e.target.value})} /></div>
+            <div><label style={lbl}>Phone <span style={{ textTransform:'none', letterSpacing:0, fontWeight:400 }}>(for WhatsApp)</span></label>
+              <input style={inp} placeholder="10-digit mobile" value={form.phone} onChange={e=>setForm({...form,phone:e.target.value})} /></div>
             {form.role === 'franchise' && (
               <div><label style={lbl}>Organization *</label>
                 <select style={inp} value={form.franchise_id} onChange={e=>setForm({...form,franchise_id:e.target.value})}>
@@ -171,14 +175,14 @@ export default function Users() {
         <table style={{ width:'100%', borderCollapse:'collapse' }}>
           <thead>
             <tr style={{ background:'#fafbfc', borderBottom:'1.5px solid #e8ecf4' }}>
-              {['Name','Login (email)','Role','Organization','Status','Actions'].map(h => (
+              {['Name','Login (email)','Phone','Role','Organization','Status','Actions'].map(h => (
                 <th key={h} style={{ textAlign:'left', padding:'0.8rem 1.3rem', fontSize:'0.65rem', color:'#8892a4', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.07em' }}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {users.length === 0 && (
-              <tr><td colSpan={6} style={{ textAlign:'center', padding:'3rem', color:'#8892a4' }}>No users yet.</td></tr>
+              <tr><td colSpan={7} style={{ textAlign:'center', padding:'3rem', color:'#8892a4' }}>No users yet.</td></tr>
             )}
             {users.map(u => (
               <tr key={u.id} style={{ borderBottom:'1px solid #f4f6fa' }}
@@ -186,6 +190,7 @@ export default function Users() {
                 onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
                 <td style={{ padding:'0.9rem 1.3rem', fontWeight:700, color:'#0f1218', fontSize:'0.86rem' }}>{u.full_name || '—'}</td>
                 <td style={{ padding:'0.9rem 1.3rem', color:'#475569', fontSize:'0.83rem', fontFamily:'monospace' }}>{u.email}</td>
+                <td style={{ padding:'0.9rem 1.3rem', color:'#8892a4', fontSize:'0.83rem' }}>{u.phone || '—'}</td>
                 <td style={{ padding:'0.9rem 1.3rem' }}>
                   <span style={{ background:(roleColor[u.role]||'#64748b')+'18', color:roleColor[u.role]||'#64748b', padding:'0.2rem 0.7rem', borderRadius:'20px', fontSize:'0.72rem', fontWeight:700 }}>{roleLabel(u.role)}</span>
                 </td>

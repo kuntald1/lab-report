@@ -134,6 +134,7 @@ class UserCreate(BaseModel):
     email: str
     password: str
     full_name: Optional[str] = None
+    phone: Optional[str] = None
     role: str
     tenant_id: Optional[int] = None
     branch_id: Optional[int] = None
@@ -160,6 +161,7 @@ def create_user(payload: UserCreate, request: Request,
     new_user = User(
         email=str(payload.email).lower(),
         full_name=payload.full_name,
+        phone=payload.phone,
         hashed_password=hash_password(payload.password),
         role=payload.role,
         tenant_id=tenant_id,
@@ -182,12 +184,14 @@ def list_users(db: Session = Depends(get_db), scope: Scope = Depends(get_scope))
         q = q.filter(User.tenant_id == scope.tenant_id)
     rows = q.order_by(User.id).all()
     return [{"id": u.id, "email": u.email, "role": u.role, "full_name": u.full_name,
+             "phone": u.phone,
              "tenant_id": u.tenant_id, "branch_id": u.branch_id,
              "franchise_id": u.franchise_id, "is_active": u.is_active} for u in rows]
 
 
 class UserUpdate(BaseModel):
     full_name: Optional[str] = None
+    phone: Optional[str] = None
     role: Optional[str] = None
     franchise_id: Optional[int] = None
     branch_id: Optional[int] = None
@@ -214,6 +218,7 @@ def update_user(user_id: int, payload: UserUpdate, request: Request,
             raise HTTPException(status_code=403, detail="cannot assign that role")
         target.role = payload.role
     if payload.full_name is not None:    target.full_name = payload.full_name
+    if payload.phone is not None:        target.phone = payload.phone
     if payload.franchise_id is not None: target.franchise_id = payload.franchise_id
     if payload.branch_id is not None:    target.branch_id = payload.branch_id
     if payload.is_active is not None:    target.is_active = payload.is_active

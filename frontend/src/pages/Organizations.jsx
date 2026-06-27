@@ -21,7 +21,26 @@ export default function Organizations() {
   const [form, setForm]         = useState(BLANK);
   const [confirmDel, setConfirmDel] = useState(null);
   const [toast, setToast]       = useState(null);
+  const [waOrg, setWaOrg]       = useState(null);    // org being messaged
+  const [waMsg, setWaMsg]       = useState('');
+  const [waSending, setWaSending] = useState(false);
   const showToast = (kind, msg) => { setToast({ kind, msg }); setTimeout(()=>setToast(null), 3000); };
+
+  const openWhatsApp = (o) => {
+    setWaOrg(o);
+    setWaMsg(`Dear ${o.contact_person || o.name},\n\n`);
+  };
+  const sendWhatsApp = async () => {
+    if (!waMsg.trim()) return;
+    setWaSending(true);
+    try {
+      const res = await authedFetch(`/b2b/organizations/${waOrg.id}/whatsapp`, { method:'POST',
+        headers:{'Content-Type':'application/json'}, body: JSON.stringify({ message: waMsg }) });
+      if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.detail||'failed'); }
+      setWaOrg(null); setWaMsg(''); showToast('success', `WhatsApp sent to ${waOrg.name}`);
+    } catch (e) { showToast('error', String(e.message||'Send failed')); }
+    setWaSending(false);
+  };
 
   const load = () => {
     authedFetch('/b2b/organizations').then(r=>r.ok?r.json():[]).then(setOrgs).catch(()=>{});
@@ -96,6 +115,19 @@ export default function Organizations() {
             <div style={{ display:'flex', gap:'0.6rem', justifyContent:'flex-end' }}>
               <button onClick={()=>setConfirmDel(null)} style={{ background:'transparent', color:'#8892a4', border:'1px solid #e8ecf4', borderRadius:'10px', padding:'0.65rem 1.3rem', cursor:'pointer', fontWeight:600, fontFamily:'Manrope,sans-serif' }}>Cancel</button>
               <button onClick={doDelete} style={{ background:'#dc2626', color:'#fff', border:'none', borderRadius:'10px', padding:'0.65rem 1.5rem', cursor:'pointer', fontWeight:700, fontFamily:'Manrope,sans-serif' }}>Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {waOrg && (
+        <div onClick={()=>setWaOrg(null)} style={{ position:'fixed', inset:0, zIndex:9998, background:'rgba(15,18,24,0.45)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+          <div onClick={e=>e.stopPropagation()} style={{ ...S.card, width:'460px', maxWidth:'92vw', border:'1px solid rgba(37,211,102,0.3)' }}>
+            <div style={{ fontFamily:'Manrope,sans-serif', fontWeight:800, color:'#0f1218', marginBottom:'0.3rem', fontSize:'1rem' }}>💬 WhatsApp {waOrg.name}</div>
+            <div style={{ fontSize:'0.78rem', color:'#8892a4', marginBottom:'1rem' }}>To: {waOrg.phone || <span style={{ color:'#dc2626' }}>no phone on file</span>}</div>
+            <textarea style={{ ...inp, minHeight:'120px', resize:'vertical', fontFamily:'Manrope,sans-serif' }} value={waMsg} onChange={e=>setWaMsg(e.target.value)} placeholder="Type your message…" />
+            <div style={{ display:'flex', gap:'0.6rem', marginTop:'1rem' }}>
+              <button onClick={sendWhatsApp} disabled={waSending || !waOrg.phone} style={{ background: waOrg.phone ? '#25D366' : '#e8ecf4', color: waOrg.phone ? '#fff' : '#94a3b8', border:'none', borderRadius:'9px', padding:'0.6rem 1.4rem', fontWeight:700, cursor: waOrg.phone?'pointer':'not-allowed', fontFamily:'Manrope,sans-serif' }}>{waSending ? 'Sending…' : '💬 Send'}</button>
+              <button onClick={()=>setWaOrg(null)} style={{ background:'transparent', color:'#8892a4', border:'1px solid #e8ecf4', borderRadius:'9px', padding:'0.6rem 1.2rem', cursor:'pointer', fontFamily:'Manrope,sans-serif' }}>Cancel</button>
             </div>
           </div>
         </div>
@@ -176,6 +208,9 @@ export default function Organizations() {
                 <td style={{ padding:'0.9rem 1.3rem', color:'#475569', fontSize:'0.78rem', fontFamily:'monospace' }}>{o.pan||'—'}</td>
                 <td style={{ padding:'0.9rem 1.3rem' }}>
                   <div style={{ display:'flex', gap:'0.4rem' }}>
+                    <button title={o.phone ? 'Send WhatsApp' : 'No phone on file'} onClick={()=>openWhatsApp(o)} disabled={!o.phone} style={{ ...iconBtn('#25D366'), opacity: o.phone?1:0.4, cursor: o.phone?'pointer':'not-allowed' }}>
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+                    </button>
                     <button title="Edit" onClick={()=>startEdit(o)} style={iconBtn('#2563eb')}>
                       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
                     </button>

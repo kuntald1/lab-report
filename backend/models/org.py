@@ -115,6 +115,7 @@ class User(Base):
     full_name     = Column(String, nullable=True)
     hashed_password = Column(String, nullable=False)
     role          = Column(String, nullable=False, index=True)
+    phone         = Column(String, nullable=True)   # for WhatsApp / contact
     # Scope anchors — which ones are set depends on the role.
     tenant_id     = Column(Integer, ForeignKey("tenants.id"),    nullable=True, index=True)
     branch_id     = Column(Integer, ForeignKey("branches.id"),   nullable=True, index=True)
