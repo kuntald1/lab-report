@@ -33,6 +33,7 @@ export default function App() {
   const role = (me?.role || '').toLowerCase();
   const isLab = ['super_admin','lab_admin','technician','receptionist'].includes(role);
   const isDoctor = role === 'pathologist';
+  const isFranchise = role === 'franchise';
   const [page, setPage] = useState(isDoctor ? 'reportvalidate' : 'dashboard');
   const [billPatientId, setBillPatientId] = useState('');
 
@@ -56,7 +57,7 @@ export default function App() {
           <div style={{ display:'flex', alignItems:'center', gap:'0.6rem' }}>
             <div style={{ width:'8px', height:'8px', borderRadius:'50%', background:'#f97316', boxShadow:'0 0 8px rgba(249,115,22,0.6)', animation:'pulse 2s infinite' }}></div>
             <span style={{ fontSize:'0.72rem', color:'#8892a4', fontWeight:600 }}>All systems operational</span>
-            {isLab    && <HistoryBell onOpen={()=>setPage('historyneeded')} />}
+            {(isLab || isFranchise) && <HistoryBell onOpen={()=>setPage('historyneeded')} />}
             {isDoctor && <DoctorBell  onOpen={()=>setPage('reportvalidate')} />}
           </div>
         </div>

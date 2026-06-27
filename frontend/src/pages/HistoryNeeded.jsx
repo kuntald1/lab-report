@@ -70,19 +70,24 @@ export default function HistoryNeeded() {
         <table style={{ width:'100%', borderCollapse:'collapse' }}>
           <thead>
             <tr style={{ background:'#fafbfc', borderBottom:'1.5px solid #e8ecf4' }}>
-              {['Barcode','Patient','Doctor asked for','Action'].map(h => (
+              {['Barcode','Patient','Franchise','Doctor asked for','Action'].map(h => (
                 <th key={h} style={{ textAlign:'left', padding:'0.75rem 1.1rem', fontSize:'0.64rem', color:'#8892a4', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.06em' }}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {rows.length === 0 && <tr><td colSpan={4} style={{ textAlign:'center', padding:'3rem', color:'#8892a4' }}>{loading?'Loading…':'No pending history requests.'}</td></tr>}
+            {rows.length === 0 && <tr><td colSpan={5} style={{ textAlign:'center', padding:'3rem', color:'#8892a4' }}>{loading?'Loading…':'No pending history requests.'}</td></tr>}
             {rows.map(p => {
               const asked = p.request?.checklist ? Object.keys(p.request.checklist).filter(k=>p.request.checklist[k]) : [];
               return (
                 <tr key={p.id} style={{ borderBottom:'1px solid #f4f6fa' }}>
                   <td style={{ padding:'0.8rem 1.1rem', fontFamily:'monospace', fontWeight:700, color:'#b45309', fontSize:'0.8rem', cursor:'pointer', textDecoration:'underline' }} onClick={()=>open(p)}>{p.barcode}</td>
                   <td style={{ padding:'0.8rem 1.1rem', fontWeight:600, color:'#0f1218', fontSize:'0.85rem' }}>{p.patient_name}</td>
+                  <td style={{ padding:'0.8rem 1.1rem' }}>
+                    {p.organization_name && p.organization_name !== 'Direct / Walk-in'
+                      ? <span style={{ background:'rgba(249,115,22,0.1)', color:'#f97316', padding:'0.2rem 0.7rem', borderRadius:'20px', fontSize:'0.72rem', fontWeight:700 }}>{p.organization_name}</span>
+                      : <span style={{ color:'#8892a4', fontSize:'0.78rem' }}>Direct / Walk-in</span>}
+                  </td>
                   <td style={{ padding:'0.8rem 1.1rem', color:'#475569', fontSize:'0.8rem' }}>
                     {asked.length ? asked.join(', ') : '—'}
                     {p.request?.note && <div style={{ color:'#8892a4', fontSize:'0.74rem', marginTop:'0.2rem' }}>“{p.request.note}”</div>}
