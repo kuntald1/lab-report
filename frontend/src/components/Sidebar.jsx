@@ -81,6 +81,7 @@ export default function Sidebar({ current, onChange, counts = {}, user = null, o
             {nav.filter(n=>['dashboard','patients','results'].includes(n.id)).map(item => <NavItem key={item.id} item={item} active={current===item.id} onClick={()=>onChange(item.id)} count={counts[item.badge]} />)}
             <div style={s.navLabel}>Billing</div>
             {nav.filter(n=>['billing','bills'].includes(n.id)).map(item => <NavItem key={item.id} item={item} active={current===item.id} onClick={()=>onChange(item.id)} />)}
+            <NavItem item={{ id:'credit', icon:'💳', label:'Manage Credit' }} active={current==='credit'} onClick={()=>onChange('credit')} />
             <div style={s.navLabel}>Reports</div>
             {nav.filter(n=>['historyneeded','samplereport'].includes(n.id)).map(item => <NavItem key={item.id} item={item} active={current===item.id} onClick={()=>onChange(item.id)} />)}
           </>

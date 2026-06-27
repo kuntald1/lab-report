@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { authedFetch } from '../services/auth';
+import { authedFetch, auth } from '../services/auth';
 
 const inp = { background:'#fafbfc', border:'1.5px solid #e8ecf4', borderRadius:'9px', padding:'0.6rem 0.85rem', color:'#0f1218', fontFamily:'Manrope,sans-serif', fontSize:'0.85rem', outline:'none', width:'100%' };
 const lbl = { fontSize:'0.7rem', color:'#8892a4', fontWeight:600, textTransform:'uppercase', letterSpacing:'0.06em', display:'block', marginBottom:'0.35rem' };
@@ -12,7 +12,9 @@ const sourceBadge = (src) => {
   return <span style={{ background:c+'18', color:c, padding:'0.1rem 0.5rem', borderRadius:'20px', fontSize:'0.65rem', fontWeight:700 }}>{label}</span>;
 };
 
-export default function Billing({ isAdmin = true, initialPatientId = '' }) {
+export default function Billing({ isAdmin = true, initialPatientId = '', onManageCredit = () => {} }) {
+  const isFranchise = (auth.user()?.role || '').toLowerCase() === 'franchise';
+  const allowDiscount = isAdmin && !isFranchise;   // franchise logins never discount
   const [patients, setPatients] = useState([]);
   const [tests, setTests]       = useState([]);
   const [orgs, setOrgs]         = useState([]);
@@ -21,7 +23,7 @@ export default function Billing({ isAdmin = true, initialPatientId = '' }) {
   const [search, setSearch]     = useState('');
   const [discType, setDiscType] = useState('');     // '' | 'flat' | 'percent'
   const [discVal, setDiscVal]   = useState('');
-  const [onCredit, setOnCredit] = useState(false);
+  const [onCredit, setOnCredit] = useState(isFranchise);
   const [saving, setSaving]     = useState(false);
   const [toast, setToast]       = useState(null);
   const [lastBill, setLastBill] = useState(null);
@@ -71,12 +73,12 @@ export default function Billing({ isAdmin = true, initialPatientId = '' }) {
   const pickedIds = Object.keys(picked).map(Number);
   const subtotal = useMemo(() => pickedIds.reduce((s,id)=>s+(Number(picked[id].price)||0),0), [picked]); // eslint-disable-line
   const discAmount = useMemo(() => {
-    if (!isAdmin || !discType || !discVal) return 0;
+    if (!allowDiscount || !discType || !discVal) return 0;
     const v = Number(discVal)||0;
     if (discType==='flat') return Math.min(v, subtotal);
     if (discType==='percent') return Math.round(subtotal*(v/100)*100)/100;
     return 0;
-  }, [discType, discVal, subtotal, isAdmin]);
+  }, [discType, discVal, subtotal, allowDiscount]);
   const total = Math.max(0, subtotal - discAmount);
 
   const filtered = tests.filter(t => !search || t.name.toLowerCase().includes(search.toLowerCase()));
@@ -215,16 +217,16 @@ export default function Billing({ isAdmin = true, initialPatientId = '' }) {
       patient_id: parseInt(patientId),
       organization_id: orgId,
       test_ids: pickedIds,
-      discount_type: isAdmin ? (discType || null) : null,
-      discount_value: isAdmin ? (Number(discVal)||0) : 0,
-      on_credit: onCredit && !!orgId,
+      discount_type: allowDiscount ? (discType || null) : null,
+      discount_value: allowDiscount ? (Number(discVal)||0) : 0,
+      on_credit: isFranchise ? !!orgId : (onCredit && !!orgId),
     };
     try {
       const res = await authedFetch('/billing/bills', { method:'POST',
         headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
       if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.detail||'failed'); }
       const bill = await res.json();
-      setLastBill(bill); setPicked({}); setDiscType(''); setDiscVal(''); setOnCredit(false);
+      setLastBill(bill); setPicked({}); setDiscType(''); setDiscVal(''); setOnCredit(isFranchise);
       setWaPhone(patient?.phone || '');
       showToast('success', `Bill ${bill.bill_no} created · ${inr(bill.total)}`);
     } catch (e) { showToast('error', String(e.message||'Bill failed')); }
@@ -304,7 +306,7 @@ export default function Billing({ isAdmin = true, initialPatientId = '' }) {
             ))}
 
             {/* discount (admin only) */}
-            {isAdmin && pickedIds.length > 0 && (
+            {allowDiscount && pickedIds.length > 0 && (
               <div style={{ marginTop:'1rem', paddingTop:'1rem', borderTop:'1px dashed #e8ecf4' }}>
                 <label style={lbl}>Discount (admin only)</label>
                 <div style={{ display:'flex', gap:'0.5rem' }}>
@@ -330,9 +332,9 @@ export default function Billing({ isAdmin = true, initialPatientId = '' }) {
 
             {/* credit toggle for B2B */}
             {orgId && (
-              <label style={{ display:'flex', alignItems:'center', gap:'0.5rem', marginTop:'1rem', fontSize:'0.82rem', color:'#475569', cursor:'pointer' }}>
-                <input type="checkbox" checked={onCredit} onChange={e=>setOnCredit(e.target.checked)} style={{ accentColor:'#f97316', width:'16px', height:'16px' }} />
-                Bill to organization on credit (adds to {orgName}'s ledger)
+              <label style={{ display:'flex', alignItems:'center', gap:'0.5rem', marginTop:'1rem', fontSize:'0.82rem', color:'#475569', cursor: isFranchise ? 'default' : 'pointer' }}>
+                <input type="checkbox" checked={isFranchise ? true : onCredit} disabled={isFranchise} onChange={e=>setOnCredit(e.target.checked)} style={{ accentColor:'#f97316', width:'16px', height:'16px' }} />
+                Bill to organization on credit (adds to {orgName}'s ledger){isFranchise && <span style={{ color:'#c2410c', fontWeight:600 }}> · always on credit</span>}
               </label>
             )}
 
@@ -359,6 +361,13 @@ export default function Billing({ isAdmin = true, initialPatientId = '' }) {
               {!paid && <div style={{ fontSize:'0.78rem', color:'#dc2626', fontWeight:600 }}>Due {inr(due)}</div>}
             </div>
           </div>
+
+          {isFranchise && (
+            <div style={{ marginTop:'1rem', paddingTop:'1rem', borderTop:'1px dashed #e8ecf4' }}>
+              <button onClick={onManageCredit} style={{ background:'rgba(249,115,22,0.1)', color:'#f97316', border:'1.5px solid rgba(249,115,22,0.35)', borderRadius:'9px', padding:'0.6rem 1.2rem', fontWeight:700, cursor:'pointer', fontFamily:'Manrope,sans-serif' }}>Manage Credit Limit →</button>
+              <div style={{ fontSize:'0.72rem', color:'#8892a4', marginTop:'0.45rem' }}>This bill was added to your organization's credit ledger. Settle outstanding from Manage Credit.</div>
+            </div>
+          )}
 
           {/* pay now */}
           {!paid && lastBill.status !== 'credit' && (

@@ -24,7 +24,7 @@ from auth.deps import get_current_user, get_scope, Scope
 from auth.audit import write_audit
 from models.org import User, Franchise, Role
 from models.clinical import TestCatalog, Department, Package, PackageTest
-from models.b2b import OrgGroup, SampleTube, OrgGroupTest, OrgTest
+from models.b2b import OrgGroup, SampleTube, OrgGroupTest, OrgTest, OrgLedger
 
 router = APIRouter()
 
@@ -313,6 +313,48 @@ def list_organizations(db: Session = Depends(get_db), scope: Scope = Depends(get
     if scope.role == Role.FRANCHISE and scope.franchise_id is not None:
         q = q.filter(Franchise.id == scope.franchise_id)   # org-login sees only itself
     return [_org_dict(o) for o in q.order_by(Franchise.name).all()]
+
+
+def _org_outstanding(db: Session, org_id: int) -> float:
+    last = (db.query(OrgLedger).filter(OrgLedger.organization_id == org_id)
+              .order_by(OrgLedger.id.desc()).first())
+    return float(last.balance_after) if last and last.balance_after is not None else 0.0
+
+
+def _ledger_payload(db: Session, org: Franchise) -> dict:
+    entries = (db.query(OrgLedger).filter(OrgLedger.organization_id == org.id)
+                 .order_by(OrgLedger.id.desc()).limit(500).all())
+    return {
+        "organization": {"id": org.id, "name": org.name,
+                         "credit_limit": org.credit_limit, "phone": org.phone},
+        "outstanding": _org_outstanding(db, org.id),
+        "entries": [{"id": e.id, "type": e.entry_type, "amount": e.amount,
+                     "balance_after": e.balance_after, "ref": e.ref,
+                     "created_at": e.created_at} for e in entries],
+    }
+
+
+@router.get("/my-ledger")
+def my_ledger(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Franchise login: own org, credit limit, outstanding + full debit/credit list."""
+    if user.role != Role.FRANCHISE or not user.franchise_id:
+        raise HTTPException(403, "franchise login only")
+    org = db.query(Franchise).filter(Franchise.id == user.franchise_id).first()
+    if not org:
+        raise HTTPException(404, "organization not found")
+    return _ledger_payload(db, org)
+
+
+@router.get("/organizations/{org_id}/ledger")
+def org_ledger(org_id: int, db: Session = Depends(get_db),
+               scope: Scope = Depends(get_scope)):
+    """Admin (or the franchise itself) reads an organization's ledger."""
+    if scope.role == Role.FRANCHISE and scope.franchise_id != org_id:
+        raise HTTPException(403, "not your organization")
+    org = db.query(Franchise).filter(Franchise.id == org_id).first()
+    if not org:
+        raise HTTPException(404, "organization not found")
+    return _ledger_payload(db, org)
 
 
 @router.post("/organizations")
