@@ -7,6 +7,7 @@ pydantic[email]==2.6.4
 python-multipart==0.0.9
 reportlab==4.1.0
 matplotlib
+requests==2.31.0
 # --- Phase 1: auth / RBAC ---
 PyJWT==2.8.0
 bcrypt==4.1.2
