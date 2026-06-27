@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { authedFetch } from '../services/auth';
+import { authedFetch, auth } from '../services/auth';
 
 const S = { card:{ background:'#fff', border:'1px solid #e8ecf4', borderRadius:'14px', padding:'1.3rem', boxShadow:'0 2px 16px rgba(15,18,24,0.06)' } };
 const inp = { background:'#fafbfc', border:'1.5px solid #e8ecf4', borderRadius:'9px', padding:'0.5rem 0.75rem', color:'#0f1218', fontFamily:'Manrope,sans-serif', fontSize:'0.82rem', outline:'none' };
@@ -10,6 +10,7 @@ const METHOD_COLORS = { CASH:'#16a34a', UPI:'#2563eb', CARD:'#7c3aed', CREDIT:'#
 function todayISO(d=0){ const t=new Date(); t.setDate(t.getDate()+d); return t.toISOString().slice(0,10); }
 
 export default function Dashboard() {
+  const isFranchise = (auth.user()?.role || '').toLowerCase() === 'franchise';
   const [f, setF] = useState({ franchise_id:'', branch_id:'', date_from: todayISO(-29), date_to: todayISO(0) });
   const [d, setD] = useState({ kpis:{}, daily:[], methods:[], breakdown:[], recent:[] });
   const [loading, setLoading] = useState(true);
@@ -30,7 +31,7 @@ export default function Dashboard() {
   };
 
   useEffect(() => {
-    authedFetch('/franchises').then(r=>r.ok?r.json():[]).then(x=>setFranchises(Array.isArray(x)?x:(x.items||[]))).catch(()=>{});
+    authedFetch('/admin/franchises').then(r=>r.ok?r.json():[]).then(x=>setFranchises(Array.isArray(x)?x:(x.items||[]))).catch(()=>{});
     load();
   }, []); // eslint-disable-line
 
@@ -59,12 +60,14 @@ export default function Dashboard() {
       <div style={{ ...S.card, marginBottom:'1.2rem', display:'flex', gap:'0.8rem', alignItems:'end', flexWrap:'wrap' }}>
         <div><div style={{ fontSize:'0.62rem', color:'#8892a4', fontWeight:700, textTransform:'uppercase', marginBottom:'0.25rem' }}>From</div><input style={inp} type="date" value={f.date_from} onChange={e=>set('date_from',e.target.value)} /></div>
         <div><div style={{ fontSize:'0.62rem', color:'#8892a4', fontWeight:700, textTransform:'uppercase', marginBottom:'0.25rem' }}>To</div><input style={inp} type="date" value={f.date_to} onChange={e=>set('date_to',e.target.value)} /></div>
+        {!isFranchise && (
         <div><div style={{ fontSize:'0.62rem', color:'#8892a4', fontWeight:700, textTransform:'uppercase', marginBottom:'0.25rem' }}>Franchise</div>
           <select style={inp} value={f.franchise_id} onChange={e=>set('franchise_id',e.target.value)}>
             <option value="">All Franchises</option>
             {franchises.map(fr => <option key={fr.id} value={fr.id}>{fr.name}</option>)}
           </select>
         </div>
+        )}
         <button onClick={load} style={{ background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', border:'none', borderRadius:'9px', padding:'0.55rem 1.3rem', fontWeight:700, cursor:'pointer', fontFamily:'Manrope,sans-serif' }}>● Apply</button>
         <div style={{ display:'flex', gap:'0.3rem', marginLeft:'auto' }}>
           {[['Today',1],['7d',7],['30d',30],['90d',90]].map(([lbl,dys])=>(

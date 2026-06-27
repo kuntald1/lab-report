@@ -26,6 +26,9 @@ const nav = [
 
 export default function Sidebar({ current, onChange, counts = {}, user = null, onLogout = () => {} }) {
   const isDoctor = (user?.role || '').toLowerCase() === 'pathologist';
+  const isFranchise = (user?.role || '').toLowerCase() === 'franchise';
+  // items a franchise/organization login is allowed to see
+  const FRANCHISE_IDS = ['dashboard','patients','results','billing','bills','historyneeded','samplereport'];
   const s = {
     aside: { position:'fixed', top:0, left:0, bottom:0, width:'235px', background:'#1a1f2e', display:'flex', flexDirection:'column', zIndex:50, boxShadow:'4px 0 24px rgba(0,0,0,0.15)' },
     logoWrap: { padding:'1.4rem 1.3rem 1.2rem', borderBottom:'1px solid rgba(255,255,255,0.06)' },
@@ -71,6 +74,15 @@ export default function Sidebar({ current, onChange, counts = {}, user = null, o
           <>
             <div style={s.navLabel}>Reports</div>
             {nav.filter(n=>n.section==='reports' && n.who==='doctor').map(item => <NavItem key={item.id} item={item} active={current===item.id} onClick={()=>onChange(item.id)} />)}
+          </>
+        ) : isFranchise ? (
+          <>
+            <div style={s.navLabel}>Main Menu</div>
+            {nav.filter(n=>['dashboard','patients','results'].includes(n.id)).map(item => <NavItem key={item.id} item={item} active={current===item.id} onClick={()=>onChange(item.id)} count={counts[item.badge]} />)}
+            <div style={s.navLabel}>Billing</div>
+            {nav.filter(n=>['billing','bills'].includes(n.id)).map(item => <NavItem key={item.id} item={item} active={current===item.id} onClick={()=>onChange(item.id)} />)}
+            <div style={s.navLabel}>Reports</div>
+            {nav.filter(n=>['historyneeded','samplereport'].includes(n.id)).map(item => <NavItem key={item.id} item={item} active={current===item.id} onClick={()=>onChange(item.id)} />)}
           </>
         ) : (
           <>

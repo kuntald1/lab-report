@@ -14,7 +14,7 @@ from datetime import datetime
 
 from database import get_db
 from auth.deps import get_current_user
-from models.org import User, Franchise
+from models.org import User, Franchise, Role
 from models.models import Patient, LabResult
 from models.billing import Bill, BillItem, Payment
 from models.clinical import TestCatalog
@@ -48,6 +48,9 @@ def sample_details(
     user: User = Depends(get_current_user),
 ):
     # --- base patient query with filters ---
+    # SECURITY: a franchise login only sees patients registered under it.
+    if user.role == Role.FRANCHISE and user.franchise_id:
+        franchise_id = user.franchise_id
     q = db.query(Patient).filter(Patient.is_active.is_(True))
     if franchise_id:
         q = q.filter((Patient.organization_id == franchise_id) |
@@ -237,6 +240,9 @@ def dashboard(
 ):
     """CurryCloud-style revenue dashboard. Shows BOTH billed (bill totals) and
     collected (payments received). Filters: franchise, branch, from, to."""
+    # SECURITY: a franchise login may only ever see its own organization's data.
+    if user.role == Role.FRANCHISE and user.franchise_id:
+        franchise_id = user.franchise_id
     q = db.query(Bill)
     if franchise_id:
         q = q.filter(Bill.organization_id == franchise_id)
