@@ -15,12 +15,33 @@ Keep the secret in the server environment only. (M1 WASA audit checks for this.)
 """
 import os
 import time
+import uuid
+from datetime import datetime, timezone
+
 import requests
 
 ABDM_BASE_URL      = os.getenv("ABDM_BASE_URL", "https://dev.abdm.gov.in")
 ABDM_CLIENT_ID     = os.getenv("ABDM_CLIENT_ID", "")
 ABDM_CLIENT_SECRET = os.getenv("ABDM_CLIENT_SECRET", "")
 ABDM_HIP_ID        = os.getenv("ABDM_HIP_ID", "")
+ABDM_CM_ID         = os.getenv("ABDM_CM_ID", "sbx")  # 'sbx' sandbox, 'abdm' prod
+
+
+def _gw_headers(token: str | None = None) -> dict:
+    """Standard ABDM v3 gateway headers.
+
+    TIMESTAMP must be ISO-8601 UTC with milliseconds and a trailing 'Z' — a plain
+    isoformat() (no tz / +05:30 offset) is rejected by the gateway. Keep the host
+    clock NTP-synced or these start failing intermittently.
+    """
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+    h = {"Content-Type": "application/json",
+         "REQUEST-ID": str(uuid.uuid4()),
+         "TIMESTAMP": ts,
+         "X-CM-ID": ABDM_CM_ID}
+    if token:
+        h["Authorization"] = f"Bearer {token}"
+    return h
 
 _token_cache = {"value": None, "exp": 0}
 
@@ -41,11 +62,13 @@ def get_session_token() -> str:
     _require_config()
     if _token_cache["value"] and time.time() < _token_cache["exp"] - 60:
         return _token_cache["value"]
-    # TODO: confirm the exact session endpoint for your onboarded spec version.
+    # ABDM v3 session endpoint (legacy was /gateway/v0.5/sessions — do not use).
     resp = requests.post(
-        f"{ABDM_BASE_URL}/gateway/v0.5/sessions",
-        json={"clientId": ABDM_CLIENT_ID, "clientSecret": ABDM_CLIENT_SECRET},
-        headers={"Content-Type": "application/json"}, timeout=20)
+        f"{ABDM_BASE_URL}/api/hiecm/gateway/v3/sessions",
+        json={"clientId": ABDM_CLIENT_ID,
+              "clientSecret": ABDM_CLIENT_SECRET,
+              "grantType": "client_credentials"},
+        headers=_gw_headers(), timeout=20)
     resp.raise_for_status()
     data = resp.json()
     _token_cache["value"] = data["accessToken"]
@@ -54,9 +77,7 @@ def get_session_token() -> str:
 
 
 def _auth_headers() -> dict:
-    return {"Authorization": f"Bearer {get_session_token()}",
-            "Content-Type": "application/json",
-            "X-CM-ID": os.getenv("ABDM_CM_ID", "sbx")}
+    return _gw_headers(get_session_token())
 
 
 def link_care_context(abha_number: str, care_context: dict) -> dict:
