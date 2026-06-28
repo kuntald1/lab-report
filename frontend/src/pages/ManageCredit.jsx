@@ -15,6 +15,7 @@ export default function ManageCredit() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [paying, setPaying] = useState(false);
+  const [notice, setNotice] = useState(null);   // { kind:'success'|'error', title, msg }
 
   const load = () => { setLoading(true); authedFetch('/b2b/my-ledger').then(r=>r.ok?r.json():null).then(d=>{ setData(d); setLoading(false); }).catch(()=>setLoading(false)); };
   useEffect(() => { load(); }, []);
@@ -65,15 +66,17 @@ export default function ManageCredit() {
             const v = await vres.json().catch(()=>({}));
             if (!vres.ok) throw new Error(v.detail || 'Verification failed');
             load();   // refresh outstanding + ledger; lock clears automatically
-            alert(`Payment successful. ${v.locked ? 'Still over limit — pay the rest to unlock.' : 'Reports unlocked.'}`);
-          } catch (e) { alert(String(e.message || 'Verification failed')); }
+            setNotice({ kind:'success', title:'Payment successful',
+              msg: v.locked ? `Paid ${inr(v.paid)}. Still over limit — pay the remaining ${inr(v.outstanding)} to unlock reports.`
+                            : `Paid ${inr(v.paid)}. Your reports are now unlocked.` });
+          } catch (e) { setNotice({ kind:'error', title:'Verification failed', msg:String(e.message || 'Please try again.') }); }
         },
         modal: { ondismiss: () => setPaying(false) },
       });
-      rzp.on('payment.failed', (r) => alert('Payment failed: ' + (r.error?.description || 'unknown')));
+      rzp.on('payment.failed', (r) => setNotice({ kind:'error', title:'Payment failed', msg:(r.error?.description || 'The payment could not be completed.') }));
       rzp.open();
     } catch (e) {
-      alert(String(e.message || 'Payment could not start'));
+      setNotice({ kind:'error', title:'Could not start payment', msg:String(e.message || 'Please try again.') });
     } finally {
       setPaying(false);
     }
@@ -81,6 +84,17 @@ export default function ManageCredit() {
 
   return (
     <div>
+      {notice && (
+        <div onClick={()=>setNotice(null)} style={{ position:'fixed', inset:0, zIndex:9999, background:'rgba(15,18,24,0.5)', backdropFilter:'blur(2px)', display:'flex', alignItems:'center', justifyContent:'center', padding:'1rem' }}>
+          <div onClick={e=>e.stopPropagation()} style={{ background:'#fff', borderRadius:'18px', boxShadow:'0 20px 60px rgba(15,18,24,0.25)', width:'400px', maxWidth:'92vw', padding:'2rem', textAlign:'center', animation:'noticePop 0.18s ease-out' }}>
+            <div style={{ width:'62px', height:'62px', margin:'0 auto 1rem', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'2rem', background: notice.kind==='success' ? 'rgba(22,163,74,0.12)' : 'rgba(220,38,38,0.1)' }}>{notice.kind==='success' ? '✓' : '⚠️'}</div>
+            <div style={{ fontFamily:'Manrope,sans-serif', fontWeight:800, fontSize:'1.15rem', color: notice.kind==='success' ? '#16a34a' : '#dc2626', marginBottom:'0.5rem' }}>{notice.title}</div>
+            <div style={{ fontSize:'0.88rem', color:'#475569', lineHeight:1.55, marginBottom:'1.5rem' }}>{notice.msg}</div>
+            <button onClick={()=>setNotice(null)} style={{ background: notice.kind==='success' ? 'linear-gradient(135deg,#16a34a,#22c55e)' : 'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', border:'none', borderRadius:'10px', padding:'0.65rem 2.2rem', fontWeight:700, fontSize:'0.88rem', cursor:'pointer', fontFamily:'Manrope,sans-serif' }}>OK</button>
+          </div>
+          <style>{`@keyframes noticePop { from { opacity:0; transform:scale(0.94) translateY(8px);} to { opacity:1; transform:scale(1) translateY(0);} }`}</style>
+        </div>
+      )}
       <div style={{ marginBottom:'1.5rem' }}>
         <div style={{ display:'inline-flex', background:'rgba(249,115,22,0.08)', border:'1px solid rgba(249,115,22,0.2)', color:'#f97316', padding:'4px 12px', borderRadius:'100px', fontSize:'0.62rem', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:'0.6rem' }}>Credit</div>
         <h1 style={{ fontFamily:'Manrope,sans-serif', fontSize:'2rem', fontWeight:800, color:'#0f1218', letterSpacing:'-0.025em' }}>Manage Credit</h1>
@@ -137,7 +151,7 @@ export default function ManageCredit() {
                   <td style={{ padding:'0.85rem 1.3rem' }}><span style={{ background:m.color+'18', color:m.color, padding:'0.2rem 0.7rem', borderRadius:'20px', fontSize:'0.72rem', fontWeight:700 }}>{m.label}</span></td>
                   <td style={{ padding:'0.85rem 1.3rem', color:'#8892a4', fontSize:'0.82rem' }}>{fmt(e.created_at)}</td>
                   <td style={{ padding:'0.85rem 1.3rem', color:'#475569', fontSize:'0.82rem', fontFamily:'monospace' }}>{e.ref || '—'}</td>
-                  <td style={{ padding:'0.85rem 1.3rem', textAlign:'right', fontWeight:700, color:m.color }}>{m.sign}{inr(e.amount)}</td>
+                  <td style={{ padding:'0.85rem 1.3rem', textAlign:'right', fontWeight:700, color:m.color, whiteSpace:'nowrap' }}>{m.sign}&nbsp;{inr(e.amount)}</td>
                   <td style={{ padding:'0.85rem 1.3rem', textAlign:'right', color:'#0f1218', fontWeight:600 }}>{e.balance_after!=null ? inr(e.balance_after) : '—'}</td>
                 </tr>
               );

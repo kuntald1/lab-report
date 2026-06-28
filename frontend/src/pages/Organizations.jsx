@@ -27,7 +27,25 @@ export default function Organizations() {
   const [ledgerOrg, setLedgerOrg] = useState(null);   // org whose ledger is open
   const [ledger, setLedger]       = useState(null);
   const [ledgerLoading, setLedgerLoading] = useState(false);
+  const [addForm, setAddForm] = useState(null);   // {entry_type, amount, ref} or null
+  const [adding, setAdding] = useState(false);
   const showToast = (kind, msg) => { setToast({ kind, msg }); setTimeout(()=>setToast(null), 3000); };
+
+  const submitEntry = async () => {
+    if (!addForm || !(Number(addForm.amount) > 0)) { showToast('error', 'Enter a valid amount'); return; }
+    setAdding(true);
+    try {
+      const res = await authedFetch(`/b2b/organizations/${ledgerOrg.id}/ledger/entry`, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ entry_type: addForm.entry_type, amount: Number(addForm.amount),
+                               direction: addForm.direction || null, ref: addForm.ref || null }) });
+      if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.detail || 'failed'); }
+      setAddForm(null);
+      await openLedger(ledgerOrg);   // refresh
+      showToast('success', 'Ledger entry added');
+    } catch (e) { showToast('error', String(e.message || 'Could not add entry')); }
+    setAdding(false);
+  };
 
   const openLedger = async (o) => {
     setLedgerOrg(o); setLedger(null); setLedgerLoading(true);
@@ -171,6 +189,45 @@ export default function Organizations() {
                     <div style={{ fontSize:'1.3rem', fontWeight:800, color:'#0f1218', marginTop:'0.2rem' }}>{money(ledger.organization?.credit_limit)}</div>
                   </div>
                 </div>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'0.7rem' }}>
+                  <div style={{ fontWeight:800, color:'#0f1218', fontFamily:'Manrope,sans-serif', fontSize:'0.92rem' }}>Entries</div>
+                  {!addForm && <button onClick={()=>setAddForm({ entry_type:'payment', amount:'', ref:'', direction:'credit' })} style={{ background:'rgba(249,115,22,0.1)', color:'#f97316', border:'1px solid rgba(249,115,22,0.3)', borderRadius:'8px', padding:'0.4rem 0.9rem', fontWeight:700, fontSize:'0.78rem', cursor:'pointer', fontFamily:'Manrope,sans-serif' }}>+ Add Entry</button>}
+                </div>
+                {addForm && (
+                  <div style={{ background:'#fafbfc', border:'1px solid #e8ecf4', borderRadius:'10px', padding:'1rem', marginBottom:'1rem' }}>
+                    <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.6rem', marginBottom:'0.6rem' }}>
+                      <div>
+                        <div style={{ fontSize:'0.64rem', color:'#8892a4', fontWeight:700, textTransform:'uppercase', marginBottom:'0.25rem' }}>Type</div>
+                        <select style={inp} value={addForm.entry_type} onChange={e=>setAddForm({...addForm, entry_type:e.target.value})}>
+                          <option value="payment">Payment received (−)</option>
+                          <option value="bill">Manual charge (+)</option>
+                          <option value="adjustment">Adjustment</option>
+                        </select>
+                      </div>
+                      <div>
+                        <div style={{ fontSize:'0.64rem', color:'#8892a4', fontWeight:700, textTransform:'uppercase', marginBottom:'0.25rem' }}>Amount (₹)</div>
+                        <input style={inp} type="number" min="0" step="0.01" value={addForm.amount} onChange={e=>setAddForm({...addForm, amount:e.target.value})} placeholder="0.00" />
+                      </div>
+                    </div>
+                    {addForm.entry_type === 'adjustment' && (
+                      <div style={{ marginBottom:'0.6rem' }}>
+                        <div style={{ fontSize:'0.64rem', color:'#8892a4', fontWeight:700, textTransform:'uppercase', marginBottom:'0.25rem' }}>Direction</div>
+                        <select style={inp} value={addForm.direction} onChange={e=>setAddForm({...addForm, direction:e.target.value})}>
+                          <option value="credit">Credit — reduces outstanding (−)</option>
+                          <option value="debit">Debit — increases outstanding (+)</option>
+                        </select>
+                      </div>
+                    )}
+                    <div style={{ marginBottom:'0.8rem' }}>
+                      <div style={{ fontSize:'0.64rem', color:'#8892a4', fontWeight:700, textTransform:'uppercase', marginBottom:'0.25rem' }}>Reference / note (optional)</div>
+                      <input style={inp} value={addForm.ref} onChange={e=>setAddForm({...addForm, ref:e.target.value})} placeholder="e.g. cheque no., UTR, remark" />
+                    </div>
+                    <div style={{ display:'flex', gap:'0.5rem' }}>
+                      <button onClick={submitEntry} disabled={adding} style={{ background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', border:'none', borderRadius:'8px', padding:'0.55rem 1.3rem', fontWeight:700, cursor:'pointer', fontFamily:'Manrope,sans-serif' }}>{adding ? 'Saving…' : 'Save Entry'}</button>
+                      <button onClick={()=>setAddForm(null)} style={{ background:'transparent', color:'#8892a4', border:'1px solid #e8ecf4', borderRadius:'8px', padding:'0.55rem 1.1rem', cursor:'pointer', fontFamily:'Manrope,sans-serif' }}>Cancel</button>
+                    </div>
+                  </div>
+                )}
                 <table style={{ width:'100%', borderCollapse:'collapse' }}>
                   <thead><tr style={{ background:'#fafbfc', borderBottom:'1.5px solid #e8ecf4' }}>
                     {['Type','Date','Reference','Amount','Balance'].map(h => <th key={h} style={{ textAlign: (h==='Amount'||h==='Balance')?'right':'left', padding:'0.6rem 0.8rem', fontSize:'0.62rem', color:'#8892a4', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.05em' }}>{h}</th>)}
@@ -182,7 +239,7 @@ export default function Organizations() {
                         <td style={{ padding:'0.6rem 0.8rem' }}><span style={{ background:m.color+'18', color:m.color, padding:'0.15rem 0.6rem', borderRadius:'20px', fontSize:'0.68rem', fontWeight:700 }}>{m.label}</span></td>
                         <td style={{ padding:'0.6rem 0.8rem', color:'#8892a4', fontSize:'0.78rem' }}>{e.created_at ? new Date(e.created_at).toLocaleDateString('en-IN',{dateStyle:'medium'}) : '—'}</td>
                         <td style={{ padding:'0.6rem 0.8rem', color:'#475569', fontSize:'0.78rem', fontFamily:'monospace' }}>{e.ref || '—'}</td>
-                        <td style={{ padding:'0.6rem 0.8rem', textAlign:'right', fontWeight:700, color:m.color }}>{m.sign}{money(e.amount)}</td>
+                        <td style={{ padding:'0.6rem 0.8rem', textAlign:'right', fontWeight:700, color:m.color, whiteSpace:'nowrap' }}>{m.sign}&nbsp;{money(e.amount)}</td>
                         <td style={{ padding:'0.6rem 0.8rem', textAlign:'right', color:'#0f1218', fontWeight:600 }}>{e.balance_after!=null ? money(e.balance_after) : '—'}</td>
                       </tr>); })}
                   </tbody>

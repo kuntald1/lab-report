@@ -364,6 +364,45 @@ def org_ledger(org_id: int, db: Session = Depends(get_db),
     return _ledger_payload(db, org)
 
 
+class LedgerEntryIn(BaseModel):
+    entry_type: str                       # payment | bill | adjustment
+    amount: float
+    direction: Optional[str] = None       # adjustment only: 'credit' (-) or 'debit' (+)
+    ref: Optional[str] = None
+
+
+@router.post("/organizations/{org_id}/ledger/entry")
+def add_ledger_entry(org_id: int, payload: LedgerEntryIn, request: Request,
+                     db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Admin manually posts a ledger line (offline payment, charge, or adjustment)."""
+    _require_admin(user)
+    org = db.query(Franchise).filter(Franchise.id == org_id).first()
+    if not org:
+        raise HTTPException(404, "organization not found")
+    if payload.amount is None or payload.amount <= 0:
+        raise HTTPException(400, "amount must be greater than 0")
+
+    et = (payload.entry_type or "").strip().lower()
+    cur = _org_outstanding(db, org.id)
+    if et == "payment":
+        delta = -payload.amount                       # money in -> reduces outstanding
+    elif et == "bill":
+        delta = +payload.amount                       # manual charge -> increases
+    elif et == "adjustment":
+        delta = -payload.amount if payload.direction == "credit" else +payload.amount
+    else:
+        raise HTTPException(400, "entry_type must be payment, bill or adjustment")
+
+    bal = round(cur + delta, 2)
+    db.add(OrgLedger(organization_id=org.id, entry_type=et, amount=payload.amount,
+                     balance_after=bal, ref=(payload.ref or "manual")))
+    db.commit()
+    write_audit(db, action="ledger_entry", user=user, entity="organization", entity_id=org.id,
+                after={"entry_type": et, "amount": payload.amount, "balance_after": bal},
+                ip=_ip(request))
+    return {"ok": True, "outstanding": bal, "locked": is_franchise_locked(db, org.id)}
+
+
 class OrgPayVerifyIn(BaseModel):
     razorpay_order_id: str
     razorpay_payment_id: str
