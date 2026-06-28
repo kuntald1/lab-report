@@ -20,7 +20,7 @@ from models.billing import Bill, BillItem, Payment
 from models.clinical import TestCatalog
 from models.messaging import PaymentTransaction
 from models.reports import HistoryRequest
-from services.credit import franchise_locked
+from services.credit import franchise_locked, is_franchise_locked
 
 router = APIRouter()
 
@@ -78,6 +78,8 @@ def sample_details(
     # --- franchise + branch name maps ---
     fr_ids = {p.organization_id for p in patients} | {p.registered_franchise_id for p in patients}
     franchises = _name_map(db, Franchise, fr_ids)
+    # which of those franchises are over their credit limit (for the info banner)
+    over_limit_orgs = {fid for fid in fr_ids if fid and is_franchise_locked(db, fid)}
     # branches may be a separate table; fall back to id if unavailable
     try:
         from models.org import Branch  # type: ignore
@@ -190,6 +192,7 @@ def sample_details(
             "patient_id": p.id, "barcode": p.barcode, "patient_name": p.patient_name,
             "age": p.age, "gender": p.gender, "status": p.status,
             "franchise": franchises.get(p.organization_id) or franchises.get(p.registered_franchise_id) or "Direct / Walk-in",
+            "over_limit": bool(p.organization_id in over_limit_orgs or p.registered_franchise_id in over_limit_orgs),
             "branch": branches.get(p.branch_id) or (str(p.branch_id) if p.branch_id else "—"),
             "referring_doctor": p.doctor_name,
             "registered_at": p.created_at,
@@ -203,6 +206,7 @@ def sample_details(
 
     return {"rows": rows,
             "locked": locked,
+            "any_over_limit": any(r.get("over_limit") for r in rows),
             "totals": {"patients": len(rows),
                        "billed": round(tot_billed, 2),
                        "collected": round(tot_collected, 2),

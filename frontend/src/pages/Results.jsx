@@ -67,13 +67,17 @@ export default function Results() {
   const downloadPDF = async (id) => {
     setLoading(true);
     try {
-      const r = await fetch(`${api.BASE}/results/${id}/pdf`);
+      const r = await authedFetch(`/results/${id}/pdf`);
+      if (!r.ok) {
+        const e = await r.json().catch(()=>({}));
+        throw new Error(e.detail || 'PDF not available');
+      }
       const blob = await r.blob();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href=url; a.download=`MediCloud_Report_${id}.pdf`; a.click();
       window.URL.revokeObjectURL(url);
-    } catch { alert('PDF failed'); }
+    } catch (err) { alert(String(err.message || 'PDF failed')); }
     setLoading(false);
   };
 

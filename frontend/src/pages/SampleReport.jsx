@@ -27,7 +27,7 @@ export default function SampleReport() {
   };
 
   useEffect(() => {
-    authedFetch('/franchises').then(r=>r.ok?r.json():[]).then(d=>setFranchises(Array.isArray(d)?d:(d.items||[]))).catch(()=>{});
+    authedFetch('/admin/franchises').then(r=>r.ok?r.json():[]).then(d=>setFranchises(Array.isArray(d)?d:(d.items||[]))).catch(()=>{});
     load();
   }, []); // eslint-disable-line
 
@@ -87,12 +87,17 @@ export default function SampleReport() {
         </div>
       </div>
 
-      {data.locked && (
+      {data.locked ? (
         <div style={{ background:'rgba(220,38,38,0.06)', border:'1px solid rgba(220,38,38,0.25)', borderRadius:'12px', padding:'0.9rem 1.2rem', marginBottom:'1.2rem', display:'flex', alignItems:'center', gap:'0.6rem', color:'#b91c1c', fontSize:'0.85rem', fontWeight:600 }}>
           <span style={{ fontSize:'1.1rem' }}>🔒</span>
           Outstanding has crossed your credit limit — report values and PDF downloads are locked until the balance is settled. You can still see the list of tests done. Pay from <strong>Manage Credit</strong> to unlock.
         </div>
-      )}
+      ) : data.any_over_limit ? (
+        <div style={{ background:'rgba(220,38,38,0.05)', border:'1px solid rgba(220,38,38,0.2)', borderRadius:'12px', padding:'0.8rem 1.2rem', marginBottom:'1.2rem', display:'flex', alignItems:'center', gap:'0.6rem', color:'#b91c1c', fontSize:'0.82rem', fontWeight:600 }}>
+          <span style={{ fontSize:'1rem' }}>🔴</span>
+          One or more franchises are over their credit limit (marked below). Their own login has report access locked until paid — your lab access and PDFs are unaffected.
+        </div>
+      ) : null}
 
       {/* totals */}
       <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))', gap:'0.8rem', marginBottom:'1.2rem' }}>
@@ -127,7 +132,7 @@ export default function SampleReport() {
                   <td style={{ padding:'0.7rem 1rem', fontFamily:'monospace', fontWeight:700, color:'#6366f1', fontSize:'0.8rem' }}>{r.barcode}</td>
                   <td style={{ padding:'0.7rem 1rem', fontWeight:600, color:'#0f1218', fontSize:'0.84rem' }}>{r.patient_name}<div style={{ color:'#8892a4', fontSize:'0.72rem' }}>#{r.patient_id} · {r.age||'—'}/{r.gender||'—'}</div></td>
                   <td style={{ padding:'0.7rem 1rem' }}><span style={{ background:`${statusColor(r.status)}22`, color:statusColor(r.status), padding:'0.2rem 0.6rem', borderRadius:'20px', fontSize:'0.68rem', fontWeight:700 }}>{r.status||'—'}</span></td>
-                  <td style={{ padding:'0.7rem 1rem', fontSize:'0.8rem', color:'#475569' }}>{r.franchise}<div style={{ color:'#8892a4', fontSize:'0.72rem' }}>{r.branch}</div></td>
+                  <td style={{ padding:'0.7rem 1rem', fontSize:'0.8rem', color:'#475569' }}>{r.franchise}{r.over_limit && <span style={{ marginLeft:'0.4rem', background:'rgba(220,38,38,0.12)', color:'#dc2626', padding:'0.1rem 0.5rem', borderRadius:'20px', fontSize:'0.62rem', fontWeight:800 }}>OVER LIMIT</span>}<div style={{ color:'#8892a4', fontSize:'0.72rem' }}>{r.branch}</div></td>
                   <td style={{ padding:'0.7rem 1rem', fontSize:'0.8rem', color:'#475569' }}>{r.tests.length} test(s)</td>
                   <td style={{ padding:'0.7rem 1rem', textAlign:'right', fontWeight:700, color:'#0f1218', fontSize:'0.82rem' }}>{money(r.billed)}</td>
                   <td style={{ padding:'0.7rem 1rem', textAlign:'right', fontWeight:700, color:'#16a34a', fontSize:'0.82rem' }}>{money(r.collected)}</td>
