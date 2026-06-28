@@ -60,7 +60,7 @@ export default function Results() {
     const qs = new URLSearchParams();
     if (q.barcode) qs.set('barcode', q.barcode);
     if (q.patient_id) qs.set('patient_id', q.patient_id);
-    authedFetch('/results/?' + qs.toString()).then(r=>r.json()).then(setResults).catch(()=>{});
+    authedFetch('/results/?' + qs.toString()).then(r=>r.ok?r.json():[]).then(d=>setResults(Array.isArray(d)?d:[])).catch(()=>setResults([]));
   };
   useEffect(() => { load(); }, []);
 

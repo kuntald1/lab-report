@@ -14,6 +14,7 @@ const TYPE_META = {
 export default function ManageCredit() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [paying, setPaying] = useState(false);
 
   const load = () => { setLoading(true); authedFetch('/b2b/my-ledger').then(r=>r.ok?r.json():null).then(d=>{ setData(d); setLoading(false); }).catch(()=>setLoading(false)); };
   useEffect(() => { load(); }, []);
@@ -25,8 +26,6 @@ export default function ManageCredit() {
   const outstanding = Number(data.outstanding || 0);
   const overLimit = outstanding > limit;          // matches the gating rule (locked when over)
   const available = Math.max(0, limit - outstanding);
-
-  const [paying, setPaying] = useState(false);
 
   const ensureRzp = () => new Promise((resolve, reject) => {
     if (window.Razorpay) return resolve();

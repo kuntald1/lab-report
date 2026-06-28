@@ -21,7 +21,7 @@ class RawDataSubmit(BaseModel):
 @router.get("/")
 def get_all_results(db: Session = Depends(get_db), scope: Scope = Depends(get_scope),
                     user: User = Depends(get_current_user),
-                    barcode: Optional[str] = None, patient_id: Optional[int] = None):
+                    barcode: Optional[str] = None, patient_id: Optional[str] = None):
     q = apply_scope(db.query(LabResult), LabResult, scope)
 
     # LabResult has no franchise column, so a franchise login must be scoped to
@@ -41,8 +41,16 @@ def get_all_results(db: Session = Depends(get_db), scope: Scope = Depends(get_sc
                    db.query(Patient.id).filter(Patient.barcode.ilike(f"%{barcode}%")).all()]
         q = q.filter(or_(LabResult.barcode.ilike(f"%{barcode}%"),
                          LabResult.patient_id.in_(bc_pids or [-1])))
-    if patient_id is not None:
-        q = q.filter(LabResult.patient_id == patient_id)
+    if patient_id:
+        pid = patient_id.strip()
+        if pid.isdigit():
+            q = q.filter(LabResult.patient_id == int(pid))
+        else:
+            # non-numeric: treat as a patient barcode/name search, never 422
+            match = [p for (p,) in db.query(Patient.id).filter(
+                or_(Patient.barcode.ilike(f"%{pid}%"),
+                    Patient.patient_name.ilike(f"%{pid}%"))).all()]
+            q = q.filter(LabResult.patient_id.in_(match or [-1]))
     results = q.order_by(LabResult.created_at.desc()).limit(200).all()
 
     # map patient -> organization, and which organizations are over limit (for the
