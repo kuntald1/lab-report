@@ -15,6 +15,7 @@ Follows the existing conventions: get_db / get_scope / require_roles / write_aud
 and tenant pinning via the lab_admin's own tenant.
 """
 from fastapi import APIRouter, Depends, HTTPException, Request
+import os, hmac, hashlib, requests
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional, List
@@ -26,6 +27,11 @@ from models.org import User, Franchise, Role
 from models.clinical import TestCatalog, Department, Package, PackageTest
 from models.b2b import OrgGroup, SampleTube, OrgGroupTest, OrgTest, OrgLedger
 from services.whatsapp import send_whatsapp
+from services.credit import is_franchise_locked
+
+RZP_KEY_ID     = os.getenv("RAZORPAY_KEY_ID", "")
+RZP_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET", "")
+RZP_API        = "https://api.razorpay.com/v1"
 
 router = APIRouter()
 
@@ -356,6 +362,90 @@ def org_ledger(org_id: int, db: Session = Depends(get_db),
     if not org:
         raise HTTPException(404, "organization not found")
     return _ledger_payload(db, org)
+
+
+class OrgPayVerifyIn(BaseModel):
+    razorpay_order_id: str
+    razorpay_payment_id: str
+    razorpay_signature: str
+
+
+@router.post("/pay/razorpay/order")
+def org_rzp_order(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Franchise pays down its OUTSTANDING balance. Creates a Razorpay order for
+    the current outstanding amount."""
+    if user.role != Role.FRANCHISE or not user.franchise_id:
+        raise HTTPException(403, "franchise login only")
+    if not RZP_KEY_ID or not RZP_KEY_SECRET:
+        raise HTTPException(500, "Razorpay keys not configured")
+    org = db.query(Franchise).filter(Franchise.id == user.franchise_id).first()
+    if not org:
+        raise HTTPException(404, "organization not found")
+    outstanding = _org_outstanding(db, org.id)
+    if outstanding <= 0:
+        raise HTTPException(400, "no outstanding balance to pay")
+
+    amount_paise = int(round(outstanding * 100))
+    try:
+        resp = requests.post(
+            f"{RZP_API}/orders",
+            auth=(RZP_KEY_ID, RZP_KEY_SECRET),
+            json={"amount": amount_paise, "currency": "INR",
+                  "receipt": f"ORG{org.id}",
+                  "notes": {"organization_id": str(org.id), "kind": "org_outstanding"}},
+            timeout=15,
+        )
+    except requests.RequestException as e:
+        raise HTTPException(502, f"Razorpay unreachable: {e}")
+    if resp.status_code >= 400:
+        raise HTTPException(502, f"Razorpay order failed: {resp.text[:200]}")
+    order = resp.json()
+    return {
+        "key_id": RZP_KEY_ID,
+        "order_id": order["id"],
+        "amount": amount_paise,
+        "currency": "INR",
+        "name": "MediCloud",
+        "description": f"{org.name} - outstanding",
+    }
+
+
+@router.post("/pay/razorpay/verify")
+def org_rzp_verify(payload: OrgPayVerifyIn, request: Request,
+                   db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Verify the Razorpay signature, then post a PAYMENT ledger entry that
+    reduces outstanding (which auto-unlocks reports via is_franchise_locked)."""
+    if user.role != Role.FRANCHISE or not user.franchise_id:
+        raise HTTPException(403, "franchise login only")
+    if not RZP_KEY_SECRET:
+        raise HTTPException(500, "Razorpay secret not configured")
+    org = db.query(Franchise).filter(Franchise.id == user.franchise_id).first()
+    if not org:
+        raise HTTPException(404, "organization not found")
+
+    body = f"{payload.razorpay_order_id}|{payload.razorpay_payment_id}".encode()
+    expected = hmac.new(RZP_KEY_SECRET.encode(), body, hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(expected, payload.razorpay_signature):
+        raise HTTPException(400, "signature verification failed")
+
+    # authoritative amount from the Razorpay order (never trust the client)
+    try:
+        ores = requests.get(f"{RZP_API}/orders/{payload.razorpay_order_id}",
+                            auth=(RZP_KEY_ID, RZP_KEY_SECRET), timeout=15)
+        amount = round(ores.json().get("amount", 0) / 100.0, 2)
+    except Exception:
+        amount = _org_outstanding(db, org.id)   # fallback to current outstanding
+
+    bal = round(_org_outstanding(db, org.id) - amount, 2)
+    db.add(OrgLedger(organization_id=org.id, entry_type="payment",
+                     amount=amount, balance_after=bal,
+                     ref=payload.razorpay_payment_id))
+    db.commit()
+    write_audit(db, action="payment", user=user, entity="organization", entity_id=org.id,
+                after={"method": "razorpay", "amount": amount,
+                       "rzp_payment_id": payload.razorpay_payment_id}, ip=_ip(request))
+    return {"ok": True, "paid": amount, "outstanding": bal,
+            "locked": is_franchise_locked(db, org.id)}
 
 
 class OrgWhatsAppIn(BaseModel):

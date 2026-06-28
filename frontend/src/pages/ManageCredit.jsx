@@ -26,9 +26,58 @@ export default function ManageCredit() {
   const overLimit = outstanding > limit;          // matches the gating rule (locked when over)
   const available = Math.max(0, limit - outstanding);
 
-  const payOutstanding = () => {
-    // Phase 5: open a Razorpay order against the org ledger and post a payment entry.
-    alert('Online payment for outstanding is being set up — coming in the next update.');
+  const [paying, setPaying] = useState(false);
+
+  const ensureRzp = () => new Promise((resolve, reject) => {
+    if (window.Razorpay) return resolve();
+    const s = document.createElement('script');
+    s.src = 'https://checkout.razorpay.com/v1/checkout.js';
+    s.onload = () => resolve();
+    s.onerror = () => reject(new Error('Could not load Razorpay'));
+    document.body.appendChild(s);
+  });
+
+  const payOutstanding = async () => {
+    setPaying(true);
+    try {
+      await ensureRzp();
+      const ores = await authedFetch('/b2b/pay/razorpay/order', { method:'POST' });
+      if (!ores.ok) { const e = await ores.json().catch(()=>({})); throw new Error(e.detail || 'Could not start payment'); }
+      const order = await ores.json();
+      const rzp = new window.Razorpay({
+        key: order.key_id,
+        order_id: order.order_id,
+        amount: order.amount,
+        currency: order.currency,
+        name: order.name,
+        description: order.description,
+        prefill: { name: data.organization?.name || '', contact: data.organization?.phone || '' },
+        theme: { color: '#f97316' },
+        handler: async (resp) => {
+          try {
+            const vres = await authedFetch('/b2b/pay/razorpay/verify', {
+              method:'POST', headers:{'Content-Type':'application/json'},
+              body: JSON.stringify({
+                razorpay_order_id: resp.razorpay_order_id,
+                razorpay_payment_id: resp.razorpay_payment_id,
+                razorpay_signature: resp.razorpay_signature,
+              }),
+            });
+            const v = await vres.json().catch(()=>({}));
+            if (!vres.ok) throw new Error(v.detail || 'Verification failed');
+            load();   // refresh outstanding + ledger; lock clears automatically
+            alert(`Payment successful. ${v.locked ? 'Still over limit — pay the rest to unlock.' : 'Reports unlocked.'}`);
+          } catch (e) { alert(String(e.message || 'Verification failed')); }
+        },
+        modal: { ondismiss: () => setPaying(false) },
+      });
+      rzp.on('payment.failed', (r) => alert('Payment failed: ' + (r.error?.description || 'unknown')));
+      rzp.open();
+    } catch (e) {
+      alert(String(e.message || 'Payment could not start'));
+    } finally {
+      setPaying(false);
+    }
   };
 
   return (
@@ -65,7 +114,7 @@ export default function ManageCredit() {
           <div style={{ fontWeight:800, color:'#0f1218', fontFamily:'Manrope,sans-serif' }}>Pay Outstanding</div>
           <div style={{ fontSize:'0.78rem', color:'#8892a4', marginTop:'0.2rem' }}>Clear your balance online via Razorpay.</div>
         </div>
-        <button onClick={payOutstanding} disabled={outstanding<=0} style={{ background: outstanding<=0 ? '#e8ecf4' : 'linear-gradient(135deg,#3b82f6,#2563eb)', color: outstanding<=0 ? '#94a3b8' : '#fff', border:'none', borderRadius:'10px', padding:'0.7rem 1.6rem', fontWeight:700, cursor: outstanding<=0?'not-allowed':'pointer', fontFamily:'Manrope,sans-serif' }}>💳 Pay {inr(outstanding)}</button>
+        <button onClick={payOutstanding} disabled={outstanding<=0 || paying} style={{ background: (outstanding<=0||paying) ? '#e8ecf4' : 'linear-gradient(135deg,#3b82f6,#2563eb)', color: (outstanding<=0||paying) ? '#94a3b8' : '#fff', border:'none', borderRadius:'10px', padding:'0.7rem 1.6rem', fontWeight:700, cursor: (outstanding<=0||paying)?'not-allowed':'pointer', fontFamily:'Manrope,sans-serif' }}>{paying ? 'Processing…' : `💳 Pay ${inr(outstanding)}`}</button>
       </div>
 
       <div style={{ ...S.card, padding:0, overflow:'hidden' }}>
