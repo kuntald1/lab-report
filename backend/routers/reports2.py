@@ -20,6 +20,7 @@ from models.billing import Bill, BillItem, Payment
 from models.clinical import TestCatalog
 from models.messaging import PaymentTransaction
 from models.reports import HistoryRequest
+from services.credit import franchise_locked
 
 router = APIRouter()
 
@@ -51,6 +52,7 @@ def sample_details(
     # SECURITY: a franchise login only sees patients registered under it.
     if user.role == Role.FRANCHISE and user.franchise_id:
         franchise_id = user.franchise_id
+    locked = franchise_locked(db, user)   # over credit limit -> hide values/PDF
     q = db.query(Patient).filter(Patient.is_active.is_(True))
     if franchise_id:
         q = q.filter((Patient.organization_id == franchise_id) |
@@ -157,7 +159,7 @@ def sample_details(
                     "doctor": doc_names.get(tc_doc.get(it.test_id), None),
                     "price": it.price, "mrp": it.mrp,
                     "bill_no": b.bill_no,
-                    "result_id": rid,        # for the per-test Report PDF link
+                    "result_id": None if locked else rid,  # locked franchise: no PDF link
                 })
             # payment history: every transaction attempt (incl. failures)
             for t in tx_by_bill.get(b.id, []):
@@ -200,6 +202,7 @@ def sample_details(
         })
 
     return {"rows": rows,
+            "locked": locked,
             "totals": {"patients": len(rows),
                        "billed": round(tot_billed, 2),
                        "collected": round(tot_collected, 2),

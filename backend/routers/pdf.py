@@ -2,7 +2,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from database import get_db
-from models.models import LabResult
+from models.models import LabResult, Patient
+from auth.deps import get_current_user
+from models.org import User, Role
+from services.credit import is_franchise_locked
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.lib.units import cm
@@ -278,10 +281,23 @@ def generate_pdf(result: LabResult) -> bytes:
 
 
 @router.get("/{result_id}/pdf")
-def download_pdf(result_id: int, db: Session = Depends(get_db)):
+def download_pdf(result_id: int, db: Session = Depends(get_db),
+                 user: User = Depends(get_current_user)):
     result = db.query(LabResult).filter(LabResult.id == result_id).first()
     if not result:
         raise HTTPException(status_code=404, detail="Result not found")
+
+    # Franchise logins: may only download their own patients' reports, and only
+    # while within credit limit (Phase 4 gate).
+    if user.role == Role.FRANCHISE:
+        patient = db.query(Patient).filter(Patient.id == result.patient_id).first()
+        if not patient or patient.organization_id != user.franchise_id:
+            raise HTTPException(status_code=403, detail="not your patient")
+        if is_franchise_locked(db, user.franchise_id):
+            raise HTTPException(status_code=403,
+                detail="Reports are locked: outstanding has crossed the credit limit. "
+                       "Settle the balance to access reports.")
+
     try:
         pdf_bytes = generate_pdf(result)
     except Exception as e:

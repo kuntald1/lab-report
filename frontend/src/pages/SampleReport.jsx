@@ -87,6 +87,13 @@ export default function SampleReport() {
         </div>
       </div>
 
+      {data.locked && (
+        <div style={{ background:'rgba(220,38,38,0.06)', border:'1px solid rgba(220,38,38,0.25)', borderRadius:'12px', padding:'0.9rem 1.2rem', marginBottom:'1.2rem', display:'flex', alignItems:'center', gap:'0.6rem', color:'#b91c1c', fontSize:'0.85rem', fontWeight:600 }}>
+          <span style={{ fontSize:'1.1rem' }}>🔒</span>
+          Outstanding has crossed your credit limit — report values and PDF downloads are locked until the balance is settled. You can still see the list of tests done. Pay from <strong>Manage Credit</strong> to unlock.
+        </div>
+      )}
+
       {/* totals */}
       <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))', gap:'0.8rem', marginBottom:'1.2rem' }}>
         {[['Patients', data.totals.patients||0, '#6366f1'], ['Billed', money(data.totals.billed), '#0f1218'], ['Collected', money(data.totals.collected), '#16a34a'], ['Balance', money(data.totals.balance), '#dc2626']].map(([k,v,c]) => (
@@ -151,7 +158,9 @@ export default function SampleReport() {
                                 <span style={{ color:'#475569', fontWeight:700, width:'90px', textAlign:'right' }}>{money(t.price)}</span>
                                 {t.result_id
                                   ? <button onClick={()=>openReportPdf(t.result_id)} style={{ background:'rgba(249,115,22,0.1)', color:'#f97316', border:'1px solid rgba(249,115,22,0.3)', borderRadius:'7px', padding:'0.3rem 0.7rem', fontWeight:700, cursor:'pointer', fontSize:'0.72rem', whiteSpace:'nowrap', fontFamily:'Manrope,sans-serif' }}>📄 Report PDF</button>
-                                  : <span style={{ color:'#c4cad6', fontSize:'0.7rem', width:'92px', textAlign:'center' }}>No report</span>}
+                                  : data.locked
+                                    ? <span style={{ color:'#dc2626', fontSize:'0.7rem', width:'92px', textAlign:'center', fontWeight:700 }}>🔒 Locked</span>
+                                    : <span style={{ color:'#c4cad6', fontSize:'0.7rem', width:'92px', textAlign:'center' }}>No report</span>}
                               </div>
                             ))}
                           </div>
