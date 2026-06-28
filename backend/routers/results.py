@@ -8,6 +8,7 @@ from services.credit import is_franchise_locked
 from parsers.astm_parser import auto_parse
 from pydantic import BaseModel
 from typing import Optional
+from sqlalchemy import or_
 
 router = APIRouter()
 
@@ -34,7 +35,12 @@ def get_all_results(db: Session = Depends(get_db), scope: Scope = Depends(get_sc
         fr_locked = is_franchise_locked(db, user.franchise_id)
 
     if barcode:
-        q = q.filter(LabResult.barcode.ilike(f"%{barcode}%"))
+        # match the result's own barcode OR the owning patient's barcode, so a
+        # result stored under a slightly different barcode is still found.
+        bc_pids = [pid for (pid,) in
+                   db.query(Patient.id).filter(Patient.barcode.ilike(f"%{barcode}%")).all()]
+        q = q.filter(or_(LabResult.barcode.ilike(f"%{barcode}%"),
+                         LabResult.patient_id.in_(bc_pids or [-1])))
     if patient_id is not None:
         q = q.filter(LabResult.patient_id == patient_id)
     results = q.order_by(LabResult.created_at.desc()).limit(200).all()
