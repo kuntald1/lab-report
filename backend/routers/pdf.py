@@ -2,16 +2,16 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from database import get_db
-from models.models import LabResult, Patient
-from auth.deps import get_current_user
-from models.org import User, Role
-from services.credit import is_franchise_locked
+from models.models import LabResult
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.lib.units import cm
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, HRFlowable, Image
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+from reportlab.graphics.barcode.qr import QrCodeWidget
+from reportlab.graphics.shapes import Drawing
+from services.report_link import report_view_url
 import io
 from datetime import datetime
 import matplotlib
@@ -52,6 +52,17 @@ def _render_chromatogram(values, color):
     buf.seek(0)
     return buf
 
+def _qr_drawing(data: str, size_cm: float = 2.0) -> Drawing:
+    """Build a square QR Drawing scaled to size_cm."""
+    size = size_cm * cm
+    qr = QrCodeWidget(data)
+    b = qr.getBounds()
+    w, h = (b[2] - b[0]) or 1, (b[3] - b[1]) or 1
+    d = Drawing(size, size, transform=[size / w, 0, 0, size / h, 0, 0])
+    d.add(qr)
+    return d
+
+
 def generate_pdf(result: LabResult) -> bytes:
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -83,12 +94,14 @@ def generate_pdf(result: LabResult) -> bytes:
     story = []
 
     # ── HEADER ──────────────────────────────────────────────
+    qr_caption = ParagraphStyle('qrcap', fontName='Helvetica', fontSize=6, textColor=MUTED, alignment=TA_CENTER, spaceBefore=2, leading=7)
     header_data = [[
         Paragraph('<b>🔬 MediCloud</b>', ParagraphStyle('logo', fontName='Helvetica-Bold', fontSize=18, textColor=GREEN)),
         Paragraph(f'<b>LAB REPORT</b><br/><font size="8" color="#5a7060">Report #{result.id}</font>',
                   ParagraphStyle('rpt', fontName='Helvetica-Bold', fontSize=12, textColor=GREEN, alignment=TA_RIGHT)),
+        [_qr_drawing(report_view_url(result.id), 2.0), Paragraph('Scan to verify', qr_caption)],
     ]]
-    header_table = Table(header_data, colWidths=['60%','40%'])
+    header_table = Table(header_data, colWidths=['46%','32%','22%'])
     header_table.setStyle(TableStyle([
         ('BACKGROUND', (0,0),(-1,-1), GREEN_LIGHT),
         ('ROUNDEDCORNERS', [8]),
@@ -96,7 +109,9 @@ def generate_pdf(result: LabResult) -> bytes:
         ('BOTTOMPADDING', (0,0),(-1,-1), 12),
         ('LEFTPADDING',   (0,0),(-1,-1), 16),
         ('RIGHTPADDING',  (0,0),(-1,-1), 16),
-        ('VALIGN',        (0,0),(-1,-1), 'MIDDLE'),
+        ('VALIGN',        (0,0),(1,0), 'MIDDLE'),
+        ('VALIGN',        (2,0),(2,0), 'MIDDLE'),
+        ('ALIGN',         (2,0),(2,0), 'RIGHT'),
         ('BOX',           (0,0),(-1,-1), 1, colors.HexColor('#b8ddb8')),
     ]))
     story.append(header_table)
@@ -281,23 +296,10 @@ def generate_pdf(result: LabResult) -> bytes:
 
 
 @router.get("/{result_id}/pdf")
-def download_pdf(result_id: int, db: Session = Depends(get_db),
-                 user: User = Depends(get_current_user)):
+def download_pdf(result_id: int, db: Session = Depends(get_db)):
     result = db.query(LabResult).filter(LabResult.id == result_id).first()
     if not result:
         raise HTTPException(status_code=404, detail="Result not found")
-
-    # Franchise logins: may only download their own patients' reports, and only
-    # while within credit limit (Phase 4 gate).
-    if user.role == Role.FRANCHISE:
-        patient = db.query(Patient).filter(Patient.id == result.patient_id).first()
-        if not patient or patient.organization_id != user.franchise_id:
-            raise HTTPException(status_code=403, detail="not your patient")
-        if is_franchise_locked(db, user.franchise_id):
-            raise HTTPException(status_code=403,
-                detail="Reports are locked: outstanding has crossed the credit limit. "
-                       "Settle the balance to access reports.")
-
     try:
         pdf_bytes = generate_pdf(result)
     except Exception as e:

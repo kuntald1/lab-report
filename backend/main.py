@@ -14,6 +14,7 @@ import models.abdm  # registers the abdm tables on metadata
 from routers import b2b as b2b_router
 from routers import billing as billing_router
 from routers import payments_rzp
+from routers import public_report
 from routers import messaging as messaging_router
 import models.messaging
 from routers import reports as reports_router
@@ -50,6 +51,7 @@ app.include_router(abdm.router, prefix="/api/abdm", tags=["ABDM"])
 app.include_router(b2b_router.router, prefix="/api/b2b", tags=["B2B"])
 app.include_router(billing_router.router, prefix="/api/billing", tags=["Billing"])
 app.include_router(payments_rzp.router, prefix="/api/billing", tags=["Razorpay"])
+app.include_router(public_report.router, prefix="/api/public", tags=["Public Report"])
 app.include_router(messaging_router.router, prefix="/api/billing", tags=["Messaging"])
 app.include_router(reports_router.router, prefix="/api/reports", tags=["Reports"])
 app.include_router(reports2_router.router, prefix="/api/reports2", tags=["Reports2"])
