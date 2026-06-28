@@ -24,7 +24,20 @@ export default function Organizations() {
   const [waOrg, setWaOrg]       = useState(null);    // org being messaged
   const [waMsg, setWaMsg]       = useState('');
   const [waSending, setWaSending] = useState(false);
+  const [ledgerOrg, setLedgerOrg] = useState(null);   // org whose ledger is open
+  const [ledger, setLedger]       = useState(null);
+  const [ledgerLoading, setLedgerLoading] = useState(false);
   const showToast = (kind, msg) => { setToast({ kind, msg }); setTimeout(()=>setToast(null), 3000); };
+
+  const openLedger = async (o) => {
+    setLedgerOrg(o); setLedger(null); setLedgerLoading(true);
+    try {
+      const res = await authedFetch(`/b2b/organizations/${o.id}/ledger`);
+      if (!res.ok) throw new Error('failed');
+      setLedger(await res.json());
+    } catch { showToast('error', 'Could not load ledger'); }
+    setLedgerLoading(false);
+  };
 
   const openWhatsApp = (o) => {
     setWaOrg(o);
@@ -132,6 +145,53 @@ export default function Organizations() {
           </div>
         </div>
       )}
+      {ledgerOrg && (
+        <div onClick={()=>setLedgerOrg(null)} style={{ position:'fixed', inset:0, zIndex:9998, background:'rgba(15,18,24,0.45)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+          <div onClick={e=>e.stopPropagation()} style={{ ...S.card, width:'560px', maxWidth:'94vw', maxHeight:'86vh', overflowY:'auto' }}>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:'1rem' }}>
+              <div>
+                <div style={{ fontFamily:'Manrope,sans-serif', fontWeight:800, color:'#0f1218', fontSize:'1.05rem' }}>📒 {ledgerOrg.name}</div>
+                <div style={{ fontSize:'0.75rem', color:'#8892a4', marginTop:'0.15rem' }}>Credit & debit ledger</div>
+              </div>
+              <button onClick={()=>setLedgerOrg(null)} style={{ background:'#fafbfc', border:'1px solid #e8ecf4', color:'#8892a4', borderRadius:'8px', padding:'0.4rem 0.7rem', cursor:'pointer' }}>✕</button>
+            </div>
+            {ledgerLoading && <div style={{ color:'#8892a4', padding:'1.5rem', textAlign:'center' }}>Loading…</div>}
+            {ledger && (() => {
+              const money = n => '₹' + (Number(n)||0).toLocaleString('en-IN', { minimumFractionDigits:2, maximumFractionDigits:2 });
+              const META = { bill:{label:'Invoice',color:'#dc2626',sign:'+'}, payment:{label:'Payment',color:'#16a34a',sign:'−'}, adjustment:{label:'Adjustment',color:'#7c3aed',sign:'±'} };
+              const over = Number(ledger.outstanding||0) > Number(ledger.organization?.credit_limit||0);
+              return (<>
+                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.8rem', marginBottom:'1.2rem' }}>
+                  <div style={{ background:'#fafbfc', border:`1px solid ${over?'rgba(220,38,38,0.3)':'#e8ecf4'}`, borderRadius:'10px', padding:'0.9rem' }}>
+                    <div style={{ fontSize:'0.64rem', color:'#8892a4', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.05em' }}>Outstanding</div>
+                    <div style={{ fontSize:'1.3rem', fontWeight:800, color:over?'#dc2626':'#0f1218', marginTop:'0.2rem' }}>{money(ledger.outstanding)}</div>
+                  </div>
+                  <div style={{ background:'#fafbfc', border:'1px solid #e8ecf4', borderRadius:'10px', padding:'0.9rem' }}>
+                    <div style={{ fontSize:'0.64rem', color:'#8892a4', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.05em' }}>Credit Limit</div>
+                    <div style={{ fontSize:'1.3rem', fontWeight:800, color:'#0f1218', marginTop:'0.2rem' }}>{money(ledger.organization?.credit_limit)}</div>
+                  </div>
+                </div>
+                <table style={{ width:'100%', borderCollapse:'collapse' }}>
+                  <thead><tr style={{ background:'#fafbfc', borderBottom:'1.5px solid #e8ecf4' }}>
+                    {['Type','Date','Reference','Amount','Balance'].map(h => <th key={h} style={{ textAlign: (h==='Amount'||h==='Balance')?'right':'left', padding:'0.6rem 0.8rem', fontSize:'0.62rem', color:'#8892a4', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.05em' }}>{h}</th>)}
+                  </tr></thead>
+                  <tbody>
+                    {(ledger.entries||[]).length === 0 && <tr><td colSpan={5} style={{ textAlign:'center', padding:'2rem', color:'#8892a4' }}>No ledger entries yet.</td></tr>}
+                    {(ledger.entries||[]).map(e => { const m = META[e.type]||{label:e.type,color:'#475569',sign:''}; return (
+                      <tr key={e.id} style={{ borderBottom:'1px solid #f4f6fa' }}>
+                        <td style={{ padding:'0.6rem 0.8rem' }}><span style={{ background:m.color+'18', color:m.color, padding:'0.15rem 0.6rem', borderRadius:'20px', fontSize:'0.68rem', fontWeight:700 }}>{m.label}</span></td>
+                        <td style={{ padding:'0.6rem 0.8rem', color:'#8892a4', fontSize:'0.78rem' }}>{e.created_at ? new Date(e.created_at).toLocaleDateString('en-IN',{dateStyle:'medium'}) : '—'}</td>
+                        <td style={{ padding:'0.6rem 0.8rem', color:'#475569', fontSize:'0.78rem', fontFamily:'monospace' }}>{e.ref || '—'}</td>
+                        <td style={{ padding:'0.6rem 0.8rem', textAlign:'right', fontWeight:700, color:m.color }}>{m.sign}{money(e.amount)}</td>
+                        <td style={{ padding:'0.6rem 0.8rem', textAlign:'right', color:'#0f1218', fontWeight:600 }}>{e.balance_after!=null ? money(e.balance_after) : '—'}</td>
+                      </tr>); })}
+                  </tbody>
+                </table>
+              </>);
+            })()}
+          </div>
+        </div>
+      )}
       <style>{`@keyframes toastIn { from { opacity:0; transform:translateX(40px);} to { opacity:1; transform:translateX(0);} }`}</style>
 
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:'2rem' }}>
@@ -208,6 +268,9 @@ export default function Organizations() {
                 <td style={{ padding:'0.9rem 1.3rem', color:'#475569', fontSize:'0.78rem', fontFamily:'monospace' }}>{o.pan||'—'}</td>
                 <td style={{ padding:'0.9rem 1.3rem' }}>
                   <div style={{ display:'flex', gap:'0.4rem' }}>
+                    <button title="View ledger" onClick={()=>openLedger(o)} style={iconBtn('#f97316')}>
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+                    </button>
                     <button title={o.phone ? 'Send WhatsApp' : 'No phone on file'} onClick={()=>openWhatsApp(o)} disabled={!o.phone} style={{ ...iconBtn('#25D366'), opacity: o.phone?1:0.4, cursor: o.phone?'pointer':'not-allowed' }}>
                       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
                     </button>
