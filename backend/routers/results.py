@@ -2,7 +2,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from database import get_db
 from models.models import LabResult, Patient, Device
-from auth.deps import get_scope, apply_scope, Scope
+from auth.deps import get_scope, apply_scope, Scope, get_current_user
+from models.org import User, Role, Franchise
+from services.credit import is_franchise_locked
 from parsers.astm_parser import auto_parse
 from pydantic import BaseModel
 from typing import Optional
@@ -17,26 +19,55 @@ class RawDataSubmit(BaseModel):
 
 @router.get("/")
 def get_all_results(db: Session = Depends(get_db), scope: Scope = Depends(get_scope),
+                    user: User = Depends(get_current_user),
                     barcode: Optional[str] = None, patient_id: Optional[int] = None):
     q = apply_scope(db.query(LabResult), LabResult, scope)
+
+    # LabResult has no franchise column, so a franchise login must be scoped to
+    # its own patients explicitly. We also compute whether THIS franchise is over
+    # its credit limit (dynamic) -> locks the values/PDF for its own login.
+    fr_locked = False
+    if user.role == Role.FRANCHISE and user.franchise_id:
+        own_ids = [pid for (pid,) in
+                   db.query(Patient.id).filter(Patient.organization_id == user.franchise_id).all()]
+        q = q.filter(LabResult.patient_id.in_(own_ids or [-1]))
+        fr_locked = is_franchise_locked(db, user.franchise_id)
+
     if barcode:
         q = q.filter(LabResult.barcode.ilike(f"%{barcode}%"))
     if patient_id is not None:
         q = q.filter(LabResult.patient_id == patient_id)
     results = q.order_by(LabResult.created_at.desc()).limit(200).all()
+
+    # map patient -> organization, and which organizations are over limit (for the
+    # lab's informational "OVER LIMIT" chip; lab access itself is never blocked).
+    pat_ids = {r.patient_id for r in results if r.patient_id}
+    pat_org = {p.id: p.organization_id for p in
+               db.query(Patient.id, Patient.organization_id)
+                 .filter(Patient.id.in_(pat_ids or [-1])).all()} if pat_ids else {}
+    org_ids = {o for o in pat_org.values() if o}
+    over_orgs = {oid for oid in org_ids if is_franchise_locked(db, oid)}
+    org_names = {o.id: o.name for o in
+                 db.query(Franchise).filter(Franchise.id.in_(org_ids or [-1])).all()}
+
     output = []
     for r in results:
-        output.append({
+        org_id = pat_org.get(r.patient_id)
+        row = {
             "id":           r.id,
             "barcode":      r.barcode,
             "test_name":    r.test_name,
             "status":       r.status,
             "lifecycle_status": r.patient.status if r.patient else None,
-            "parsed_data":  r.parsed_data,
+            "parsed_data":  None if fr_locked else r.parsed_data,
             "created_at":   r.created_at,
             "patient_name": r.patient.patient_name if r.patient else "Unknown",
             "device_name":  r.device.name if r.device else "Manual",
-        })
+            "franchise":    org_names.get(org_id),
+            "over_limit":   bool(org_id in over_orgs),
+            "locked":       bool(fr_locked),   # this franchise viewer is over limit
+        }
+        output.append(row)
     return output
 
 @router.post("/parse")
@@ -96,10 +127,25 @@ def parse_raw_data(payload: RawDataSubmit, db: Session = Depends(get_db)):
     }
 
 @router.get("/{result_id}")
-def get_result(result_id: int, db: Session = Depends(get_db)):
+def get_result(result_id: int, db: Session = Depends(get_db),
+               user: User = Depends(get_current_user)):
     result = db.query(LabResult).filter(LabResult.id == result_id).first()
     if not result:
         raise HTTPException(status_code=404, detail="Result not found")
+
+    # Franchise: only their own patients, and values withheld when over limit.
+    if user.role == Role.FRANCHISE:
+        patient = db.query(Patient).filter(Patient.id == result.patient_id).first()
+        if not patient or patient.organization_id != user.franchise_id:
+            raise HTTPException(status_code=403, detail="not your patient")
+        if is_franchise_locked(db, user.franchise_id):
+            return {
+                "id": result.id, "barcode": result.barcode, "status": result.status,
+                "created_at": result.created_at, "locked": True,
+                "parsed_data": None, "raw_data": None,
+                "patient": result.patient, "device": result.device,
+            }
+
     return {
         "id":          result.id,
         "barcode":     result.barcode,
@@ -107,6 +153,7 @@ def get_result(result_id: int, db: Session = Depends(get_db)):
         "parsed_data": result.parsed_data,
         "status":      result.status,
         "created_at":  result.created_at,
+        "locked":      False,
         "patient":     result.patient,
         "device":      result.device,
     }
