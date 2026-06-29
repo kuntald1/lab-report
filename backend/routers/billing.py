@@ -84,7 +84,7 @@ def create_bill(payload: BillCreate, request: Request,
     if not payload.test_ids and not payload.group_ids:
         raise HTTPException(400, "no tests selected")
 
-    org_id = payload.organization_id if payload.organization_id is not None else patient.organization_id
+    org_id = payload.organization_id if payload.organization_id is not None else (patient.organization_id or patient.registered_franchise_id)
 
     items, subtotal = [], 0.0
 
@@ -159,6 +159,7 @@ def create_bill(payload: BillCreate, request: Request,
         db.add(OrgLedger(organization_id=org_id, entry_type="bill", amount=total,
                          balance_after=new_balance, ref=bill.bill_no))
 
+
     db.commit(); db.refresh(bill)
     write_audit(db, action="create", user=user, entity="bill", entity_id=bill.id,
                 after={"bill_no": bill.bill_no, "total": total, "org": org_id}, ip=_ip(request))
@@ -222,8 +223,13 @@ def get_bill(bill_id: int, db: Session = Depends(get_db), scope: Scope = Depends
     b = db.query(Bill).filter(Bill.id == bill_id).first()
     if not b:
         raise HTTPException(404, "bill not found")
-    if scope.role == Role.FRANCHISE and scope.franchise_id is not None and b.organization_id != scope.franchise_id:
-        raise HTTPException(403, "not your bill")
+    if scope.role == Role.FRANCHISE and scope.franchise_id is not None:
+        if b.organization_id != scope.franchise_id:
+            # also allow if patient is registered under this franchise
+            from models.models import Patient as Pat
+            pt = db.query(Pat).filter(Pat.id == b.patient_id).first()
+            if not pt or pt.registered_franchise_id != scope.franchise_id:
+                raise HTTPException(403, "not your bill")
     return _bill_dict(db, b)
 
 
@@ -320,8 +326,13 @@ def bill_pdf(bill_id: int, db: Session = Depends(get_db), scope: Scope = Depends
     b = db.query(Bill).filter(Bill.id == bill_id).first()
     if not b:
         raise HTTPException(404, "bill not found")
-    if scope.role == Role.FRANCHISE and scope.franchise_id is not None and b.organization_id != scope.franchise_id:
-        raise HTTPException(403, "not your bill")
+    if scope.role == Role.FRANCHISE and scope.franchise_id is not None:
+        if b.organization_id != scope.franchise_id:
+            # also allow if patient is registered under this franchise
+            from models.models import Patient as Pat
+            pt = db.query(Pat).filter(Pat.id == b.patient_id).first()
+            if not pt or pt.registered_franchise_id != scope.franchise_id:
+                raise HTTPException(403, "not your bill")
     data = _bill_dict(db, b)
 
     buf = io.BytesIO()
@@ -411,8 +422,13 @@ def money_receipt(bill_id: int, db: Session = Depends(get_db), scope: Scope = De
     b = db.query(Bill).filter(Bill.id == bill_id).first()
     if not b:
         raise HTTPException(404, "bill not found")
-    if scope.role == Role.FRANCHISE and scope.franchise_id is not None and b.organization_id != scope.franchise_id:
-        raise HTTPException(403, "not your bill")
+    if scope.role == Role.FRANCHISE and scope.franchise_id is not None:
+        if b.organization_id != scope.franchise_id:
+            # also allow if patient is registered under this franchise
+            from models.models import Patient as Pat
+            pt = db.query(Pat).filter(Pat.id == b.patient_id).first()
+            if not pt or pt.registered_franchise_id != scope.franchise_id:
+                raise HTTPException(403, "not your bill")
     data = _bill_dict(db, b)
     pays = data.get("payments", [])
     modes = ", ".join(sorted({p["method"].upper() for p in pays if p.get("status") == "success"})) or "—"

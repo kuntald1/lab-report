@@ -52,7 +52,7 @@ export default function Billing({ isAdmin = true, initialPatientId = '', onManag
   useEffect(() => {
     const ids = Object.keys(picked);
     if (!patientId || ids.length === 0) return;
-    const qs = `organization_id=${orgId ?? ''}&test_ids=${ids.join(',')}`;
+    const qs = `${orgId ? 'organization_id='+orgId+'&' : ''}test_ids=${ids.join(',')}`;
     authedFetch(`/billing/resolve?${qs}`).then(r=>r.ok?r.json():[]).then(rows => {
       setPicked(prev => {
         const next = { ...prev };
@@ -67,7 +67,7 @@ export default function Billing({ isAdmin = true, initialPatientId = '', onManag
     if (groupMemberIds.has(t.id)) { showToast('error', `${t.name} is already included in a selected group`); return; }  // dedupe
     // optimistic base price; the resolve call corrects to group/org price
     setPicked(prev => ({ ...prev, [t.id]: { name:t.name, mrp:t.mrp, price:t.price, source:'base' } }));
-    const qs = `organization_id=${orgId ?? ''}&test_ids=${t.id}`;
+    const qs = `${orgId ? 'organization_id='+orgId+'&' : ''}test_ids=${t.id}`;
     authedFetch(`/billing/resolve?${qs}`).then(r=>r.ok?r.json():[]).then(rows => {
       if (rows[0]) setPicked(prev => ({ ...prev, [t.id]: { name:rows[0].name, mrp:rows[0].mrp, price:rows[0].price, source:rows[0].source } }));
     }).catch(()=>{});
@@ -252,6 +252,7 @@ export default function Billing({ isAdmin = true, initialPatientId = '', onManag
       setLastBill(bill); setPicked({}); setPickedGroups({}); setDiscType(''); setDiscVal(''); setOnCredit(isFranchise);
       setWaPhone(patient?.phone || '');
       showToast('success', `Bill ${bill.bill_no} created · ${inr(bill.total)}`);
+      downloadReceipt(bill);
     } catch (e) { showToast('error', String(e.message||'Bill failed')); }
     setSaving(false);
   };
@@ -428,7 +429,7 @@ export default function Billing({ isAdmin = true, initialPatientId = '', onManag
           )}
 
           {/* pay now */}
-          {!paid && lastBill.status !== 'credit' && (
+          {!paid && lastBill.status !== 'credit' && !isFranchise && (
             <div style={{ marginTop:'1rem', paddingTop:'1rem', borderTop:'1px dashed #e8ecf4' }}>
               <div style={{ fontSize:'0.72rem', color:'#8892a4', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:'0.6rem' }}>Collect Payment</div>
               <div style={{ display:'flex', gap:'0.6rem', flexWrap:'wrap' }}>

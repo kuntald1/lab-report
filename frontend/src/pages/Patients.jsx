@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { authedFetch } from '../services/auth';
+import { authedFetch, auth } from '../services/auth';
 
 const statusColor = { collected:'#0ea5e9', dispatched:'#6366f1', received:'#8b5cf6', tested:'#f59e0b', validated:'#16a34a', reported:'#0f766e' };
 
@@ -10,7 +10,7 @@ const S   = { card: { background:'#fff', border:'1px solid #e8ecf4', borderRadiu
 const sampleColor = { Blood:'#fff1ee', Serum:'#eff6ff', Urine:'#fefce8', Plasma:'#fdf4ff', Sodium:'#f0fdf4', Potassium:'#fef9c3', Electrolyte:'#f0fdf4' };
 const sampleText  = { Blood:'#c2410c', Serum:'#1d4ed8', Urine:'#854d0e', Plasma:'#7e22ce', Sodium:'#16a34a', Potassium:'#854d0e', Electrolyte:'#16a34a' };
 
-const BLANK = { patient_name:'', age:'', gender:'Male', doctor_name:'', sample_type:'Blood', barcode:'', abha_number:'', phone:'', branch_id:'', registered_franchise_id:'', organization_id:'' };
+const BLANK = { patient_name:'', age:'', gender:'Male', doctor_name:'', barcode:'', abha_number:'', phone:'', branch_id:'', registered_franchise_id:'', organization_id:'', checklist:{diabetic:false,on_medication:false,hypertension:false,fasting_sample:false,pregnant:false}, note:'' };
 
 // pretty-print a 14-digit ABHA as XX-XXXX-XXXX-XXXX
 const fmtAbha = (n) => {
@@ -20,6 +20,9 @@ const fmtAbha = (n) => {
 };
 
 export default function Patients({ onBill = () => {} }) {
+  const me = auth.user();
+  const role = (me?.role || '').toLowerCase();
+  const isFranchise = role === 'franchise';
   const [patients, setPatients]   = useState([]);
   const [branches, setBranches]   = useState([]);
   const [franchises, setFranchises] = useState([]);
@@ -42,12 +45,21 @@ export default function Patients({ onBill = () => {} }) {
   const branchName    = (id) => branches.find(b=>b.id===id)?.name || (id ? `Branch ${id}` : '—');
   const franchiseName = (id) => franchises.find(f=>f.id===id)?.name || (id ? `Franchise ${id}` : '—');
 
-  const openCreate = () => { setEditingId(null); setForm(BLANK); setShowForm(true); };
+  const openCreate = () => {
+    setEditingId(null);
+    const blank = {...BLANK};
+    if (isFranchise && me?.franchise_id) {
+      blank.registered_franchise_id = String(me.franchise_id);
+      blank.organization_id = String(me.franchise_id);
+    }
+    setForm(blank);
+    setShowForm(true);
+  };
   const startEdit  = (p) => {
     setEditingId(p.id);
     setForm({
       patient_name: p.patient_name || '', age: p.age ?? '', gender: p.gender || 'Male',
-      doctor_name: p.doctor_name || '', sample_type: p.sample_type || 'Blood', barcode: p.barcode || '',
+      doctor_name: p.doctor_name || '', barcode: p.barcode || '',
       abha_number: p.abha_number || '',
       phone: p.phone || '',
       branch_id: p.branch_id ?? '', registered_franchise_id: p.registered_franchise_id ?? '',
@@ -65,7 +77,8 @@ export default function Patients({ onBill = () => {} }) {
       age: form.age ? parseInt(form.age) : null,
       gender: form.gender,
       doctor_name: form.doctor_name || null,
-      sample_type: form.sample_type,
+      checklist: form.checklist || null,
+      note: form.note || null,
       abha_number: form.abha_number || null,
       phone: form.phone || null,
       branch_id: form.branch_id ? parseInt(form.branch_id) : null,
@@ -77,9 +90,10 @@ export default function Patients({ onBill = () => {} }) {
         await authedFetch(`/patients/${editingId}`, { method:'PUT',
           headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
       } else {
-        await authedFetch('/patients/', { method:'POST',
+        const res = await authedFetch('/patients/', { method:'POST',
           headers:{'Content-Type':'application/json'},
           body: JSON.stringify({ ...payload, barcode: form.barcode || undefined }) });
+        if (res.ok) { const created = await res.json(); setForm(BLANK); setEditingId(null); setShowForm(false); load(); setSaving(false); return created; }
       }
       setForm(BLANK); setEditingId(null); setShowForm(false);
       load();
@@ -159,21 +173,17 @@ export default function Patients({ onBill = () => {} }) {
               {/* also allow free-type if name not in list */}
               <input style={{ ...inp, marginTop:'0.3rem', fontSize:'0.78rem', padding:'0.4rem 0.7rem' }} placeholder="or type a name directly" value={form.doctor_name} onChange={e=>setForm({...form,doctor_name:e.target.value})} />
             </div>
-            <div><label style={lbl}>Sample Type</label>
-              <select style={inp} value={form.sample_type} onChange={e=>setForm({...form,sample_type:e.target.value})}>
-                <option>Blood</option><option>Serum</option><option>Urine</option><option>Plasma</option><option>Sodium</option><option>Potassium</option><option>Electrolyte</option>
-              </select></div>
             <div><label style={lbl}>ABHA Number <span style={{ textTransform:'none', letterSpacing:0, fontWeight:400 }}>(14-digit health ID)</span></label>
               <input style={{ ...inp, fontFamily:'monospace', letterSpacing:'0.04em' }} placeholder="e.g. 91-1234-5678-9012" value={form.abha_number} onChange={e=>setForm({...form,abha_number:e.target.value})} /></div>
             <div><label style={lbl}>Phone <span style={{ textTransform:'none', letterSpacing:0, fontWeight:400 }}>(for WhatsApp bill)</span></label>
               <input style={inp} placeholder="10-digit mobile" value={form.phone} onChange={e=>setForm({...form,phone:e.target.value})} /></div>
-            <div><label style={lbl}>Branch</label>
-              <select style={inp} value={form.branch_id} onChange={e=>setForm({...form,branch_id:e.target.value})}>
+            <div><label style={lbl}>Branch {isFranchise && <span style={{color:'#f97316',fontWeight:400,textTransform:'none'}}>(locked – set by franchise)</span>}</label>
+              <select style={{...inp, background: isFranchise?'#f1f3f7':'', color: isFranchise?'#8892a4':''}} disabled={isFranchise} value={form.branch_id} onChange={e=>setForm({...form,branch_id:e.target.value})}>
                 <option value="">— Use my branch —</option>
                 {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
               </select></div>
             <div><label style={lbl}>Franchise <span style={{ textTransform:'none', letterSpacing:0, fontWeight:400 }}>(also used for B2B billing)</span></label>
-              <select style={inp} value={form.registered_franchise_id} onChange={e=>setForm({...form,registered_franchise_id:e.target.value, organization_id:e.target.value})}>
+              <select style={{...inp, background: isFranchise?'#f1f3f7':'', color: isFranchise?'#0f1218':''}} disabled={isFranchise} value={isFranchise ? (me?.franchise_id || form.registered_franchise_id) : form.registered_franchise_id} onChange={e=>setForm({...form,registered_franchise_id:e.target.value, organization_id:e.target.value})}>
                 <option value="">— Direct / Walk-in —</option>
                 {franchises.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
               </select></div>
@@ -186,15 +196,37 @@ export default function Patients({ onBill = () => {} }) {
                 <input style={{ ...inp, fontFamily:'monospace', background:'#f1f3f7', color:'#8892a4' }} value={form.barcode} disabled /></div>
             )}
           </div>
+          <div style={{ background:'rgba(249,115,22,0.04)', border:'1px solid rgba(249,115,22,0.15)', borderRadius:'12px', padding:'1rem 1.3rem', marginBottom:'1rem' }}>
+            <div style={{ fontWeight:800, color:'#f97316', fontSize:'0.82rem', marginBottom:'0.7rem' }}>Patient History</div>
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.4rem 2rem', marginBottom:'0.7rem' }}>
+              {[['diabetic','Diabetic?'],['on_medication','On medication?'],['hypertension','Hypertension?'],['fasting_sample','Fasting sample?'],['pregnant','Pregnant?']].map(([k,label])=>(
+                <label key={k} style={{ display:'flex', alignItems:'center', gap:'0.5rem', fontSize:'0.83rem', color:'#475569', cursor:'pointer' }}>
+                  <input type="checkbox" checked={!!(form.checklist&&form.checklist[k])} onChange={e=>setForm({...form,checklist:{...(form.checklist||{}),[k]:e.target.checked}})} style={{ accentColor:'#f97316', width:'15px', height:'15px' }} />
+                  {label}
+                </label>
+              ))}
+            </div>
+            <label style={{ ...lbl, display:'block', marginBottom:'0.3rem' }}>Note <span style={{ textTransform:'none', fontWeight:400 }}>(optional)</span></label>
+            <textarea style={{ ...inp, resize:'vertical', minHeight:'60px', fontFamily:'Manrope,sans-serif' }} placeholder="e.g. Confirm last meal time and any thyroid medication" value={form.note||''} onChange={e=>setForm({...form,note:e.target.value})} />
+          </div>
           {!editingId && (
             <div style={{ fontSize:'0.75rem', color:'#8892a4', marginBottom:'1rem' }}>
               {form.barcode ? <span style={{ color:'#f97316', fontWeight:600 }}>✅ Custom barcode: {form.barcode}</span> : 'Barcode will be auto-generated by the system.'}
             </div>
           )}
           <div style={{ display:'flex', gap:'0.6rem' }}>
-            <button onClick={submit} disabled={saving} style={{ background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', border:'none', borderRadius:'9px', padding:'0.65rem 1.5rem', fontWeight:700, cursor:'pointer', fontFamily:'Manrope,sans-serif', boxShadow:'0 4px 14px rgba(249,115,22,0.3)' }}>
-              {saving ? 'Saving...' : editingId ? 'Update Patient' : 'Register Patient'}
-            </button>
+            {editingId ? (
+              <button onClick={submit} disabled={saving} style={{ background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', border:'none', borderRadius:'9px', padding:'0.65rem 1.5rem', fontWeight:700, cursor:'pointer', fontFamily:'Manrope,sans-serif', boxShadow:'0 4px 14px rgba(249,115,22,0.3)' }}>
+                {saving ? 'Saving...' : 'Update Patient'}
+              </button>
+            ) : (<>
+              <button onClick={async()=>{ const p=await submit(); if(p) onBill(p.id); }} disabled={saving} style={{ background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', border:'none', borderRadius:'9px', padding:'0.65rem 1.5rem', fontWeight:700, cursor:'pointer', fontFamily:'Manrope,sans-serif', boxShadow:'0 4px 14px rgba(249,115,22,0.3)' }}>
+                {saving ? 'Saving...' : 'Register & Bill →'}
+              </button>
+              <button onClick={submit} disabled={saving} style={{ background:'transparent', color:'#f97316', border:'2px solid #f97316', borderRadius:'9px', padding:'0.65rem 1.5rem', fontWeight:700, cursor:'pointer', fontFamily:'Manrope,sans-serif' }}>
+                {saving ? '...' : 'Register only'}
+              </button>
+            </>)}
             <button onClick={()=>{ setShowForm(false); setEditingId(null); setForm(BLANK); }} style={{ background:'transparent', color:'#8892a4', border:'1px solid #e8ecf4', borderRadius:'9px', padding:'0.65rem 1.2rem', cursor:'pointer', fontFamily:'Manrope,sans-serif' }}>Cancel</button>
           </div>
         </div>
@@ -204,7 +236,7 @@ export default function Patients({ onBill = () => {} }) {
         <table style={{ width:'100%', borderCollapse:'collapse' }}>
           <thead>
             <tr style={{ background:'#fafbfc', borderBottom:'1.5px solid #e8ecf4' }}>
-              {['Barcode','Patient Name','Age','Gender','Doctor','ABHA','Sample','Status','Registered','Actions'].map(h => (
+              {['Barcode','Patient Name','Age','Gender','Doctor','ABHA','Status','Registered','Actions'].map(h => (
                 <th key={h} style={{ textAlign:'left', padding:'0.8rem 1.3rem', fontSize:'0.65rem', color:'#8892a4', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.07em' }}>{h}</th>
               ))}
             </tr>

@@ -11,7 +11,8 @@ function todayISO(d=0){ const t=new Date(); t.setDate(t.getDate()+d); return t.t
 
 export default function Dashboard() {
   const isFranchise = (auth.user()?.role || '').toLowerCase() === 'franchise';
-  const [f, setF] = useState({ franchise_id:'', branch_id:'', date_from: todayISO(-29), date_to: todayISO(0) });
+  const myFranchiseId = isFranchise ? (auth.user()?.franchise_id || '') : '';
+  const [f, setF] = useState({ franchise_id: myFranchiseId, branch_id:'', date_from: todayISO(-29), date_to: todayISO(0) });
   const [d, setD] = useState({ kpis:{}, daily:[], methods:[], breakdown:[], recent:[] });
   const [loading, setLoading] = useState(true);
   const [franchises, setFranchises] = useState([]);

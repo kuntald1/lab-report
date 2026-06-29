@@ -25,6 +25,8 @@ import HistoryBell from './components/HistoryBell';
 import DoctorBell from './components/DoctorBell';
 import RejectedBell from './components/RejectedBell';
 import SampleReport from './pages/SampleReport';
+import ManageCredit from './pages/ManageCredit';
+import Branches from './pages/Branches';
 
 export default function App() {
   const [authed, setAuthed] = useState(auth.isAuthed());
@@ -37,7 +39,7 @@ export default function App() {
 
   if (!authed) return <Login onLogin={() => setAuthed(true)} />;
 
-  const pages = { dashboard:<Dashboard />, devices:<Devices />, patients:<Patients onBill={(id)=>{ setBillPatientId(String(id)); setPage('billing'); }} />, results:<Results />, simulator:<Simulator />, tcp:<TCPLive />, tat:<TAT />, status:<ChangeStatus />,tubes:<SampleTubes />, orggroups:<OrgGroups />, organizations:<Organizations />, pricing:<Pricing />, testscatalog:<TestsCatalog />, users:<Users />, billing:<Billing initialPatientId={billPatientId} />, bills:<Bills />, reportvalidate:<ReportValidate />, validatehistory:<ValidateHistory />, historyneeded:<HistoryNeeded />, samplereport:<SampleReport />  };
+  const pages = { dashboard:<Dashboard />, devices:<Devices />, patients:<Patients onBill={(id)=>{ setBillPatientId(String(id)); setPage('billing'); }} />, results:<Results />, simulator:<Simulator />, tcp:<TCPLive />, tat:<TAT />, status:<ChangeStatus />,tubes:<SampleTubes />, orggroups:<OrgGroups />, organizations:<Organizations />, pricing:<Pricing />, testscatalog:<TestsCatalog />, users:<Users />, billing:<Billing initialPatientId={billPatientId} onManageCredit={()=>setPage('credit')} />, bills:<Bills />, reportvalidate:<ReportValidate />, validatehistory:<ValidateHistory />, historyneeded:<HistoryNeeded />, samplereport:<SampleReport />, credit:<ManageCredit onManageCredit={()=>setPage('credit')} />, branches:<Branches />  };
   // sidebar/nav handler: opening "New Bill" from the menu starts fresh (no pre-filled patient)
   const handleNav = (p) => { if (p === 'billing') setBillPatientId(''); setPage(p); };
   const logout = () => { auth.logout(); setAuthed(false); setPage('dashboard'); };
@@ -55,9 +57,9 @@ export default function App() {
           <div style={{ display:'flex', alignItems:'center', gap:'0.6rem' }}>
             <div style={{ width:'8px', height:'8px', borderRadius:'50%', background:'#f97316', boxShadow:'0 0 8px rgba(249,115,22,0.6)', animation:'pulse 2s infinite' }}></div>
             <span style={{ fontSize:'0.72rem', color:'#8892a4', fontWeight:600 }}>All systems operational</span>
-            {isLab    && <HistoryBell onOpen={()=>setPage('historyneeded')} />}
+            {(isLab || role === 'franchise') && <HistoryBell onOpen={()=>setPage('historyneeded')} />}
             {isDoctor && <DoctorBell  onOpen={()=>setPage('reportvalidate')} />}
-            {(isLab || isFranchise) && <RejectedBell onOpen={()=>setPage('results')} />}
+            {(isLab || role === 'franchise') && <RejectedBell onOpen={()=>setPage('results')} />}
           </div>
         </div>
         {/* Page content */}

@@ -5,7 +5,7 @@ Pricing is resolved at billing time via services.pricing.resolve_price
 changes never alter an issued bill. org_ledger (Phase 1) records the running
 B2B outstanding for credit gating.
 """
-from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey
+from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Boolean
 from sqlalchemy.sql import func
 from database import Base
 

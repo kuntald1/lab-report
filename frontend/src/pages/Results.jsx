@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../services/api';
 import { authedFetch } from '../services/auth';
 
-const lifeColor = { collected:'#0ea5e9', dispatched:'#6366f1', received:'#8b5cf6', tested:'#f59e0b', validated:'#16a34a', reported:'#0f766e' };
+const lifeColor = { collected:'#0ea5e9', dispatched:'#6366f1', received:'#8b5cf6', tested:'#f59e0b', validated:'#16a34a', reported:'#0f766e', sample_rejected:'#dc2626' };
 
 const S = { card: { background:'#fff', border:'1px solid #e8ecf4', borderRadius:'14px', boxShadow:'0 2px 16px rgba(15,18,24,0.07)' } };
 const flagColor  = f => f==='H'?'#dc2626':f==='L'?'#2563eb':'#16a34a';
@@ -108,7 +108,7 @@ export default function Results() {
             </div>
           )}
           {results.map(r => (
-            <div key={r.id} onClick={() => setSel(r)} style={{
+            <div key={r.id} onClick={() => { if (!r.locked) setSel(r); }} style={{
               ...S.card, padding:'1rem 1.3rem', cursor:'pointer', display:'flex', justifyContent:'space-between', alignItems:'center', transition:'all 0.15s',
               background: sel?.id===r.id ? '#fffbf7' : '#fff',
               border: sel?.id===r.id ? '1.5px solid rgba(249,115,22,0.3)' : '1px solid #e8ecf4',
@@ -128,6 +128,9 @@ export default function Results() {
               <div style={{ textAlign:'right' }}>
                 {r.lifecycle_status && (
                   <span style={{ fontSize:'0.66rem', background:(lifeColor[r.lifecycle_status]||'#94a3b8')+'22', color:lifeColor[r.lifecycle_status]||'#94a3b8', padding:'0.2rem 0.6rem', borderRadius:'20px', fontWeight:800, textTransform:'capitalize', marginRight:'0.35rem' }}>{r.lifecycle_status}</span>
+                )}
+                {r.lifecycle_status && !['reported'].includes(r.lifecycle_status) && (
+                  <span style={{ fontSize:'0.66rem', background:'rgba(245,158,11,0.15)', color:'#b45309', padding:'0.2rem 0.6rem', borderRadius:'20px', fontWeight:800, marginRight:'0.35rem' }}>⏳ PENDING</span>
                 )}
                 <span style={{ fontSize:'0.68rem', background:'rgba(34,197,94,0.1)', color:'#16a34a', padding:'0.2rem 0.65rem', borderRadius:'20px', fontWeight:700, border:'1px solid rgba(34,197,94,0.2)' }}>{r.status}</span>
                 {r.over_limit && <span title="This franchise is over its credit limit" style={{ marginLeft:'0.35rem', fontSize:'0.62rem', background:'rgba(220,38,38,0.12)', color:'#dc2626', padding:'0.2rem 0.5rem', borderRadius:'20px', fontWeight:800 }}>🔴 OVER LIMIT</span>}

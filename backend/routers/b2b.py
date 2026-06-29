@@ -26,6 +26,8 @@ from auth.audit import write_audit
 from models.org import User, Franchise, Role, ReferralDoctor
 from models.clinical import TestCatalog, Department, Package, PackageTest
 from models.b2b import OrgGroup, SampleTube, OrgGroupTest, OrgTest, OrgLedger
+from models.billing import Bill
+from sqlalchemy import func as sqlfunc
 from services.whatsapp import send_whatsapp
 from services.credit import is_franchise_locked
 

@@ -17,7 +17,7 @@ Role hierarchy
       ├ franchise   partner — scoped to its own franchise within a tenant
       └ patient     end user — scoped to its own records
 """
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, JSON, Text, func, Float
+from sqlalchemy import Float, Column, Integer, String, Boolean, DateTime, ForeignKey, JSON, Text
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from database import Base
@@ -113,6 +113,7 @@ class User(Base):
     id            = Column(Integer, primary_key=True, index=True)
     email         = Column(String, unique=True, index=True, nullable=False)
     full_name     = Column(String, nullable=True)
+    phone         = Column(String, nullable=True)
     hashed_password = Column(String, nullable=False)
     role          = Column(String, nullable=False, index=True)
     # Scope anchors — which ones are set depends on the role.

@@ -127,7 +127,7 @@ export default function ManageCredit() {
           <div style={{ fontWeight:800, color:'#0f1218', fontFamily:'Manrope,sans-serif' }}>Pay Outstanding</div>
           <div style={{ fontSize:'0.78rem', color:'#8892a4', marginTop:'0.2rem' }}>Clear your balance online via Razorpay.</div>
         </div>
-        <button onClick={payOutstanding} disabled={outstanding<=0 || paying} style={{ background: (outstanding<=0||paying) ? '#e8ecf4' : 'linear-gradient(135deg,#3b82f6,#2563eb)', color: (outstanding<=0||paying) ? '#94a3b8' : '#fff', border:'none', borderRadius:'10px', padding:'0.7rem 1.6rem', fontWeight:700, cursor: (outstanding<=0||paying)?'not-allowed':'pointer', fontFamily:'Manrope,sans-serif' }}>{paying ? 'Processing…' : `💳 Pay ${inr(outstanding)}`}</button>
+        <button onClick={payOutstanding} disabled={paying} style={{ background: paying ? '#e8ecf4' : 'linear-gradient(135deg,#3b82f6,#2563eb)', color: paying ? '#94a3b8' : '#fff', border:'none', borderRadius:'10px', padding:'0.7rem 1.6rem', fontWeight:700, cursor: paying?'not-allowed':'pointer', fontFamily:'Manrope,sans-serif' }}>{paying ? 'Processing…' : `💳 Pay ${inr(outstanding)}`}</button>
       </div>
 
       <div style={{ ...S.card, padding:0, overflow:'hidden' }}>

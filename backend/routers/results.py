@@ -28,11 +28,31 @@ def get_all_results(db: Session = Depends(get_db), scope: Scope = Depends(get_sc
     # its own patients explicitly. We also compute whether THIS franchise is over
     # its credit limit (dynamic) -> locks the values/PDF for its own login.
     fr_locked = False
+    fr_locked = False
+    locked_pids = set()   # patient_ids whose bills were created over the credit limit
     if user.role == Role.FRANCHISE and user.franchise_id:
         own_ids = [pid for (pid,) in
-                   db.query(Patient.id).filter(Patient.organization_id == user.franchise_id).all()]
+                   db.query(Patient.id).filter(
+                       or_(Patient.organization_id == user.franchise_id,
+                           Patient.registered_franchise_id == user.franchise_id),
+                       Patient.status == "reported"   # franchise only sees doctor-validated reports
+                   ).all()]
         q = q.filter(LabResult.patient_id.in_(own_ids or [-1]))
         fr_locked = is_franchise_locked(db, user.franchise_id)
+        if fr_locked:
+            from models.b2b import OrgLedger as OL
+            from models.billing import Bill as BillModel
+            from services.credit import franchise_credit_limit
+            climit = franchise_credit_limit(db, user.franchise_id)
+            ledger = (db.query(OL)
+                       .filter(OL.organization_id == user.franchise_id)
+                       .order_by(OL.id.asc()).all())
+            over_refs = {e.ref for e in ledger
+                         if e.entry_type == 'bill' and float(e.balance_after or 0) > climit}
+            if over_refs:
+                locked_pids = {pid for (pid,) in
+                                db.query(BillModel.patient_id)
+                                  .filter(BillModel.bill_no.in_(over_refs)).all()}
 
     if barcode:
         # match the result's own barcode OR the owning patient's barcode, so a
@@ -52,6 +72,27 @@ def get_all_results(db: Session = Depends(get_db), scope: Scope = Depends(get_sc
                     Patient.patient_name.ilike(f"%{pid}%"))).all()]
             q = q.filter(LabResult.patient_id.in_(match or [-1]))
     results = q.order_by(LabResult.created_at.desc()).limit(200).all()
+
+    # Also include manually reported patients who have no LabResult rows.
+    # Build set of patient_ids already covered by LabResults.
+    covered_pids = {r.patient_id for r in results}
+    # Query reported/validated patients in scope
+    pq = db.query(Patient).filter(
+        Patient.status.in_(["reported", "validated", "sample_rejected"]),
+        Patient.is_active.is_(True),
+    )
+    if scope.tenant_id is not None:
+        pq = pq.filter(Patient.tenant_id == scope.tenant_id)
+    if user.role == Role.FRANCHISE and user.franchise_id:
+        pq = pq.filter(
+            or_(Patient.organization_id == user.franchise_id,
+                Patient.registered_franchise_id == user.franchise_id),
+            Patient.status == "reported"
+        )
+    if barcode:
+        pq = pq.filter(Patient.barcode.ilike(f"%{barcode}%"))
+    manual_patients = [p for p in pq.order_by(Patient.created_at.desc()).limit(200).all()
+                       if p.id not in covered_pids]
 
     # map patient -> organization, and which organizations are over limit (for the
     # lab's informational "OVER LIMIT" chip; lab access itself is never blocked).
@@ -78,10 +119,27 @@ def get_all_results(db: Session = Depends(get_db), scope: Scope = Depends(get_sc
             "patient_name": r.patient.patient_name if r.patient else "Unknown",
             "device_name":  r.device.name if r.device else "Manual",
             "franchise":    org_names.get(org_id),
-            "over_limit":   bool(org_id in over_orgs),
-            "locked":       bool(fr_locked),   # this franchise viewer is over limit
+            "over_limit":   bool(r.patient_id in locked_pids) if user.role == Role.FRANCHISE else False,
+            "locked":       bool(r.patient_id in locked_pids),
         }
         output.append(row)
+    # Append manual-only patients as synthetic result rows
+    for p in manual_patients:
+        org_id = p.organization_id
+        output.append({
+            "id":           None,
+            "barcode":      p.barcode,
+            "test_name":    "Manual Report",
+            "status":       p.status,
+            "lifecycle_status": p.status,
+            "parsed_data":  None,
+            "created_at":   p.created_at,
+            "patient_name": p.patient_name,
+            "device_name":  "Manual",
+            "franchise":    org_names.get(org_id) if org_id in (org_names or {}) else None,
+            "over_limit":   False,
+            "locked":       bool(fr_locked),
+        })
     return output
 
 @router.post("/parse")

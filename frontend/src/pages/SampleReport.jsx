@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { authedFetch } from '../services/auth';
+import { authedFetch, auth } from '../services/auth';
 
 const inp = { background:'#fafbfc', border:'1.5px solid #e8ecf4', borderRadius:'9px', padding:'0.55rem 0.8rem', color:'#0f1218', fontFamily:'Manrope,sans-serif', fontSize:'0.82rem', outline:'none', width:'100%' };
 const lbl = { fontSize:'0.64rem', color:'#8892a4', fontWeight:600, textTransform:'uppercase', letterSpacing:'0.05em', display:'block', marginBottom:'0.3rem' };
@@ -9,7 +9,10 @@ const fmt = (d) => d ? new Date(d).toLocaleString('en-IN', { dateStyle:'medium',
 const STATUSES = ['', 'dispatched','received','tested','validated','reported'];
 
 export default function SampleReport() {
-  const [f, setF] = useState({ franchise_id:'', branch_id:'', date_from:'', date_to:'', patient_id:'', barcode:'', status:'' });
+  const me = auth.user ? auth.user() : null;
+  const isFranchise = (me?.role || '').toLowerCase() === 'franchise';
+  const myFranchiseId = isFranchise ? String(me?.franchise_id || '') : '';
+  const [f, setF] = useState({ franchise_id: myFranchiseId, branch_id:'', date_from:'', date_to:'', patient_id:'', barcode:'', status:'' });
   const [data, setData] = useState({ rows:[], totals:{} });
   const [loading, setLoading] = useState(false);
   const [franchises, setFranchises] = useState([]);
@@ -65,7 +68,7 @@ export default function SampleReport() {
       <div style={{ ...S.card, marginBottom:'1.2rem' }}>
         <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))', gap:'0.8rem', alignItems:'end' }}>
           <div><label style={lbl}>Franchise</label>
-            <select style={inp} value={f.franchise_id} onChange={e=>set('franchise_id',e.target.value)}>
+            <select style={{...inp, background: isFranchise?'#f1f3f7':''}} disabled={isFranchise} value={f.franchise_id} onChange={e=>set('franchise_id',e.target.value)}>
               <option value="">All</option>
               {franchises.map(fr => <option key={fr.id} value={fr.id}>{fr.name}</option>)}
             </select>
