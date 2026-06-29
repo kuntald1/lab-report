@@ -17,7 +17,7 @@ Role hierarchy
       ├ franchise   partner — scoped to its own franchise within a tenant
       └ patient     end user — scoped to its own records
 """
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, JSON, Text
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, JSON, Text, func, Float
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from database import Base
