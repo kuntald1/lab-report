@@ -322,6 +322,82 @@ def list_organizations(db: Session = Depends(get_db), scope: Scope = Depends(get
     return [_org_dict(o) for o in q.order_by(Franchise.name).all()]
 
 
+def _group_dict(db: Session, pkg: Package) -> dict:
+    rows = (db.query(TestCatalog)
+              .join(PackageTest, PackageTest.test_id == TestCatalog.id)
+              .filter(PackageTest.package_id == pkg.id).all())
+    tests = [{"id": t.id, "name": t.name, "price": t.price or 0, "mrp": t.mrp or 0} for t in rows]
+    return {"id": pkg.id, "name": pkg.name, "code": pkg.code, "price": pkg.price or 0,
+            "is_active": pkg.is_active, "tests": tests,
+            "test_ids": [t["id"] for t in tests],
+            "sum_price": round(sum(t["price"] for t in tests), 2),
+            "sum_mrp":   round(sum(t["mrp"] for t in tests), 2)}
+
+
+class TestGroupIn(BaseModel):
+    name: str
+    code: Optional[str] = None
+    price: float = 0.0
+    test_ids: List[int] = []
+
+
+@router.get("/test-groups")
+def list_test_groups(db: Session = Depends(get_db), scope: Scope = Depends(get_scope)):
+    q = db.query(Package).filter(Package.is_active.is_(True))
+    if scope.tenant_id is not None:
+        q = q.filter(Package.tenant_id == scope.tenant_id)
+    return [_group_dict(db, p) for p in q.order_by(Package.name).all()]
+
+
+@router.post("/test-groups")
+def create_test_group(payload: TestGroupIn, request: Request, db: Session = Depends(get_db),
+                      user: User = Depends(get_current_user)):
+    _require_admin(user)
+    if not payload.name.strip():
+        raise HTTPException(400, "name is required")
+    pkg = Package(tenant_id=getattr(user, "tenant_id", None), name=payload.name.strip(),
+                  code=payload.code, price=payload.price, is_active=True)
+    db.add(pkg); db.commit(); db.refresh(pkg)
+    for tid in payload.test_ids:
+        db.add(PackageTest(package_id=pkg.id, test_id=tid))
+    db.commit()
+    write_audit(db, action="create", user=user, entity="test_group", entity_id=pkg.id,
+                after={"name": pkg.name}, ip=_ip(request))
+    return _group_dict(db, pkg)
+
+
+@router.put("/test-groups/{group_id}")
+def update_test_group(group_id: int, payload: TestGroupIn, request: Request,
+                      db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    _require_admin(user)
+    pkg = db.query(Package).filter(Package.id == group_id).first()
+    if not pkg:
+        raise HTTPException(404, "test group not found")
+    pkg.name = payload.name.strip() or pkg.name
+    pkg.code = payload.code
+    pkg.price = payload.price
+    db.query(PackageTest).filter(PackageTest.package_id == pkg.id).delete()
+    for tid in payload.test_ids:
+        db.add(PackageTest(package_id=pkg.id, test_id=tid))
+    db.commit()
+    write_audit(db, action="update", user=user, entity="test_group", entity_id=pkg.id,
+                after={"name": pkg.name}, ip=_ip(request))
+    return _group_dict(db, pkg)
+
+
+@router.delete("/test-groups/{group_id}")
+def delete_test_group(group_id: int, request: Request, db: Session = Depends(get_db),
+                      user: User = Depends(get_current_user)):
+    _require_admin(user)
+    pkg = db.query(Package).filter(Package.id == group_id).first()
+    if not pkg:
+        raise HTTPException(404, "test group not found")
+    pkg.is_active = False
+    db.commit()
+    write_audit(db, action="delete", user=user, entity="test_group", entity_id=pkg.id, ip=_ip(request))
+    return {"ok": True}
+
+
 def _org_outstanding(db: Session, org_id: int) -> float:
     last = (db.query(OrgLedger).filter(OrgLedger.organization_id == org_id)
               .order_by(OrgLedger.id.desc()).first())

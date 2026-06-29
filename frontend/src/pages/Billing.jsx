@@ -17,6 +17,8 @@ export default function Billing({ isAdmin = true, initialPatientId = '', onManag
   const allowDiscount = isAdmin && !isFranchise;   // franchise logins never discount
   const [patients, setPatients] = useState([]);
   const [tests, setTests]       = useState([]);
+  const [groups, setGroups]     = useState([]);     // test groups / panels
+  const [pickedGroups, setPickedGroups] = useState({});  // {gid: {id,name,price,test_ids,tests}}
   const [orgs, setOrgs]         = useState([]);
   const [patientId, setPatientId] = useState(initialPatientId || '');
   const [picked, setPicked]     = useState({});     // {test_id: {name, mrp, price, source}}
@@ -38,6 +40,7 @@ export default function Billing({ isAdmin = true, initialPatientId = '', onManag
   useEffect(() => {
     authedFetch('/patients/').then(r=>r.ok?r.json():[]).then(setPatients).catch(()=>{});
     authedFetch('/b2b/tests').then(r=>r.ok?r.json():[]).then(setTests).catch(()=>{});
+    authedFetch('/b2b/test-groups').then(r=>r.ok?r.json():[]).then(setGroups).catch(()=>{});
     authedFetch('/b2b/organizations').then(r=>r.ok?r.json():[]).then(setOrgs).catch(()=>{});
   }, []);
 
@@ -61,6 +64,7 @@ export default function Billing({ isAdmin = true, initialPatientId = '', onManag
 
   const addTest = (t) => {
     if (picked[t.id]) return;
+    if (groupMemberIds.has(t.id)) { showToast('error', `${t.name} is already included in a selected group`); return; }  // dedupe
     // optimistic base price; the resolve call corrects to group/org price
     setPicked(prev => ({ ...prev, [t.id]: { name:t.name, mrp:t.mrp, price:t.price, source:'base' } }));
     const qs = `organization_id=${orgId ?? ''}&test_ids=${t.id}`;
@@ -70,8 +74,26 @@ export default function Billing({ isAdmin = true, initialPatientId = '', onManag
   };
   const removeTest = (id) => setPicked(prev => { const n = { ...prev }; delete n[id]; return n; });
 
+  const addGroup = (g) => {
+    if (pickedGroups[g.id]) return;
+    setPickedGroups(prev => ({ ...prev, [g.id]: g }));
+    // dedupe: drop any individually-picked tests that this group covers
+    setPicked(prev => {
+      const n = { ...prev };
+      (g.test_ids || []).forEach(tid => { delete n[tid]; });
+      return n;
+    });
+  };
+  const removeGroup = (gid) => setPickedGroups(prev => { const n = { ...prev }; delete n[gid]; return n; });
+
+  // member test ids covered by any selected group (used to dedupe individual tests)
+  const groupMemberIds = new Set(Object.values(pickedGroups).flatMap(g => g.test_ids || []));
+  const pickedGroupIds = Object.keys(pickedGroups).map(Number);
+  const groupSubtotal  = Object.values(pickedGroups).reduce((s,g)=>s+(Number(g.price)||0),0);
+
+
   const pickedIds = Object.keys(picked).map(Number);
-  const subtotal = useMemo(() => pickedIds.reduce((s,id)=>s+(Number(picked[id].price)||0),0), [picked]); // eslint-disable-line
+  const subtotal = useMemo(() => pickedIds.reduce((s,id)=>s+(Number(picked[id].price)||0),0) + groupSubtotal, [picked, pickedGroups]); // eslint-disable-line
   const discAmount = useMemo(() => {
     if (!allowDiscount || !discType || !discVal) return 0;
     const v = Number(discVal)||0;
@@ -211,12 +233,13 @@ export default function Billing({ isAdmin = true, initialPatientId = '', onManag
 
   const generate = async () => {
     if (!patientId) return showToast('error', 'Select a patient');
-    if (pickedIds.length === 0) return showToast('error', 'Add at least one test');
+    if (pickedIds.length === 0 && pickedGroupIds.length === 0) return showToast('error', 'Add at least one test or group');
     setSaving(true);
     const payload = {
       patient_id: parseInt(patientId),
       organization_id: orgId,
       test_ids: pickedIds,
+      group_ids: pickedGroupIds,
       discount_type: allowDiscount ? (discType || null) : null,
       discount_value: allowDiscount ? (Number(discVal)||0) : 0,
       on_credit: isFranchise ? !!orgId : (onCredit && !!orgId),
@@ -226,7 +249,7 @@ export default function Billing({ isAdmin = true, initialPatientId = '', onManag
         headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
       if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.detail||'failed'); }
       const bill = await res.json();
-      setLastBill(bill); setPicked({}); setDiscType(''); setDiscVal(''); setOnCredit(isFranchise);
+      setLastBill(bill); setPicked({}); setPickedGroups({}); setDiscType(''); setDiscVal(''); setOnCredit(isFranchise);
       setWaPhone(patient?.phone || '');
       showToast('success', `Bill ${bill.bill_no} created · ${inr(bill.total)}`);
     } catch (e) { showToast('error', String(e.message||'Bill failed')); }
@@ -278,12 +301,30 @@ export default function Billing({ isAdmin = true, initialPatientId = '', onManag
               <input style={inp} placeholder="Search tests to add…" value={search} onChange={e=>setSearch(e.target.value)} />
             </div>
             <div style={{ maxHeight:'420px', overflowY:'auto' }}>
+              {groups.filter(g => !search || g.name.toLowerCase().includes(search.toLowerCase())).length > 0 && (
+                <div style={{ padding:'0.5rem 1.3rem', fontSize:'0.62rem', fontWeight:800, color:'#c2410c', textTransform:'uppercase', letterSpacing:'0.07em', background:'rgba(249,115,22,0.04)' }}>Test Groups</div>
+              )}
+              {groups.filter(g => !search || g.name.toLowerCase().includes(search.toLowerCase())).map(g => (
+                <div key={'g'+g.id} onClick={()=>addGroup(g)}
+                  style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'0.7rem 1.3rem', borderBottom:'1px solid #f7f8fb', cursor: pickedGroups[g.id]?'default':'pointer', background: pickedGroups[g.id]?'rgba(22,163,74,0.05)':'transparent' }}>
+                  <span>
+                    <span style={{ fontSize:'0.85rem', fontWeight:700, color:'#0f1218' }}>{g.name}</span>
+                    <span style={{ fontSize:'0.7rem', color:'#8892a4', marginLeft:'0.4rem' }}>({(g.tests||[]).length} tests)</span>
+                  </span>
+                  <span style={{ fontSize:'0.8rem', color:'#8892a4' }}>
+                    {pickedGroups[g.id] ? <span style={{ color:'#16a34a', fontWeight:700 }}>✓ added</span> : inr(g.price)}
+                  </span>
+                </div>
+              ))}
+              {groups.length > 0 && (
+                <div style={{ padding:'0.5rem 1.3rem', fontSize:'0.62rem', fontWeight:800, color:'#8892a4', textTransform:'uppercase', letterSpacing:'0.07em', background:'#fafbfc' }}>Individual Tests</div>
+              )}
               {filtered.map(t => (
                 <div key={t.id} onClick={()=>addTest(t)}
-                  style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'0.7rem 1.3rem', borderBottom:'1px solid #f7f8fb', cursor: picked[t.id]?'default':'pointer', background: picked[t.id]?'rgba(22,163,74,0.05)':'transparent' }}>
+                  style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'0.7rem 1.3rem', borderBottom:'1px solid #f7f8fb', cursor: (picked[t.id]||groupMemberIds.has(t.id))?'default':'pointer', background: picked[t.id]?'rgba(22,163,74,0.05)':(groupMemberIds.has(t.id)?'#fafbfc':'transparent'), opacity: groupMemberIds.has(t.id)?0.55:1 }}>
                   <span style={{ fontSize:'0.85rem', fontWeight:600, color:'#0f1218' }}>{t.name}</span>
                   <span style={{ fontSize:'0.8rem', color:'#8892a4' }}>
-                    {picked[t.id] ? <span style={{ color:'#16a34a', fontWeight:700 }}>✓ added</span> : inr(t.price)}
+                    {picked[t.id] ? <span style={{ color:'#16a34a', fontWeight:700 }}>✓ added</span> : groupMemberIds.has(t.id) ? <span style={{ color:'#c2410c', fontWeight:600, fontSize:'0.7rem' }}>in group</span> : inr(t.price)}
                   </span>
                 </div>
               ))}
@@ -293,7 +334,24 @@ export default function Billing({ isAdmin = true, initialPatientId = '', onManag
           {/* right: selected + totals */}
           <div style={{ ...S.card }}>
             <div style={{ fontWeight:800, color:'#0f1218', marginBottom:'0.8rem', fontFamily:'Manrope,sans-serif' }}>Bill items</div>
-            {pickedIds.length === 0 && <div style={{ color:'#8892a4', fontSize:'0.85rem', padding:'1rem 0' }}>Click tests on the left to add them.</div>}
+            {pickedIds.length === 0 && pickedGroupIds.length === 0 && <div style={{ color:'#8892a4', fontSize:'0.85rem', padding:'1rem 0' }}>Click tests or groups on the left to add them.</div>}
+
+            {/* selected groups (panels) */}
+            {pickedGroupIds.map(gid => { const g = pickedGroups[gid]; return (
+              <div key={'g'+gid} style={{ padding:'0.5rem 0', borderBottom:'1px solid #f7f8fb' }}>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:'0.5rem' }}>
+                    <button onClick={()=>removeGroup(gid)} style={{ border:'none', background:'rgba(220,38,38,0.1)', color:'#dc2626', borderRadius:'6px', width:'22px', height:'22px', cursor:'pointer', fontWeight:700 }}>×</button>
+                    <span style={{ fontSize:'0.85rem', color:'#0f1218', fontWeight:700 }}>{g.name}</span>
+                    <span style={{ fontSize:'0.62rem', background:'rgba(249,115,22,0.12)', color:'#c2410c', padding:'0.12rem 0.5rem', borderRadius:'20px', fontWeight:700 }}>GROUP</span>
+                  </div>
+                  <span style={{ fontSize:'0.85rem', fontWeight:700, color:'#0f1218' }}>{inr(g.price)}</span>
+                </div>
+                <div style={{ paddingLeft:'1.9rem', marginTop:'0.2rem', display:'flex', flexWrap:'wrap', gap:'0.3rem' }}>
+                  {(g.tests||[]).map(t => <span key={t.id} style={{ fontSize:'0.72rem', color:'#8892a4' }}>• {t.name}</span>)}
+                </div>
+              </div>
+            ); })}
             {pickedIds.map(id => (
               <div key={id} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'0.5rem 0', borderBottom:'1px solid #f7f8fb' }}>
                 <div style={{ display:'flex', alignItems:'center', gap:'0.5rem' }}>
@@ -338,7 +396,7 @@ export default function Billing({ isAdmin = true, initialPatientId = '', onManag
               </label>
             )}
 
-            <button onClick={generate} disabled={saving || pickedIds.length===0} style={{ width:'100%', marginTop:'1.2rem', background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', border:'none', borderRadius:'10px', padding:'0.8rem', fontWeight:700, cursor:'pointer', fontSize:'0.95rem', fontFamily:'Manrope,sans-serif', boxShadow:'0 4px 16px rgba(249,115,22,0.3)', opacity: pickedIds.length===0?0.5:1 }}>
+            <button onClick={generate} disabled={saving || (pickedIds.length===0 && pickedGroupIds.length===0)} style={{ width:'100%', marginTop:'1.2rem', background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', border:'none', borderRadius:'10px', padding:'0.8rem', fontWeight:700, cursor:'pointer', fontSize:'0.95rem', fontFamily:'Manrope,sans-serif', boxShadow:'0 4px 16px rgba(249,115,22,0.3)', opacity: (pickedIds.length===0 && pickedGroupIds.length===0)?0.5:1 }}>
               {saving ? 'Generating…' : `Generate Bill · ${inr(total)}`}
             </button>
           </div>

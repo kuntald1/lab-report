@@ -37,7 +37,9 @@ class BillItem(Base):
     test_name    = Column(String, nullable=False)
     mrp          = Column(Float, default=0.0)
     price        = Column(Float, default=0.0)
-    price_source = Column(String, nullable=True)   # group|org|base
+    price_source = Column(String, nullable=True)   # group|org|base|group_panel
+    package_id   = Column(Integer, nullable=True)  # set when this line belongs to a test group
+    package_name = Column(String, nullable=True)
     created_at   = Column(DateTime(timezone=True), server_default=func.now())
 
 

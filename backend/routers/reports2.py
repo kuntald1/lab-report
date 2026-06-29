@@ -14,13 +14,12 @@ from datetime import datetime
 
 from database import get_db
 from auth.deps import get_current_user
-from models.org import User, Franchise, Role
+from models.org import User, Franchise
 from models.models import Patient, LabResult
 from models.billing import Bill, BillItem, Payment
 from models.clinical import TestCatalog
 from models.messaging import PaymentTransaction
 from models.reports import HistoryRequest
-from services.credit import franchise_locked, is_franchise_locked
 
 router = APIRouter()
 
@@ -49,10 +48,6 @@ def sample_details(
     user: User = Depends(get_current_user),
 ):
     # --- base patient query with filters ---
-    # SECURITY: a franchise login only sees patients registered under it.
-    if user.role == Role.FRANCHISE and user.franchise_id:
-        franchise_id = user.franchise_id
-    locked = franchise_locked(db, user)   # over credit limit -> hide values/PDF
     q = db.query(Patient).filter(Patient.is_active.is_(True))
     if franchise_id:
         q = q.filter((Patient.organization_id == franchise_id) |
@@ -78,8 +73,6 @@ def sample_details(
     # --- franchise + branch name maps ---
     fr_ids = {p.organization_id for p in patients} | {p.registered_franchise_id for p in patients}
     franchises = _name_map(db, Franchise, fr_ids)
-    # which of those franchises are over their credit limit (for the info banner)
-    over_limit_orgs = {fid for fid in fr_ids if fid and is_franchise_locked(db, fid)}
     # branches may be a separate table; fall back to id if unavailable
     try:
         from models.org import Branch  # type: ignore
@@ -161,7 +154,8 @@ def sample_details(
                     "doctor": doc_names.get(tc_doc.get(it.test_id), None),
                     "price": it.price, "mrp": it.mrp,
                     "bill_no": b.bill_no,
-                    "result_id": None if locked else rid,  # locked franchise: no PDF link
+                    "package_id": it.package_id, "package_name": it.package_name,
+                    "result_id": rid,        # for the per-test Report PDF link
                 })
             # payment history: every transaction attempt (incl. failures)
             for t in tx_by_bill.get(b.id, []):
@@ -192,7 +186,6 @@ def sample_details(
             "patient_id": p.id, "barcode": p.barcode, "patient_name": p.patient_name,
             "age": p.age, "gender": p.gender, "status": p.status,
             "franchise": franchises.get(p.organization_id) or franchises.get(p.registered_franchise_id) or "Direct / Walk-in",
-            "over_limit": bool(p.organization_id in over_limit_orgs or p.registered_franchise_id in over_limit_orgs),
             "branch": branches.get(p.branch_id) or (str(p.branch_id) if p.branch_id else "—"),
             "referring_doctor": p.doctor_name,
             "registered_at": p.created_at,
@@ -205,8 +198,6 @@ def sample_details(
         })
 
     return {"rows": rows,
-            "locked": locked,
-            "any_over_limit": any(r.get("over_limit") for r in rows),
             "totals": {"patients": len(rows),
                        "billed": round(tot_billed, 2),
                        "collected": round(tot_collected, 2),
@@ -247,9 +238,6 @@ def dashboard(
 ):
     """CurryCloud-style revenue dashboard. Shows BOTH billed (bill totals) and
     collected (payments received). Filters: franchise, branch, from, to."""
-    # SECURITY: a franchise login may only ever see its own organization's data.
-    if user.role == Role.FRANCHISE and user.franchise_id:
-        franchise_id = user.franchise_id
     q = db.query(Bill)
     if franchise_id:
         q = q.filter(Bill.organization_id == franchise_id)

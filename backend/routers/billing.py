@@ -22,7 +22,7 @@ from auth.deps import get_current_user, get_scope, Scope
 from auth.audit import write_audit
 from models.org import User, Franchise, Role
 from models.models import Patient
-from models.clinical import TestCatalog
+from models.clinical import TestCatalog, Package, PackageTest
 from models.billing import Bill, BillItem, Payment
 from models.b2b import OrgLedger
 from services.pricing import resolve_price
@@ -69,6 +69,7 @@ class BillCreate(BaseModel):
     patient_id: int
     organization_id: Optional[int] = None   # if omitted, taken from the patient
     test_ids: List[int]
+    group_ids: List[int] = []               # test-group (panel) ids
     discount_type: Optional[str] = None     # 'flat' | 'percent' | None
     discount_value: float = 0.0
     on_credit: bool = False                 # B2B: bill to org ledger instead of immediate pay
@@ -80,14 +81,40 @@ def create_bill(payload: BillCreate, request: Request,
     patient = db.query(Patient).filter(Patient.id == payload.patient_id).first()
     if not patient:
         raise HTTPException(404, "patient not found")
-    if not payload.test_ids:
+    if not payload.test_ids and not payload.group_ids:
         raise HTTPException(400, "no tests selected")
 
     org_id = payload.organization_id if payload.organization_id is not None else patient.organization_id
 
-    # resolve + freeze each line
     items, subtotal = [], 0.0
+
+    # --- test groups (panels): one bundled price, expanded into member lines ---
+    group_member_ids = set()        # member tests covered by a group (for dedupe)
+    for gid in (payload.group_ids or []):
+        pkg = db.query(Package).filter(Package.id == gid).first()
+        if not pkg:
+            continue
+        member_ids = [pt.test_id for pt in
+                      db.query(PackageTest).filter(PackageTest.package_id == gid).all()]
+        if not member_ids:
+            continue
+        gprice = pkg.price or 0.0
+        for idx, tid in enumerate(member_ids):
+            if tid in group_member_ids:
+                continue
+            group_member_ids.add(tid)
+            t = db.query(TestCatalog).filter(TestCatalog.id == tid).first()
+            items.append(BillItem(
+                test_id=tid, test_name=t.name if t else f"#{tid}",
+                mrp=(t.mrp if t else 0) or 0,
+                price=(gprice if idx == 0 else 0.0),   # whole group price on first member -> lines sum to gprice
+                price_source="group_panel", package_id=pkg.id, package_name=pkg.name))
+        subtotal += gprice
+
+    # --- standalone tests (skip any already covered by a selected group) ---
     for tid in payload.test_ids:
+        if tid in group_member_ids:
+            continue                                   # dedupe: already in a group
         try:
             rp = resolve_price(db, tid, org_id)
         except ValueError:
@@ -96,6 +123,9 @@ def create_bill(payload: BillCreate, request: Request,
         items.append(BillItem(test_id=tid, test_name=t.name if t else f"#{tid}",
                               mrp=rp.mrp, price=rp.price, price_source=rp.source))
         subtotal += rp.price or 0.0
+
+    if not items:
+        raise HTTPException(400, "no billable tests")
 
     # discount is admin-only
     d_type = payload.discount_type
@@ -152,7 +182,8 @@ def _bill_dict(db: Session, b: Bill) -> dict:
         "total": b.total, "paid": b.paid, "status": b.status,
         "created_at": b.created_at,
         "items": [{"test_id": i.test_id, "test_name": i.test_name, "mrp": i.mrp,
-                   "price": i.price, "price_source": i.price_source} for i in its],
+                   "price": i.price, "price_source": i.price_source,
+                   "package_id": i.package_id, "package_name": i.package_name} for i in its],
         "payments": [{"id": p.id, "method": p.method, "amount": p.amount,
                       "status": p.status, "created_at": p.created_at} for p in pays],
     }

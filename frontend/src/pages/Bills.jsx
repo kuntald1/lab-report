@@ -292,12 +292,35 @@ export default function Bills() {
             </div>
 
             <div style={{ border:'1px solid #f4f6fa', borderRadius:'10px', overflow:'hidden', marginBottom:'1rem' }}>
-              {detail.items.map((it,i) => (
-                <div key={i} style={{ display:'flex', justifyContent:'space-between', padding:'0.5rem 0.9rem', borderBottom:'1px solid #f7f8fb', fontSize:'0.83rem' }}>
-                  <span>{it.test_name} <span style={{ fontSize:'0.65rem', color:'#8892a4' }}>({it.price_source})</span></span>
-                  <span style={{ fontWeight:600 }}>{inr(it.price)}</span>
-                </div>
-              ))}
+              {(() => {
+                const gmap = {}; const standalone = [];
+                detail.items.forEach(it => {
+                  if (it.package_id) {
+                    if (!gmap[it.package_id]) gmap[it.package_id] = { name: it.package_name || 'Group', price: 0, members: [] };
+                    gmap[it.package_id].price += (Number(it.price)||0);
+                    gmap[it.package_id].members.push(it);
+                  } else standalone.push(it);
+                });
+                return (<>
+                  {Object.entries(gmap).map(([pid, g]) => (
+                    <div key={'g'+pid} style={{ borderBottom:'1px solid #f7f8fb', padding:'0.5rem 0.9rem' }}>
+                      <div style={{ display:'flex', justifyContent:'space-between', fontSize:'0.83rem' }}>
+                        <span style={{ fontWeight:700, color:'#0f1218' }}>{g.name} <span style={{ fontSize:'0.6rem', background:'rgba(249,115,22,0.12)', color:'#c2410c', padding:'0.1rem 0.45rem', borderRadius:'20px', fontWeight:700 }}>GROUP</span></span>
+                        <span style={{ fontWeight:700 }}>{inr(g.price)}</span>
+                      </div>
+                      <div style={{ paddingLeft:'0.5rem', marginTop:'0.25rem' }}>
+                        {g.members.map((m,i)=>(<div key={i} style={{ fontSize:'0.74rem', color:'#8892a4' }}>• {m.test_name}</div>))}
+                      </div>
+                    </div>
+                  ))}
+                  {standalone.map((it,i) => (
+                    <div key={i} style={{ display:'flex', justifyContent:'space-between', padding:'0.5rem 0.9rem', borderBottom:'1px solid #f7f8fb', fontSize:'0.83rem' }}>
+                      <span>{it.test_name} <span style={{ fontSize:'0.65rem', color:'#8892a4' }}>({it.price_source})</span></span>
+                      <span style={{ fontWeight:600 }}>{inr(it.price)}</span>
+                    </div>
+                  ))}
+                </>);
+              })()}
             </div>
 
             <div style={{ fontSize:'0.85rem' }}>
