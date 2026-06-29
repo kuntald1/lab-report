@@ -10,7 +10,7 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, 
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 from reportlab.graphics.barcode.qr import QrCodeWidget
-from reportlab.graphics.shapes import Drawing
+from reportlab.graphics.shapes import Drawing, Rect
 from services.report_link import report_view_url
 import io
 from datetime import datetime
@@ -63,6 +63,23 @@ def _qr_drawing(data: str, size_cm: float = 2.0) -> Drawing:
     return d
 
 
+def _logo_mark(size: float = 30):
+    """A clean drawn brand mark (rounded green badge with a lab-flask glyph),
+    so we never depend on an emoji font that may render as a box."""
+    from reportlab.graphics.shapes import Drawing, Rect, Polygon, Circle
+    g = colors.HexColor('#1a3a1c'); acc = colors.HexColor('#4caf50')
+    d = Drawing(size, size)
+    d.add(Rect(0, 0, size, size, rx=8, ry=8, fillColor=g, strokeColor=None))
+    s = size
+    # simple Erlenmeyer flask in white/green-accent
+    d.add(Polygon(points=[0.42*s,0.74*s, 0.58*s,0.74*s, 0.72*s,0.30*s, 0.28*s,0.30*s],
+                  fillColor=colors.white, strokeColor=None))
+    d.add(Rect(0.45*s, 0.72*s, 0.10*s, 0.08*s, fillColor=colors.white, strokeColor=None))
+    d.add(Circle(0.46*s, 0.40*s, 0.035*s, fillColor=acc, strokeColor=None))
+    d.add(Circle(0.56*s, 0.36*s, 0.028*s, fillColor=acc, strokeColor=None))
+    return d
+
+
 def generate_pdf(result: LabResult) -> bytes:
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -95,13 +112,25 @@ def generate_pdf(result: LabResult) -> bytes:
 
     # ── HEADER ──────────────────────────────────────────────
     qr_caption = ParagraphStyle('qrcap', fontName='Helvetica', fontSize=6, textColor=MUTED, alignment=TA_CENTER, spaceBefore=2, leading=7)
+    brand_style = ParagraphStyle('brand', fontName='Helvetica-Bold', fontSize=17, textColor=GREEN, leading=18)
+    brand_sub   = ParagraphStyle('brandsub', fontName='Helvetica-Bold', fontSize=8, textColor=MUTED, leading=11, spaceBefore=1)
+
+    # left cell: logo mark + "MediCloud" / "LAB REPORT · Report #N"
+    left_block = Table([[
+        _logo_mark(30),
+        Paragraph(f'MediCloud<br/><font size="8" color="#5a7060">LAB REPORT&nbsp;·&nbsp;Report #{result.id}</font>', brand_style),
+    ]], colWidths=[36, None])
+    left_block.setStyle(TableStyle([
+        ('VALIGN', (0,0),(-1,-1), 'MIDDLE'),
+        ('LEFTPADDING', (0,0),(-1,-1), 0), ('RIGHTPADDING', (0,0),(0,0), 8),
+        ('TOPPADDING', (0,0),(-1,-1), 0), ('BOTTOMPADDING', (0,0),(-1,-1), 0),
+    ]))
+
     header_data = [[
-        Paragraph('<b>🔬 MediCloud</b>', ParagraphStyle('logo', fontName='Helvetica-Bold', fontSize=18, textColor=GREEN)),
-        Paragraph(f'<b>LAB REPORT</b><br/><font size="8" color="#5a7060">Report #{result.id}</font>',
-                  ParagraphStyle('rpt', fontName='Helvetica-Bold', fontSize=12, textColor=GREEN, alignment=TA_RIGHT)),
+        left_block,
         [_qr_drawing(report_view_url(result.id), 2.0), Paragraph('Scan to verify', qr_caption)],
     ]]
-    header_table = Table(header_data, colWidths=['46%','32%','22%'])
+    header_table = Table(header_data, colWidths=['74%','26%'])
     header_table.setStyle(TableStyle([
         ('BACKGROUND', (0,0),(-1,-1), GREEN_LIGHT),
         ('ROUNDEDCORNERS', [8]),
@@ -109,9 +138,8 @@ def generate_pdf(result: LabResult) -> bytes:
         ('BOTTOMPADDING', (0,0),(-1,-1), 12),
         ('LEFTPADDING',   (0,0),(-1,-1), 16),
         ('RIGHTPADDING',  (0,0),(-1,-1), 16),
-        ('VALIGN',        (0,0),(1,0), 'MIDDLE'),
-        ('VALIGN',        (2,0),(2,0), 'MIDDLE'),
-        ('ALIGN',         (2,0),(2,0), 'RIGHT'),
+        ('VALIGN',        (0,0),(-1,-1), 'MIDDLE'),
+        ('ALIGN',         (1,0),(1,0), 'RIGHT'),
         ('BOX',           (0,0),(-1,-1), 1, colors.HexColor('#b8ddb8')),
     ]))
     story.append(header_table)
