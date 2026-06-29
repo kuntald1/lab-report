@@ -164,50 +164,6 @@ def delete_test(test_id: int, request: Request,
     return {"id": test_id, "is_active": False}
 
 
-# =================================================================== test groups (packages)
-class TestGroupIn(BaseModel):
-    name: str
-    test_ids: List[int] = []
-
-
-@router.get("/test-groups")
-def list_test_groups(db: Session = Depends(get_db), scope: Scope = Depends(get_scope)):
-    q = db.query(Package).filter(Package.is_active.is_(True))
-    if scope.tenant_id is not None:
-        q = q.filter(Package.tenant_id == scope.tenant_id)
-    out = []
-    for p in q.order_by(Package.name).all():
-        items = db.query(PackageTest).filter(PackageTest.package_id == p.id).all()
-        out.append({"id": p.id, "name": p.name, "test_ids": [i.test_id for i in items]})
-    return out
-
-
-@router.post("/test-groups")
-def create_test_group(payload: TestGroupIn, db: Session = Depends(get_db),
-                      user: User = Depends(get_current_user)):
-    _require_admin(user)
-    p = Package(tenant_id=_tenant(user), name=payload.name)
-    db.add(p); db.flush()
-    for tid in payload.test_ids:
-        db.add(PackageTest(package_id=p.id, test_id=tid))
-    db.commit(); db.refresh(p)
-    return {"id": p.id, "name": p.name, "test_ids": payload.test_ids}
-
-
-@router.put("/test-groups/{group_id}")
-def update_test_group(group_id: int, payload: TestGroupIn, db: Session = Depends(get_db),
-                      user: User = Depends(get_current_user)):
-    _require_admin(user)
-    p = db.query(Package).filter(Package.id == group_id).first()
-    if not p: raise HTTPException(404, "group not found")
-    p.name = payload.name
-    db.query(PackageTest).filter(PackageTest.package_id == p.id).delete()
-    for tid in payload.test_ids:
-        db.add(PackageTest(package_id=p.id, test_id=tid))
-    db.commit()
-    return {"id": p.id, "name": p.name, "test_ids": payload.test_ids}
-
-
 # =================================================================== org groups
 class OrgGroupIn(BaseModel):
     name: str
