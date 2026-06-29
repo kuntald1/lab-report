@@ -145,15 +145,49 @@ export default function SampleReport() {
                         {(tab[r.patient_id]||'tests')==='tests' && (
                           <div>
                             {r.tests.length===0 && <div style={{ color:'#8892a4', fontSize:'0.8rem', padding:'0.5rem 0' }}>No tests billed.</div>}
-                            {r.tests.map((t,i)=>(
-                              <div key={i} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0.5rem 0.7rem', borderBottom:'1px solid #f1f3f7', fontSize:'0.82rem', gap:'1rem' }}>
-                                <span style={{ color:'#0f1218', fontWeight:600, flex:1 }}>{t.test_name}{t.package_name && <span style={{ marginLeft:'0.4rem', fontSize:'0.6rem', background:'rgba(249,115,22,0.12)', color:'#c2410c', padding:'0.1rem 0.45rem', borderRadius:'20px', fontWeight:700, verticalAlign:'middle' }}>{t.package_name}</span>}<span style={{ color:'#8892a4', fontWeight:400 }}> · {t.doctor||'No doctor'}</span></span>
-                                <span style={{ color:'#475569', fontWeight:700, width:'90px', textAlign:'right' }}>{money(t.price)}</span>
-                                {t.result_id
-                                  ? <button onClick={()=>openReportPdf(t.result_id)} style={{ background:'rgba(249,115,22,0.1)', color:'#f97316', border:'1px solid rgba(249,115,22,0.3)', borderRadius:'7px', padding:'0.3rem 0.7rem', fontWeight:700, cursor:'pointer', fontSize:'0.72rem', whiteSpace:'nowrap', fontFamily:'Manrope,sans-serif' }}>📄 Report PDF</button>
-                                  : <span style={{ color:'#c4cad6', fontSize:'0.7rem', width:'92px', textAlign:'center' }}>No report</span>}
-                              </div>
-                            ))}
+                            {(() => {
+                              const gmap = {}; const solo = [];
+                              r.tests.forEach(t => {
+                                if (t.package_id) {
+                                  if (!gmap[t.package_id]) gmap[t.package_id] = { name: t.package_name||'Group', price: 0, members: [] };
+                                  gmap[t.package_id].price += (Number(t.price)||0);
+                                  gmap[t.package_id].members.push(t);
+                                } else solo.push(t);
+                              });
+                              return (<>
+                                {Object.entries(gmap).map(([pid, g]) => (
+                                  <div key={'g'+pid} style={{ borderBottom:'1px solid #f1f3f7', marginBottom:'0.15rem' }}>
+                                    {/* group header */}
+                                    <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0.55rem 0.7rem', background:'rgba(249,115,22,0.05)', borderRadius:'8px 8px 0 0' }}>
+                                      <span style={{ fontWeight:800, color:'#0f1218', fontSize:'0.84rem', display:'flex', alignItems:'center', gap:'0.5rem' }}>
+                                        {g.name}
+                                        <span style={{ fontSize:'0.6rem', background:'rgba(249,115,22,0.15)', color:'#c2410c', padding:'0.1rem 0.5rem', borderRadius:'20px', fontWeight:700 }}>GROUP</span>
+                                      </span>
+                                      <span style={{ fontWeight:800, color:'#f97316', fontSize:'0.86rem' }}>{money(g.price)}</span>
+                                    </div>
+                                    {/* member tests */}
+                                    {g.members.map((t,i) => (
+                                      <div key={i} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0.4rem 0.7rem 0.4rem 1.4rem', borderTop:'1px solid #f7f8fb', gap:'1rem' }}>
+                                        <span style={{ color:'#475569', fontSize:'0.8rem', flex:1 }}>↳ {t.test_name}<span style={{ color:'#b0b7c3' }}> · {t.doctor||'No doctor'}</span></span>
+                                        <span style={{ color:'#c4cad6', fontSize:'0.72rem', width:'70px', textAlign:'right' }}>—</span>
+                                        {t.result_id
+                                          ? <button onClick={()=>openReportPdf(t.result_id)} style={{ background:'rgba(249,115,22,0.1)', color:'#f97316', border:'1px solid rgba(249,115,22,0.3)', borderRadius:'7px', padding:'0.3rem 0.7rem', fontWeight:700, cursor:'pointer', fontSize:'0.72rem', whiteSpace:'nowrap', fontFamily:'Manrope,sans-serif' }}>📄 Report PDF</button>
+                                          : <span style={{ color:'#c4cad6', fontSize:'0.7rem', width:'92px', textAlign:'center' }}>No report</span>}
+                                      </div>
+                                    ))}
+                                  </div>
+                                ))}
+                                {solo.map((t,i)=>(
+                                  <div key={i} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0.5rem 0.7rem', borderBottom:'1px solid #f1f3f7', fontSize:'0.82rem', gap:'1rem' }}>
+                                    <span style={{ color:'#0f1218', fontWeight:600, flex:1 }}>{t.test_name}<span style={{ color:'#8892a4', fontWeight:400 }}> · {t.doctor||'No doctor'}</span></span>
+                                    <span style={{ color:'#475569', fontWeight:700, width:'90px', textAlign:'right' }}>{money(t.price)}</span>
+                                    {t.result_id
+                                      ? <button onClick={()=>openReportPdf(t.result_id)} style={{ background:'rgba(249,115,22,0.1)', color:'#f97316', border:'1px solid rgba(249,115,22,0.3)', borderRadius:'7px', padding:'0.3rem 0.7rem', fontWeight:700, cursor:'pointer', fontSize:'0.72rem', whiteSpace:'nowrap', fontFamily:'Manrope,sans-serif' }}>📄 Report PDF</button>
+                                      : <span style={{ color:'#c4cad6', fontSize:'0.7rem', width:'92px', textAlign:'center' }}>No report</span>}
+                                  </div>
+                                ))}
+                              </>);
+                            })()}
                           </div>
                         )}
 

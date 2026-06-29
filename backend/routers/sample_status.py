@@ -10,13 +10,16 @@ from pydantic import BaseModel
 from typing import Optional, List
 
 from database import get_db
-from models.org import User
+from models.org import User, Franchise
 from models.models import Patient, LabResult
 from auth.deps import get_current_user, get_scope, apply_scope, Scope
 from auth.audit import write_audit
 from services.lifecycle import record_status, STATUS_ORDER
+from services.whatsapp import send_whatsapp
 
 router = APIRouter()
+
+REJECTION_VALID = STATUS_ORDER + ["sample_rejected"]
 
 
 @router.get("/search")
@@ -54,7 +57,7 @@ def search_samples(db: Session = Depends(get_db), scope: Scope = Depends(get_sco
 
 class AdvanceIn(BaseModel):
     patient_ids: List[int]
-    status: str   # dispatched | received | tested | validated | reported (or collected)
+    status: str   # received | tested | validated | reported | sample_rejected
 
 
 @router.post("/advance")
@@ -63,12 +66,11 @@ def advance_status(p: AdvanceIn, request: Request,
                    scope: Scope = Depends(get_scope)):
     if user.role == "patient":
         raise HTTPException(status_code=403, detail="patients cannot change status")
-    if p.status not in STATUS_ORDER:
-        raise HTTPException(status_code=400, detail=f"status must be one of {STATUS_ORDER}")
+    if p.status not in REJECTION_VALID:
+        raise HTTPException(status_code=400, detail=f"status must be one of {REJECTION_VALID}")
     if not p.patient_ids:
         raise HTTPException(status_code=400, detail="no samples selected")
 
-    # only operate on in-scope patients
     rows = (apply_scope(db.query(Patient), Patient, scope)
               .filter(Patient.id.in_(p.patient_ids)).all())
     if not rows:
@@ -77,9 +79,23 @@ def advance_status(p: AdvanceIn, request: Request,
     for patient in rows:
         record_status(db, patient, p.status, actor_id=user.id, commit=False)
     db.commit()
+
+    # When a sample is rejected → WhatsApp the franchise (if patient belongs to one)
+    if p.status == "sample_rejected":
+        for patient in rows:
+            if patient.registered_franchise_id:
+                franchise = db.query(Franchise).filter(Franchise.id == patient.registered_franchise_id).first()
+                if franchise and franchise.phone:
+                    msg = (f"⚠ Sample Rejected — {patient.patient_name} "
+                           f"(Barcode: {patient.barcode}). "
+                           f"Please collect a fresh sample and resubmit. Contact the lab for details.")
+                    try:
+                        send_whatsapp(franchise.phone, msg)
+                    except Exception:
+                        pass   # don't fail the status change if WhatsApp errors
+
     write_audit(db, action="status_change", user=user, entity="patient",
                 entity_id=",".join(str(r.id) for r in rows),
                 after={"status": p.status, "count": len(rows)},
                 ip=request.client.host if request.client else None)
-    return {"updated": len(rows), "status": p.status,
-            "ids": [r.id for r in rows]}
+    return {"updated": len(rows), "status": p.status, "ids": [r.id for r in rows]}

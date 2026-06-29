@@ -15,15 +15,16 @@ from models.clinical import SampleEvent, EventType
 
 # user-facing status -> the sample_event type(s) it records
 STATUS_EVENTS = {
-    "collected":  [EventType.COLLECTED],
-    "dispatched": [EventType.DISPATCHED],
-    "received":   [EventType.RECEIVED],
-    "tested":     [EventType.TEST_STARTED],   # resulted comes from the real result, not this click
-    "validated":  [EventType.VALIDATED],
-    "reported":   [EventType.REPORTED],
+    "collected":       [EventType.COLLECTED],
+    "received":        [EventType.RECEIVED],
+    "tested":          [EventType.TEST_STARTED],
+    "validated":       [EventType.VALIDATED],
+    "reported":        [EventType.REPORTED],
+    "sample_rejected": [EventType.REJECTED],
 }
 
-STATUS_ORDER = ["collected", "dispatched", "received", "tested", "validated", "reported"]
+STATUS_ORDER = ["collected", "received", "tested", "validated", "reported"]
+# sample_rejected is a terminal out-of-band status — valid at any stage
 
 
 def record_status(db, patient, status, actor_id=None, commit=True):

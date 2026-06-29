@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { authedFetch } from '../services/auth';
 
-const STATUSES = ['collected', 'dispatched', 'received', 'tested', 'validated', 'reported'];
-const NEXT = ['dispatched', 'received', 'tested', 'validated', 'reported'];
+const STATUSES = ['collected', 'received', 'tested', 'validated', 'reported', 'sample_rejected'];
+const NEXT = ['received', 'tested', 'validated', 'reported'];
 const STATUS_COLOR = {
-  collected:'#0ea5e9', dispatched:'#6366f1', received:'#8b5cf6',
+  collected:'#0ea5e9', received:'#8b5cf6',
   tested:'#f59e0b', validated:'#16a34a', reported:'#0f766e',
+  sample_rejected:'#dc2626',
 };
 
 async function j(path, method = 'GET', body) {
@@ -22,6 +23,9 @@ export default function ChangeStatus() {
   const [sel, setSel] = useState(new Set());
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
+  const [toast, setToast] = useState(null);   // {msg, kind:'success'|'warn'}
+
+  const showToast = (msg, kind='success') => { setToast({ msg, kind }); setTimeout(()=>setToast(null), 3500); };
 
   const search = async () => {
     setErr(''); setBusy(true); setSel(new Set());
@@ -48,16 +52,26 @@ export default function ChangeStatus() {
     try {
       const res = await j('/sample-status/advance', 'POST', { patient_ids: [...sel], status });
       await search();
-      alert(`${res.updated} sample(s) → ${status}`);
+      const isReject = status === 'sample_rejected';
+      showToast(
+        `${res.updated} sample(s) → ${isReject ? 'Rejected ⚠' : status}`,
+        isReject ? 'warn' : 'success'
+      );
     } catch (e) { setErr(e.message); }
     finally { setBusy(false); }
   };
 
   return (
     <div>
+      {toast && (
+        <div style={{ position:'fixed', top:'1.5rem', right:'1.5rem', zIndex:9999, display:'flex', alignItems:'center', gap:'0.75rem', background:'#fff', borderRadius:'13px', padding:'0.9rem 1.2rem', minWidth:'260px', boxShadow:'0 12px 40px rgba(15,18,24,0.18)', border:'1px solid #eef1f6', borderLeft:`4px solid ${toast.kind==='warn'?'#f97316':'#16a34a'}` }}>
+          <div style={{ width:'30px', height:'30px', borderRadius:'9px', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center', fontSize:'1rem', background: toast.kind==='warn'?'rgba(249,115,22,0.12)':'rgba(22,163,74,0.12)' }}>{toast.kind==='warn'?'⚠':'✓'}</div>
+          <div style={{ fontSize:'0.82rem', fontWeight:700, color:'#0f1218' }}>{toast.msg}</div>
+        </div>
+      )}
       <h1 style={{ fontFamily: 'Manrope,sans-serif', fontSize: '1.5rem', fontWeight: 800, color: '#0f1218', margin: 0 }}>Change Report Status</h1>
       <p style={{ fontSize: '0.82rem', color: '#8892a4', margin: '0.3rem 0 1.2rem' }}>
-        Search samples, tick the ones you want, then advance: collected → dispatched → received → tested → validated → reported
+        Search samples, tick the ones you want, then advance: collected → received → tested → validated → reported
       </p>
 
       {/* filters */}
@@ -89,6 +103,10 @@ export default function ChangeStatus() {
               <button key={s} onClick={() => advance(s)} disabled={busy || sel.size === 0}
                 style={{ ...btnStatus, background: STATUS_COLOR[s], opacity: sel.size === 0 ? 0.45 : 1 }}>{s}</button>
             ))}
+            <div style={{ marginLeft: 'auto' }}>
+              <button onClick={() => advance('sample_rejected')} disabled={busy || sel.size === 0}
+                style={{ ...btnStatus, background: '#dc2626', opacity: sel.size === 0 ? 0.45 : 1, display:'flex', alignItems:'center', gap:'0.3rem' }}>⚠ Reject Sample</button>
+            </div>
           </div>
 
           {rows.length === 0 ? <div style={{ color: '#8892a4', fontSize: '0.85rem', padding: '0.5rem' }}>No samples match.</div> : (

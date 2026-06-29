@@ -23,7 +23,7 @@ from typing import Optional, List
 from database import get_db
 from auth.deps import get_current_user, get_scope, Scope
 from auth.audit import write_audit
-from models.org import User, Franchise, Role
+from models.org import User, Franchise, Role, ReferralDoctor
 from models.clinical import TestCatalog, Department, Package, PackageTest
 from models.b2b import OrgGroup, SampleTube, OrgGroupTest, OrgTest, OrgLedger
 from services.whatsapp import send_whatsapp
@@ -601,3 +601,54 @@ def set_org_tests(org_id: int, items: List[PricedTestIn], request: Request,
     write_audit(db, action="update", user=user, entity="org_tests", entity_id=org_id,
                 after={"count": len(items)}, ip=_ip(request))
     return {"organization_id": org_id, "count": len(items)}
+
+
+# ================================================================ referral doctors
+class ReferralDoctorIn(BaseModel):
+    name: str
+    phone: Optional[str] = None
+    commission_percent: float = 0.0
+
+
+@router.get("/referral-doctors")
+def list_referral_doctors(db: Session = Depends(get_db), scope: Scope = Depends(get_scope)):
+    q = db.query(ReferralDoctor).filter(ReferralDoctor.is_active.is_(True))
+    if scope.tenant_id is not None:
+        q = q.filter(ReferralDoctor.tenant_id == scope.tenant_id)
+    return [{"id": d.id, "name": d.name, "phone": d.phone or "",
+             "commission_percent": d.commission_percent or 0} for d in q.order_by(ReferralDoctor.name).all()]
+
+
+@router.post("/referral-doctors")
+def create_referral_doctor(payload: ReferralDoctorIn, db: Session = Depends(get_db),
+                            user: User = Depends(get_current_user)):
+    if not payload.name.strip():
+        raise HTTPException(400, "Doctor name is required")
+    d = ReferralDoctor(tenant_id=getattr(user, "tenant_id", None),
+                       name=payload.name.strip(), phone=payload.phone,
+                       commission_percent=payload.commission_percent or 0)
+    db.add(d); db.commit(); db.refresh(d)
+    return {"id": d.id, "name": d.name, "phone": d.phone or "", "commission_percent": d.commission_percent}
+
+
+@router.put("/referral-doctors/{doc_id}")
+def update_referral_doctor(doc_id: int, payload: ReferralDoctorIn, db: Session = Depends(get_db),
+                            user: User = Depends(get_current_user)):
+    _require_admin(user)
+    d = db.query(ReferralDoctor).filter(ReferralDoctor.id == doc_id).first()
+    if not d: raise HTTPException(404, "Doctor not found")
+    d.name = payload.name.strip() or d.name
+    d.phone = payload.phone
+    d.commission_percent = payload.commission_percent or 0
+    db.commit()
+    return {"id": d.id, "name": d.name, "phone": d.phone or "", "commission_percent": d.commission_percent}
+
+
+@router.delete("/referral-doctors/{doc_id}")
+def delete_referral_doctor(doc_id: int, db: Session = Depends(get_db),
+                            user: User = Depends(get_current_user)):
+    _require_admin(user)
+    d = db.query(ReferralDoctor).filter(ReferralDoctor.id == doc_id).first()
+    if not d: raise HTTPException(404, "Doctor not found")
+    d.is_active = False; db.commit()
+    return {"ok": True}

@@ -33,10 +33,11 @@ class Priority:
 
 
 class EventType:
-    """The seven timestamps that define the sample lifecycle (in order)."""
+    """The timestamps that define the sample lifecycle."""
     COLLECTED    = "collected"      # sample drawn (clock start)
-    DISPATCHED   = "dispatched"     # handed to transport
+    DISPATCHED   = "dispatched"     # handed to transport (kept for legacy data)
     RECEIVED     = "received"       # scanned in at the lab
+    REJECTED     = "sample_rejected"  # sample rejected / unusable
     TEST_STARTED = "test_started"   # loaded on analyser / run begins
     RESULTED     = "resulted"       # analyser produced the result
     VALIDATED    = "validated"      # pathologist signed off

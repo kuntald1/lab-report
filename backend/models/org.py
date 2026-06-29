@@ -115,7 +115,6 @@ class User(Base):
     full_name     = Column(String, nullable=True)
     hashed_password = Column(String, nullable=False)
     role          = Column(String, nullable=False, index=True)
-    phone         = Column(String, nullable=True)   # for WhatsApp / contact
     # Scope anchors — which ones are set depends on the role.
     tenant_id     = Column(Integer, ForeignKey("tenants.id"),    nullable=True, index=True)
     branch_id     = Column(Integer, ForeignKey("branches.id"),   nullable=True, index=True)
@@ -142,3 +141,16 @@ class AuditLog(Base):
     ip          = Column(String, nullable=True)
     detail      = Column(Text, nullable=True)
     created_at  = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class ReferralDoctor(Base):
+    """Referral / referring doctor — sends patients to the lab and earns commission.
+    No login credentials needed; just a name and optional commission rate."""
+    __tablename__ = "referral_doctors"
+    id                 = Column(Integer, primary_key=True, index=True)
+    tenant_id          = Column(Integer, ForeignKey("tenants.id"), nullable=True, index=True)
+    name               = Column(String, nullable=False)
+    phone              = Column(String, nullable=True)
+    commission_percent = Column(Float, default=0.0)
+    is_active          = Column(Boolean, default=True)
+    created_at         = Column(DateTime(timezone=True), server_default=func.now())

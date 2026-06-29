@@ -3,8 +3,6 @@ import Sidebar from './components/Sidebar';
 import Dashboard from './pages/Dashboard';
 import Devices from './pages/Devices';
 import Patients from './pages/Patients';
-import Branches from './pages/Branches';
-import ManageCredit from './pages/ManageCredit';
 import Results from './pages/Results';
 import Simulator from './pages/Simulator';
 import TCPLive from './pages/TCPLive';
@@ -25,6 +23,7 @@ import ValidateHistory from './pages/ValidateHistory';
 import HistoryNeeded from './pages/HistoryNeeded';
 import HistoryBell from './components/HistoryBell';
 import DoctorBell from './components/DoctorBell';
+import RejectedBell from './components/RejectedBell';
 import SampleReport from './pages/SampleReport';
 
 export default function App() {
@@ -33,13 +32,12 @@ export default function App() {
   const role = (me?.role || '').toLowerCase();
   const isLab = ['super_admin','lab_admin','technician','receptionist'].includes(role);
   const isDoctor = role === 'pathologist';
-  const isFranchise = role === 'franchise';
   const [page, setPage] = useState(isDoctor ? 'reportvalidate' : 'dashboard');
   const [billPatientId, setBillPatientId] = useState('');
 
   if (!authed) return <Login onLogin={() => setAuthed(true)} />;
 
-  const pages = { dashboard:<Dashboard />, devices:<Devices />, patients:<Patients onBill={(id)=>{ setBillPatientId(String(id)); setPage('billing'); }} />, results:<Results />, simulator:<Simulator />, tcp:<TCPLive />, tat:<TAT />, status:<ChangeStatus />,tubes:<SampleTubes />, orggroups:<OrgGroups />, organizations:<Organizations />, branches:<Branches />, pricing:<Pricing />, testscatalog:<TestsCatalog />, users:<Users />, billing:<Billing initialPatientId={billPatientId} onManageCredit={()=>setPage('credit')} />, credit:<ManageCredit />, bills:<Bills />, reportvalidate:<ReportValidate />, validatehistory:<ValidateHistory />, historyneeded:<HistoryNeeded />, samplereport:<SampleReport />  };
+  const pages = { dashboard:<Dashboard />, devices:<Devices />, patients:<Patients onBill={(id)=>{ setBillPatientId(String(id)); setPage('billing'); }} />, results:<Results />, simulator:<Simulator />, tcp:<TCPLive />, tat:<TAT />, status:<ChangeStatus />,tubes:<SampleTubes />, orggroups:<OrgGroups />, organizations:<Organizations />, pricing:<Pricing />, testscatalog:<TestsCatalog />, users:<Users />, billing:<Billing initialPatientId={billPatientId} />, bills:<Bills />, reportvalidate:<ReportValidate />, validatehistory:<ValidateHistory />, historyneeded:<HistoryNeeded />, samplereport:<SampleReport />  };
   // sidebar/nav handler: opening "New Bill" from the menu starts fresh (no pre-filled patient)
   const handleNav = (p) => { if (p === 'billing') setBillPatientId(''); setPage(p); };
   const logout = () => { auth.logout(); setAuthed(false); setPage('dashboard'); };
@@ -52,13 +50,14 @@ export default function App() {
           <div style={{ display:'flex', alignItems:'center', gap:'0.5rem', fontSize:'0.78rem', color:'#8892a4' }}>
             <span>Home</span>
             <span style={{ color:'#d1d5db' }}>/</span>
-           <span style={{ color:'#0f1218', fontWeight:600, textTransform:'capitalize' }}>{page === 'tcp' ? 'Live Connect' : page === 'simulator' ? 'Simulator Test' : page === 'tat' ? 'Turnaround Time' : page === 'status' ? 'Change Report Status' : page === 'tubes' ? 'Sample Tubes' : page === 'orggroups' ? 'Organization Groups' : page === 'organizations' ? 'Organizations' : page === 'branches' ? 'Branches' : page === 'pricing' ? 'Group / Org Pricing' : page === 'testscatalog' ? 'Tests Catalog' : page === 'users' ? 'Users & Staff' : page === 'billing' ? 'New Bill' : page === 'bills' ? 'Bills' : page === 'credit' ? 'Manage Credit' : page === 'historyneeded' ? 'History Needed' : page === 'samplereport' ? 'Sample Report' : page}</span>
+           <span style={{ color:'#0f1218', fontWeight:600, textTransform:'capitalize' }}>{page === 'tcp' ? 'Live Connect' : page === 'simulator' ? 'Simulator Test' : page === 'tat' ? 'Turnaround Time' : page === 'status' ? 'Change Report Status' : page === 'tubes' ? 'Sample Tubes' : page === 'orggroups' ? 'Organization Groups' : page === 'organizations' ? 'Organizations' : page === 'pricing' ? 'Group / Org Pricing' : page === 'testscatalog' ? 'Tests Catalog' : page === 'users' ? 'Users & Staff' : page === 'billing' ? 'New Bill' : page === 'bills' ? 'Bills' : page === 'historyneeded' ? 'History Needed' : page === 'samplereport' ? 'Sample Report' : page}</span>
           </div>
           <div style={{ display:'flex', alignItems:'center', gap:'0.6rem' }}>
             <div style={{ width:'8px', height:'8px', borderRadius:'50%', background:'#f97316', boxShadow:'0 0 8px rgba(249,115,22,0.6)', animation:'pulse 2s infinite' }}></div>
             <span style={{ fontSize:'0.72rem', color:'#8892a4', fontWeight:600 }}>All systems operational</span>
-            {(isLab || isFranchise) && <HistoryBell onOpen={()=>setPage('historyneeded')} />}
+            {isLab    && <HistoryBell onOpen={()=>setPage('historyneeded')} />}
             {isDoctor && <DoctorBell  onOpen={()=>setPage('reportvalidate')} />}
+            {(isLab || isFranchise) && <RejectedBell onOpen={()=>setPage('results')} />}
           </div>
         </div>
         {/* Page content */}

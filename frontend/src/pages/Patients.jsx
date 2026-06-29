@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { authedFetch, auth } from '../services/auth';
+import { authedFetch } from '../services/auth';
 
 const statusColor = { collected:'#0ea5e9', dispatched:'#6366f1', received:'#8b5cf6', tested:'#f59e0b', validated:'#16a34a', reported:'#0f766e' };
 
@@ -10,16 +10,7 @@ const S   = { card: { background:'#fff', border:'1px solid #e8ecf4', borderRadiu
 const sampleColor = { Blood:'#fff1ee', Serum:'#eff6ff', Urine:'#fefce8', Plasma:'#fdf4ff', Sodium:'#f0fdf4', Potassium:'#fef9c3', Electrolyte:'#f0fdf4' };
 const sampleText  = { Blood:'#c2410c', Serum:'#1d4ed8', Urine:'#854d0e', Plasma:'#7e22ce', Sodium:'#16a34a', Potassium:'#854d0e', Electrolyte:'#16a34a' };
 
-// the five quick-history flags captured at registration
-const HISTORY_ITEMS = [
-  { key:'diabetic',     label:'Diabetic?' },
-  { key:'fasting',      label:'Fasting sample?' },
-  { key:'on_medication',label:'On medication?' },
-  { key:'pregnant',     label:'Pregnant?' },
-  { key:'hypertension', label:'Hypertension?' },
-];
-
-const BLANK = { patient_name:'', age:'', gender:'Male', doctor_name:'', sample_type:'Blood', barcode:'', abha_number:'', phone:'', branch_id:'', registered_franchise_id:'', organization_id:'', clinical_history:'', history_checklist:{} };
+const BLANK = { patient_name:'', age:'', gender:'Male', doctor_name:'', sample_type:'Blood', barcode:'', abha_number:'', phone:'', branch_id:'', registered_franchise_id:'', organization_id:'' };
 
 // pretty-print a 14-digit ABHA as XX-XXXX-XXXX-XXXX
 const fmtAbha = (n) => {
@@ -32,62 +23,26 @@ export default function Patients({ onBill = () => {} }) {
   const [patients, setPatients]   = useState([]);
   const [branches, setBranches]   = useState([]);
   const [franchises, setFranchises] = useState([]);
+  const [refDoctors, setRefDoctors] = useState([]);  // referral doctors
+  const [addingDoctor, setAddingDoctor] = useState(false);
+  const [newDocName, setNewDocName] = useState('');
   const [showForm, setShowForm]   = useState(false);
   const [saving, setSaving]       = useState(false);
   const [editingId, setEditingId] = useState(null);   // null = create mode
   const [form, setForm]           = useState(BLANK);
-  const [doctors, setDoctors]     = useState([]);
-  const [showDocModal, setShowDocModal] = useState(false);
-  const [docForm, setDocForm]     = useState({ full_name:'', email:'', password:'' });
-  const [docSaving, setDocSaving] = useState(false);
-
-  // logged-in user — a franchise user is locked to their own franchise
-  const me              = auth.user();
-  const myRole          = (me?.role || '').toLowerCase();
-  const isFranchiseUser = myRole === 'franchise';
-  const isAdminUser     = ['super_admin','lab_admin'].includes(myRole);
-  const myFranchiseId   = me?.franchise_id ?? '';
-
-  const loadDoctors = () => authedFetch('/admin/users')
-    .then(r=>r.ok?r.json():[])
-    .then(us => setDoctors(us.filter(u => (u.role||'').toLowerCase() === 'pathologist')))
-    .catch(()=>{});
 
   const load = () => authedFetch('/patients/').then(r=>r.json()).then(setPatients).catch(()=>{});
   useEffect(() => {
     load();
-    loadDoctors();
     authedFetch('/admin/branches').then(r=>r.ok?r.json():[]).then(setBranches).catch(()=>{});
     authedFetch('/admin/franchises').then(r=>r.ok?r.json():[]).then(setFranchises).catch(()=>{});
+    authedFetch('/b2b/referral-doctors').then(r=>r.ok?r.json():[]).then(setRefDoctors).catch(()=>{});
   }, []);
-
-  const docName = (u) => u.full_name || u.email;
-
-  const createDoctor = async () => {
-    if (!docForm.full_name || !docForm.email || !docForm.password) return alert('All fields required');
-    setDocSaving(true);
-    try {
-      const res = await authedFetch('/admin/users', { method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ ...docForm, role:'pathologist' }) });
-      if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.detail||'failed'); }
-      await loadDoctors();
-      setForm(f => ({ ...f, doctor_name: docForm.full_name }));   // auto-select the new doctor
-      setShowDocModal(false); setDocForm({ full_name:'', email:'', password:'' });
-    } catch (err) { alert('Could not add doctor: ' + err.message); }
-    setDocSaving(false);
-  };
 
   const branchName    = (id) => branches.find(b=>b.id===id)?.name || (id ? `Branch ${id}` : '—');
   const franchiseName = (id) => franchises.find(f=>f.id===id)?.name || (id ? `Franchise ${id}` : '—');
 
-  const openCreate = () => {
-    setEditingId(null);
-    setForm({ ...BLANK, history_checklist:{},
-      registered_franchise_id: isFranchiseUser ? String(myFranchiseId) : '',
-      organization_id:         isFranchiseUser ? String(myFranchiseId) : '' });
-    setShowForm(true);
-  };
+  const openCreate = () => { setEditingId(null); setForm(BLANK); setShowForm(true); };
   const startEdit  = (p) => {
     setEditingId(p.id);
     setForm({
@@ -97,19 +52,14 @@ export default function Patients({ onBill = () => {} }) {
       phone: p.phone || '',
       branch_id: p.branch_id ?? '', registered_franchise_id: p.registered_franchise_id ?? '',
       organization_id: p.organization_id ?? '',
-      clinical_history: p.clinical_history || '',
-      history_checklist: p.history_checklist || {},
     });
     setShowForm(true);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const submit = async (thenBill = false) => {
+  const submit = async () => {
     if (!form.patient_name) return alert('Patient name required');
     setSaving(true);
-    // only send the checklist if anything was ticked; keep note as-is
-    const checklist = Object.fromEntries(
-      Object.entries(form.history_checklist || {}).filter(([, v]) => v));
     const payload = {
       patient_name: form.patient_name,
       age: form.age ? parseInt(form.age) : null,
@@ -121,23 +71,15 @@ export default function Patients({ onBill = () => {} }) {
       branch_id: form.branch_id ? parseInt(form.branch_id) : null,
       registered_franchise_id: form.registered_franchise_id ? parseInt(form.registered_franchise_id) : null,
       organization_id: form.organization_id ? parseInt(form.organization_id) : null,
-      clinical_history: form.clinical_history || null,
-      history_checklist: Object.keys(checklist).length ? checklist : null,
     };
     try {
       if (editingId) {
         await authedFetch(`/patients/${editingId}`, { method:'PUT',
           headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
       } else {
-        const res = await authedFetch('/patients/', { method:'POST',
+        await authedFetch('/patients/', { method:'POST',
           headers:{'Content-Type':'application/json'},
           body: JSON.stringify({ ...payload, barcode: form.barcode || undefined }) });
-        if (!res.ok) throw new Error('save failed');
-        const created = await res.json();          // has the new patient id
-        setForm(BLANK); setEditingId(null); setShowForm(false); setSaving(false);
-        load();
-        if (thenBill && created?.id) onBill(created.id);   // straight into bill + pay
-        return;
       }
       setForm(BLANK); setEditingId(null); setShowForm(false);
       load();
@@ -151,8 +93,35 @@ export default function Patients({ onBill = () => {} }) {
     load();
   };
 
+  // quick-add doctor handler
+  const saveNewDoctor = async () => {
+    if (!newDocName.trim()) return;
+    try {
+      const res = await authedFetch('/b2b/referral-doctors', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name: newDocName.trim(), phone:'', commission_percent:0 }) });
+      if (!res.ok) throw new Error();
+      const doc = await res.json();
+      setRefDoctors(prev=>[...prev, doc]);
+      setForm(f=>({...f, doctor_name: doc.name}));
+      setAddingDoctor(false);
+    } catch { alert('Failed to add doctor'); }
+  };
+
   return (
     <div>
+      {addingDoctor && (
+        <div onClick={()=>setAddingDoctor(false)} style={{ position:'fixed', inset:0, zIndex:9999, background:'rgba(15,18,24,0.45)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+          <div onClick={e=>e.stopPropagation()} style={{ background:'#fff', borderRadius:'16px', padding:'1.8rem', width:'380px', maxWidth:'92vw', boxShadow:'0 20px 60px rgba(15,18,24,0.3)' }}>
+            <div style={{ fontFamily:'Manrope,sans-serif', fontWeight:800, fontSize:'1.1rem', color:'#0f1218', marginBottom:'1rem' }}>Add Referral Doctor</div>
+            <p style={{ fontSize:'0.8rem', color:'#8892a4', marginBottom:'1rem', marginTop:0 }}>Just a name — no login credentials needed. Set commission % later in the Doctors master.</p>
+            <label style={lbl}>Doctor Name *</label>
+            <input autoFocus style={{ ...inp, marginBottom:'1.2rem' }} placeholder="Dr. A. Sharma" value={newDocName} onChange={e=>setNewDocName(e.target.value)} onKeyDown={e=>e.key==='Enter'&&saveNewDoctor()} />
+            <div style={{ display:'flex', gap:'0.6rem', justifyContent:'flex-end' }}>
+              <button onClick={()=>setAddingDoctor(false)} style={{ background:'transparent', color:'#8892a4', border:'1px solid #e8ecf4', borderRadius:'10px', padding:'0.65rem 1.3rem', cursor:'pointer', fontWeight:600, fontFamily:'Manrope,sans-serif' }}>Cancel</button>
+              <button onClick={saveNewDoctor} style={{ background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', border:'none', borderRadius:'10px', padding:'0.65rem 1.6rem', cursor:'pointer', fontWeight:700, fontFamily:'Manrope,sans-serif' }}>Add Doctor</button>
+            </div>
+          </div>
+        </div>
+      )}
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:'2rem' }}>
         <div>
           <div style={{ display:'inline-flex', background:'rgba(249,115,22,0.08)', border:'1px solid rgba(249,115,22,0.2)', color:'#f97316', padding:'4px 12px', borderRadius:'100px', fontSize:'0.62rem', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:'0.6rem' }}>Registry</div>
@@ -177,46 +146,37 @@ export default function Patients({ onBill = () => {} }) {
               <select style={inp} value={form.gender} onChange={e=>setForm({...form,gender:e.target.value})}>
                 <option>Male</option><option>Female</option><option>Other</option>
               </select></div>
-            <div><label style={lbl}>Doctor Name</label>
-              <div style={{ display:'flex', gap:'0.4rem' }}>
+            <div>
+              <label style={lbl}>Doctor Name</label>
+              <div style={{ display:'flex', gap:'0.4rem', alignItems:'stretch' }}>
                 <select style={{ ...inp, flex:1 }} value={form.doctor_name} onChange={e=>setForm({...form,doctor_name:e.target.value})}>
-                  <option value="">— Select doctor —</option>
-                  {form.doctor_name && !doctors.some(d=>docName(d)===form.doctor_name) && (
-                    <option value={form.doctor_name}>{form.doctor_name}</option>
-                  )}
-                  {doctors.map(d => <option key={d.id} value={docName(d)}>{docName(d)}</option>)}
+                  <option value="">— Select or type below —</option>
+                  {refDoctors.map(d=><option key={d.id} value={d.name}>{d.name}</option>)}
                 </select>
-                {isAdminUser && (
-                  <button type="button" title="Add a new doctor" onClick={()=>setShowDocModal(true)}
-                    style={{ width:'42px', flexShrink:0, background:'rgba(249,115,22,0.1)', color:'#f97316', border:'1.5px solid rgba(249,115,22,0.35)', borderRadius:'9px', fontSize:'1.2rem', fontWeight:700, cursor:'pointer', lineHeight:1 }}>+</button>
-                )}
+                <button type="button" title="Add new doctor" onClick={()=>{ setNewDocName(''); setAddingDoctor(true); }}
+                  style={{ background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', border:'none', borderRadius:'9px', padding:'0 0.9rem', fontWeight:800, cursor:'pointer', fontSize:'1.1rem', flexShrink:0 }}>+</button>
               </div>
+              {/* also allow free-type if name not in list */}
+              <input style={{ ...inp, marginTop:'0.3rem', fontSize:'0.78rem', padding:'0.4rem 0.7rem' }} placeholder="or type a name directly" value={form.doctor_name} onChange={e=>setForm({...form,doctor_name:e.target.value})} />
             </div>
+            <div><label style={lbl}>Sample Type</label>
+              <select style={inp} value={form.sample_type} onChange={e=>setForm({...form,sample_type:e.target.value})}>
+                <option>Blood</option><option>Serum</option><option>Urine</option><option>Plasma</option><option>Sodium</option><option>Potassium</option><option>Electrolyte</option>
+              </select></div>
             <div><label style={lbl}>ABHA Number <span style={{ textTransform:'none', letterSpacing:0, fontWeight:400 }}>(14-digit health ID)</span></label>
               <input style={{ ...inp, fontFamily:'monospace', letterSpacing:'0.04em' }} placeholder="e.g. 91-1234-5678-9012" value={form.abha_number} onChange={e=>setForm({...form,abha_number:e.target.value})} /></div>
             <div><label style={lbl}>Phone <span style={{ textTransform:'none', letterSpacing:0, fontWeight:400 }}>(for WhatsApp bill)</span></label>
               <input style={inp} placeholder="10-digit mobile" value={form.phone} onChange={e=>setForm({...form,phone:e.target.value})} /></div>
-            <div><label style={lbl}>Branch {(isFranchiseUser || form.registered_franchise_id) && <span style={{ textTransform:'none', letterSpacing:0, fontWeight:400, color:'#c2410c' }}>(locked — set by franchise)</span>}</label>
-              <select
-                style={(isFranchiseUser || form.registered_franchise_id) ? { ...inp, background:'#f1f3f7', color:'#94a3b8', cursor:'not-allowed' } : inp}
-                value={form.branch_id}
-                disabled={isFranchiseUser || !!form.registered_franchise_id}
-                onChange={e=>setForm({...form,branch_id:e.target.value})}>
+            <div><label style={lbl}>Branch</label>
+              <select style={inp} value={form.branch_id} onChange={e=>setForm({...form,branch_id:e.target.value})}>
                 <option value="">— Use my branch —</option>
                 {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
               </select></div>
             <div><label style={lbl}>Franchise <span style={{ textTransform:'none', letterSpacing:0, fontWeight:400 }}>(also used for B2B billing)</span></label>
-              {isFranchiseUser ? (
-                <select style={{ ...inp, background:'#f1f3f7', color:'#475569', cursor:'not-allowed' }} value={String(myFranchiseId)} disabled>
-                  <option value={String(myFranchiseId)}>{franchiseName(Number(myFranchiseId))}</option>
-                </select>
-              ) : (
-                <select style={inp} value={form.registered_franchise_id} onChange={e=>{ const v=e.target.value; setForm({...form, registered_franchise_id:v, organization_id:v, branch_id: v ? '' : form.branch_id }); }}>
-                  <option value="">— Direct / Walk-in —</option>
-                  {franchises.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
-                </select>
-              )}
-            </div>
+              <select style={inp} value={form.registered_franchise_id} onChange={e=>setForm({...form,registered_franchise_id:e.target.value, organization_id:e.target.value})}>
+                <option value="">— Direct / Walk-in —</option>
+                {franchises.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+              </select></div>
             {!editingId && (
               <div style={{ gridColumn:'1 / -1' }}><label style={lbl}>Barcode <span style={{ textTransform:'none', letterSpacing:0, fontWeight:400 }}>(leave blank to auto-generate)</span></label>
                 <input style={{ ...inp, fontFamily:'monospace', letterSpacing:'0.04em' }} placeholder="e.g. MC45265601" value={form.barcode} onChange={e=>setForm({...form,barcode:e.target.value})} /></div>
@@ -226,68 +186,16 @@ export default function Patients({ onBill = () => {} }) {
                 <input style={{ ...inp, fontFamily:'monospace', background:'#f1f3f7', color:'#8892a4' }} value={form.barcode} disabled /></div>
             )}
           </div>
-
-          {/* --- Patient history (captured at registration) --- */}
-          <div style={{ background:'#fffaf3', border:'1px solid rgba(249,115,22,0.25)', borderRadius:'12px', padding:'1.1rem 1.2rem', marginBottom:'1rem' }}>
-            <div style={{ fontFamily:'Manrope,sans-serif', fontWeight:800, color:'#c2410c', fontSize:'0.9rem', marginBottom:'0.8rem' }}>Patient History</div>
-            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.5rem 1.5rem', marginBottom:'0.9rem' }}>
-              {HISTORY_ITEMS.map(it => (
-                <label key={it.key} style={{ display:'flex', alignItems:'center', gap:'0.55rem', cursor:'pointer', fontSize:'0.85rem', color:'#0f1218' }}>
-                  <input type="checkbox"
-                    checked={!!form.history_checklist?.[it.key]}
-                    onChange={e=>setForm({...form, history_checklist:{...form.history_checklist, [it.key]:e.target.checked}})}
-                    style={{ width:'16px', height:'16px', accentColor:'#f97316', cursor:'pointer' }} />
-                  {it.label}
-                </label>
-              ))}
-            </div>
-            <label style={lbl}>Note <span style={{ textTransform:'none', letterSpacing:0, fontWeight:400 }}>(optional)</span></label>
-            <textarea style={{ ...inp, minHeight:'64px', resize:'vertical', fontFamily:'Manrope,sans-serif' }}
-              placeholder="e.g. Confirm last meal time and any thyroid medication"
-              value={form.clinical_history}
-              onChange={e=>setForm({...form, clinical_history:e.target.value})} />
-          </div>
-
           {!editingId && (
             <div style={{ fontSize:'0.75rem', color:'#8892a4', marginBottom:'1rem' }}>
               {form.barcode ? <span style={{ color:'#f97316', fontWeight:600 }}>✅ Custom barcode: {form.barcode}</span> : 'Barcode will be auto-generated by the system.'}
             </div>
           )}
-          <div style={{ display:'flex', gap:'0.6rem', flexWrap:'wrap' }}>
-            {editingId ? (
-              <button onClick={()=>submit(false)} disabled={saving} style={{ background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', border:'none', borderRadius:'9px', padding:'0.65rem 1.5rem', fontWeight:700, cursor:'pointer', fontFamily:'Manrope,sans-serif', boxShadow:'0 4px 14px rgba(249,115,22,0.3)' }}>
-                {saving ? 'Saving...' : 'Update Patient'}
-              </button>
-            ) : (
-              <>
-                <button onClick={()=>submit(true)} disabled={saving} style={{ background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', border:'none', borderRadius:'9px', padding:'0.65rem 1.5rem', fontWeight:700, cursor:'pointer', fontFamily:'Manrope,sans-serif', boxShadow:'0 4px 14px rgba(249,115,22,0.3)', display:'flex', alignItems:'center', gap:'0.4rem' }}>
-                  {saving ? 'Saving...' : 'Register & Bill →'}
-                </button>
-                <button onClick={()=>submit(false)} disabled={saving} style={{ background:'#fff', color:'#f97316', border:'1.5px solid rgba(249,115,22,0.4)', borderRadius:'9px', padding:'0.65rem 1.3rem', fontWeight:700, cursor:'pointer', fontFamily:'Manrope,sans-serif' }}>
-                  Register only
-                </button>
-              </>
-            )}
+          <div style={{ display:'flex', gap:'0.6rem' }}>
+            <button onClick={submit} disabled={saving} style={{ background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', border:'none', borderRadius:'9px', padding:'0.65rem 1.5rem', fontWeight:700, cursor:'pointer', fontFamily:'Manrope,sans-serif', boxShadow:'0 4px 14px rgba(249,115,22,0.3)' }}>
+              {saving ? 'Saving...' : editingId ? 'Update Patient' : 'Register Patient'}
+            </button>
             <button onClick={()=>{ setShowForm(false); setEditingId(null); setForm(BLANK); }} style={{ background:'transparent', color:'#8892a4', border:'1px solid #e8ecf4', borderRadius:'9px', padding:'0.65rem 1.2rem', cursor:'pointer', fontFamily:'Manrope,sans-serif' }}>Cancel</button>
-          </div>
-        </div>
-      )}
-
-      {showDocModal && (
-        <div onClick={()=>setShowDocModal(false)} style={{ position:'fixed', inset:0, background:'rgba(15,18,24,0.45)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:1000 }}>
-          <div onClick={e=>e.stopPropagation()} style={{ ...S.card, width:'440px', maxWidth:'92vw', border:'1px solid rgba(249,115,22,0.3)' }}>
-            <div style={{ fontFamily:'Manrope,sans-serif', fontWeight:800, color:'#0f1218', marginBottom:'1.1rem', fontSize:'1rem' }}>Add New Doctor</div>
-            <div style={{ display:'grid', gap:'0.85rem' }}>
-              <div><label style={lbl}>Full Name *</label><input style={inp} placeholder="Dr. A. Sharma" value={docForm.full_name} onChange={e=>setDocForm({...docForm,full_name:e.target.value})} /></div>
-              <div><label style={lbl}>Email (Login ID) *</label><input style={inp} placeholder="doctor@lab.com" value={docForm.email} onChange={e=>setDocForm({...docForm,email:e.target.value})} /></div>
-              <div><label style={lbl}>Password *</label><input style={inp} type="password" placeholder="set a password" value={docForm.password} onChange={e=>setDocForm({...docForm,password:e.target.value})} /></div>
-              <div><label style={lbl}>Role</label>
-                <input style={{ ...inp, background:'#f1f3f7', color:'#475569', cursor:'not-allowed' }} value="Doctor (Pathologist)" disabled readOnly /></div>
-            </div>
-            <div style={{ display:'flex', gap:'0.6rem', marginTop:'1.2rem' }}>
-              <button onClick={createDoctor} disabled={docSaving} style={{ background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', border:'none', borderRadius:'9px', padding:'0.6rem 1.4rem', fontWeight:700, cursor:'pointer', fontFamily:'Manrope,sans-serif' }}>{docSaving ? 'Adding…' : 'Add Doctor'}</button>
-              <button onClick={()=>setShowDocModal(false)} style={{ background:'transparent', color:'#8892a4', border:'1px solid #e8ecf4', borderRadius:'9px', padding:'0.6rem 1.2rem', cursor:'pointer', fontFamily:'Manrope,sans-serif' }}>Cancel</button>
-            </div>
           </div>
         </div>
       )}
