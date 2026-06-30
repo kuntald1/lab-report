@@ -17,7 +17,7 @@ from pydantic import BaseModel
 
 from database import get_db
 from models.models import LabResult, Patient
-from services.report_link import check_token
+from services.report_link import check_token, check_patient_token, report_token
 from routers.pdf import generate_pdf
 
 router = APIRouter()
@@ -98,3 +98,57 @@ def public_pdf(result_id: int, token: str = Query(...), password: str = Query(..
         io.BytesIO(pdf_bytes), media_type="application/pdf",
         headers={"Content-Disposition": f"inline; filename=MediCloud_Report_{result_id}.pdf"},
     )
+
+
+# ----------------------------------------------------------------------------
+# Patient-level access (the QR on a Direct/Walk-in money receipt). A receipt
+# can cover several tests, so this lists every reported LabResult for that
+# patient at once. Each entry carries its own report_token so the existing
+# single-result PDF endpoint above can be reused unchanged for the download.
+
+def _verify_patient(db: Session, patient_id: int, token: str, password: str) -> Patient:
+    if not check_patient_token(patient_id, token):
+        raise HTTPException(403, "invalid or expired link")
+    patient = db.query(Patient).filter(Patient.id == patient_id).first()
+    if not patient:
+        raise HTTPException(404, "patient not found")
+
+    accepted = set()
+    accepted.add(_norm(patient.phone))
+    ph = _digits(patient.phone)
+    if len(ph) >= 10:
+        accepted.add(ph[-10:])
+    accepted.add(_norm(patient.barcode))
+    accepted.discard("")
+
+    given = {_norm(password)}
+    pd = _digits(password)
+    if len(pd) >= 10:
+        given.add(pd[-10:])
+
+    if accepted.isdisjoint(given):
+        raise HTTPException(401, "incorrect phone number or barcode")
+    return patient
+
+
+@router.post("/patient/{patient_id}/view")
+def public_patient_view(patient_id: int, payload: VerifyIn, db: Session = Depends(get_db)):
+    patient = _verify_patient(db, patient_id, payload.token, payload.password)
+
+    base = {
+        "patient_id": patient.id, "patient_name": patient.patient_name,
+        "barcode": patient.barcode, "age": patient.age, "gender": patient.gender,
+        "doctor": patient.doctor_name,
+    }
+    if patient.status != "reported":
+        # link + password are correct, the report just isn't finalised yet —
+        # this is a normal state, not an error.
+        return {**base, "ready": False}
+
+    results = db.query(LabResult).filter(LabResult.patient_id == patient.id).order_by(LabResult.created_at.asc()).all()
+    return {
+        **base, "ready": True,
+        "tests": [{"result_id": r.id, "test_name": r.test_name,
+                   "created_at": r.created_at, "result_token": report_token(r.id)}
+                  for r in results],
+    }

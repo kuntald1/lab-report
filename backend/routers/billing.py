@@ -483,6 +483,21 @@ def money_receipt(bill_id: int, db: Session = Depends(get_db), scope: Scope = De
     el.append(mt)
     el.append(Spacer(1, 10))
 
+    # Direct/Walk-in patients have no app login, so this is their only digital
+    # access to the report — scan to open the same password-gated viewer used
+    # for the lab report PDF, scoped to every reported test on this patient.
+    if b.organization_id is None:
+        from services.report_link import patient_view_url
+        from routers.pdf import _qr_drawing
+        qr_cap = ParagraphStyle("qrcap", parent=styles["Normal"], alignment=TA_CENTER,
+                                fontSize=7, textColor=colors.HexColor("#5a7060"))
+        qr_block = [_qr_drawing(patient_view_url(b.patient_id), 2.2),
+                   Paragraph("Scan to view & download your report online", qr_cap)]
+        qr_tbl = Table([[qr_block]], colWidths=[16.2*cm])
+        qr_tbl.setStyle(TableStyle([("ALIGN", (0,0), (-1,-1), "CENTER")]))
+        el.append(qr_tbl)
+        el.append(Spacer(1, 10))
+
     rows = [["Received With Thanks", ""]]
     rows.append(["Total Bill Amount", f"INR {data['total']:.2f}"])
     if data["discount_amount"]:

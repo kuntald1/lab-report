@@ -25,3 +25,20 @@ def report_view_url(result_id) -> str:
 
 def check_token(result_id, token: str) -> bool:
     return hmac.compare_digest(token or "", report_token(result_id))
+
+
+# ---- patient-level (covers every reported test for that patient at once) ----
+# Kept in a separate HMAC namespace ("patient:" vs "report:") so a patient-level
+# token can never be reused against the single-result endpoints or vice versa.
+
+def patient_token(patient_id) -> str:
+    msg = f"patient:{patient_id}".encode()
+    return hmac.new(_SECRET.encode(), msg, hashlib.sha256).hexdigest()[:16]
+
+
+def patient_view_url(patient_id) -> str:
+    return f"{APP_URL}/?pid={patient_id}&k={patient_token(patient_id)}"
+
+
+def check_patient_token(patient_id, token: str) -> bool:
+    return hmac.compare_digest(token or "", patient_token(patient_id))
