@@ -6,6 +6,7 @@ its own samples and a lab_admin the whole tenant.
 """
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
+from sqlalchemy import or_
 from pydantic import BaseModel
 from typing import Optional, List
 
@@ -24,12 +25,18 @@ REJECTION_VALID = STATUS_ORDER + ["sample_rejected"]
 
 @router.get("/search")
 def search_samples(db: Session = Depends(get_db), scope: Scope = Depends(get_scope),
-                   patient_id: Optional[int] = None, barcode: Optional[str] = None,
+                   patient_id: Optional[str] = None, barcode: Optional[str] = None,
                    branch_id: Optional[int] = None, franchise_id: Optional[int] = None,
                    status: Optional[str] = None, limit: int = 200):
     q = apply_scope(db.query(Patient), Patient, scope)
-    if patient_id is not None:
-        q = q.filter(Patient.id == patient_id)
+    if patient_id:
+        pid = patient_id.strip()
+        if pid.isdigit():
+            q = q.filter(Patient.id == int(pid))
+        else:
+            # non-numeric: treat as a barcode/name search, never 422
+            q = q.filter(or_(Patient.barcode.ilike(f"%{pid}%"),
+                             Patient.patient_name.ilike(f"%{pid}%")))
     if barcode:
         q = q.filter(Patient.barcode.ilike(f"%{barcode}%"))
     if branch_id is not None:
