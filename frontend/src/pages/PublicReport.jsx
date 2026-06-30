@@ -17,6 +17,8 @@ export default function PublicReport() {
   const [data, setData]         = useState(null);
   const [error, setError]       = useState('');
   const [loading, setLoading]   = useState(false);
+  const [paying, setPaying]     = useState(false);
+  const [payError, setPayError] = useState('');
 
   const submit = async () => {
     if (!password.trim()) { setError('Enter the phone number or barcode'); return; }
@@ -40,6 +42,56 @@ export default function PublicReport() {
     const rTok = resultToken || k;
     const url = `${api.BASE}/public/report/${rId}/pdf?token=${encodeURIComponent(rTok)}&password=${encodeURIComponent(password.trim())}`;
     window.open(url, '_blank');
+  };
+
+  const ensureRzp = () => new Promise((resolve, reject) => {
+    if (window.Razorpay) return resolve();
+    const s = document.createElement('script');
+    s.src = 'https://checkout.razorpay.com/v1/checkout.js';
+    s.onload = () => resolve();
+    s.onerror = () => reject(new Error('Could not load the payment gateway'));
+    document.body.appendChild(s);
+  });
+
+  const payNow = async () => {
+    setPaying(true); setPayError('');
+    try {
+      await ensureRzp();
+      const ores = await fetch(`${api.BASE}/public/patient/${pid}/pay/order`, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ token: k, password: password.trim() }),
+      });
+      if (!ores.ok) { const e = await ores.json().catch(()=>({})); throw new Error(e.detail || 'Could not start payment'); }
+      const order = await ores.json();
+      const rzp = new window.Razorpay({
+        key: order.key_id, order_id: order.order_id, amount: order.amount, currency: order.currency,
+        name: order.name, description: order.description,
+        prefill: { name: data.patient_name || '' },
+        theme: { color: '#16a34a' },
+        handler: async (resp) => {
+          try {
+            const vres = await fetch(`${api.BASE}/public/patient/${pid}/pay/verify`, {
+              method:'POST', headers:{'Content-Type':'application/json'},
+              body: JSON.stringify({
+                token: k, password: password.trim(),
+                razorpay_order_id: resp.razorpay_order_id,
+                razorpay_payment_id: resp.razorpay_payment_id,
+                razorpay_signature: resp.razorpay_signature,
+              }),
+            });
+            if (!vres.ok) { const e = await vres.json().catch(()=>({})); throw new Error(e.detail || 'Payment verification failed'); }
+            await submit();   // re-fetch — the report should now unlock
+          } catch (e) { setPayError(String(e.message || 'Payment verification failed')); }
+        },
+        modal: { ondismiss: () => setPaying(false) },
+      });
+      rzp.on('payment.failed', (r) => setPayError(r.error?.description || 'The payment could not be completed.'));
+      rzp.open();
+    } catch (e) {
+      setPayError(String(e.message || 'Could not start payment'));
+    } finally {
+      setPaying(false);
+    }
   };
 
   const wrap = { minHeight:'100vh', background:'linear-gradient(160deg,#f5f9f5,#eef4ff)', display:'flex', alignItems:'flex-start', justifyContent:'center', padding:'2.5rem 1rem', fontFamily:'Manrope,system-ui,sans-serif' };
@@ -97,11 +149,17 @@ export default function PublicReport() {
             <div style={{ fontSize:'1.4rem', fontWeight:800, color:'#15803d', marginBottom:'0.6rem' }}>🔬 MediCloud</div>
             <div style={{ fontSize:'2rem', marginBottom:'0.8rem' }}>🧾</div>
             <div style={{ fontSize:'0.95rem', color:'#0f1218', fontWeight:700, marginBottom:'0.4rem' }}>Please complete payment first</div>
-            <div style={{ fontSize:'0.84rem', color:'#8892a4', marginBottom:'1.2rem' }}>Your report is ready, but there's an outstanding balance for {data.patient_name}. Please settle the payment at the lab to view and download your report.</div>
-            <div style={{ display:'inline-block', background:'#fef2f2', border:'1px solid #fecaca', borderRadius:'10px', padding:'0.7rem 1.4rem' }}>
+            <div style={{ fontSize:'0.84rem', color:'#8892a4', marginBottom:'1.2rem' }}>Your report is ready, but there's an outstanding balance for {data.patient_name}. Complete the payment below to view and download your report.</div>
+            <div style={{ display:'inline-block', background:'#fef2f2', border:'1px solid #fecaca', borderRadius:'10px', padding:'0.7rem 1.4rem', marginBottom:'1.4rem' }}>
               <div style={{ fontSize:'0.62rem', color:'#8892a4', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.05em' }}>Balance Due</div>
               <div style={{ fontSize:'1.3rem', fontWeight:800, color:'#dc2626' }}>₹{Number(data.balance_due||0).toLocaleString('en-IN', { minimumFractionDigits:2 })}</div>
             </div>
+            {payError && <div style={{ color:'#dc2626', fontSize:'0.82rem', marginBottom:'0.8rem' }}>{payError}</div>}
+            <button onClick={payNow} disabled={paying}
+              style={{ width:'100%', padding:'0.85rem', borderRadius:'10px', border:'none', cursor: paying?'not-allowed':'pointer', fontWeight:700, fontSize:'0.95rem', color:'#fff', background: paying ? '#94a3b8' : 'linear-gradient(135deg,#16a34a,#22c55e)', fontFamily:'Manrope,sans-serif' }}>
+              {paying ? 'Opening payment…' : `💳 Pay ₹${Number(data.balance_due||0).toLocaleString('en-IN', { minimumFractionDigits:2 })} Now`}
+            </button>
+            <div style={{ fontSize:'0.7rem', color:'#b0b7c3', marginTop:'0.8rem' }}>Or pay at the lab in person.</div>
           </div>
         </div>
       );
