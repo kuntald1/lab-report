@@ -90,6 +90,22 @@ export default function PublicReport() {
         </div>
       );
     }
+    if (data.payment_due) {
+      return (
+        <div style={wrap}>
+          <div style={{ ...card, padding:'2.5rem', textAlign:'center' }}>
+            <div style={{ fontSize:'1.4rem', fontWeight:800, color:'#15803d', marginBottom:'0.6rem' }}>🔬 MediCloud</div>
+            <div style={{ fontSize:'2rem', marginBottom:'0.8rem' }}>🧾</div>
+            <div style={{ fontSize:'0.95rem', color:'#0f1218', fontWeight:700, marginBottom:'0.4rem' }}>Please complete payment first</div>
+            <div style={{ fontSize:'0.84rem', color:'#8892a4', marginBottom:'1.2rem' }}>Your report is ready, but there's an outstanding balance for {data.patient_name}. Please settle the payment at the lab to view and download your report.</div>
+            <div style={{ display:'inline-block', background:'#fef2f2', border:'1px solid #fecaca', borderRadius:'10px', padding:'0.7rem 1.4rem' }}>
+              <div style={{ fontSize:'0.62rem', color:'#8892a4', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.05em' }}>Balance Due</div>
+              <div style={{ fontSize:'1.3rem', fontWeight:800, color:'#dc2626' }}>₹{Number(data.balance_due||0).toLocaleString('en-IN', { minimumFractionDigits:2 })}</div>
+            </div>
+          </div>
+        </div>
+      );
+    }
     const tests = data.tests || [];
     return (
       <div style={wrap}>

@@ -17,6 +17,7 @@ from pydantic import BaseModel
 
 from database import get_db
 from models.models import LabResult, Patient
+from models.billing import Bill
 from services.report_link import check_token, check_patient_token, report_token
 from routers.pdf import generate_pdf
 
@@ -145,9 +146,17 @@ def public_patient_view(patient_id: int, payload: VerifyIn, db: Session = Depend
         # this is a normal state, not an error.
         return {**base, "ready": False}
 
+    # Patient-level QR (the receipt) only ever applies to Direct/Walk-in
+    # patients, who pay the lab directly — so results stay hidden until
+    # every bill for them is fully settled.
+    bills = db.query(Bill).filter(Bill.patient_id == patient.id).all()
+    balance_due = round(sum((b.total or 0) - (b.paid or 0) for b in bills), 2)
+    if balance_due > 0:
+        return {**base, "ready": True, "payment_due": True, "balance_due": balance_due}
+
     results = db.query(LabResult).filter(LabResult.patient_id == patient.id).order_by(LabResult.created_at.asc()).all()
     return {
-        **base, "ready": True,
+        **base, "ready": True, "payment_due": False,
         "tests": [{"result_id": r.id, "test_name": r.test_name,
                    "created_at": r.created_at, "result_token": report_token(r.id)}
                   for r in results],

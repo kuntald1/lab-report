@@ -51,6 +51,16 @@ export default function Doctors() {
   const openNew  = () => setForm({ name:'', phone:'', commission_percent:'' });
   const openEdit = (d) => setForm({ id:d.id, name:d.name, phone:d.phone, commission_percent:d.commission_percent });
 
+  const [del, setDel] = useState(null);   // doctor row pending delete confirmation
+  const doDelete = async () => {
+    if (!del) return;
+    try {
+      const res = await authedFetch(`/b2b/referral-doctors/${del.id}`, { method:'DELETE' });
+      if (!res.ok) throw new Error();
+      setDel(null); load(); showToast('success', `${del.name} removed`);
+    } catch { setDel(null); showToast('error', 'Delete failed'); }
+  };
+
   const save = async () => {
     if (!form.name.trim()) { showToast('error', 'Doctor name is required'); return; }
     setSaving(true);
@@ -218,6 +228,9 @@ export default function Doctors() {
                     <button title="Edit" onClick={()=>openEdit(d)} style={iconBtn('#2563eb')}>
                       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
                     </button>
+                    <button title="Delete" onClick={()=>setDel(d)} style={iconBtn('#dc2626')}>
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+                    </button>
                   </div>
                 </td>
               </tr>
@@ -246,6 +259,22 @@ export default function Doctors() {
             <div style={{ display:'flex', gap:'0.6rem', justifyContent:'flex-end' }}>
               <button onClick={()=>setForm(null)} style={{ background:'transparent', color:'#8892a4', border:'1px solid #e8ecf4', borderRadius:'10px', padding:'0.65rem 1.3rem', cursor:'pointer', fontWeight:600, fontFamily:'Manrope,sans-serif' }}>Cancel</button>
               <button onClick={save} disabled={saving} style={{ background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', border:'none', borderRadius:'10px', padding:'0.65rem 1.6rem', cursor:'pointer', fontWeight:700, fontFamily:'Manrope,sans-serif' }}>{saving?'Saving…':(form.id?'Save changes':'Add Doctor')}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {del && (
+        <div onClick={()=>setDel(null)} style={{ position:'fixed', inset:0, zIndex:9998, background:'rgba(15,18,24,0.45)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+          <div onClick={e=>e.stopPropagation()} style={{ background:'#fff', borderRadius:'16px', padding:'1.8rem', width:'400px', maxWidth:'90vw' }}>
+            <div style={{ fontFamily:'Manrope,sans-serif', fontSize:'1.1rem', fontWeight:800, color:'#0f1218', marginBottom:'0.4rem' }}>Delete this doctor?</div>
+            <div style={{ color:'#8892a4', fontSize:'0.85rem', marginBottom:'1.5rem' }}>
+              <strong style={{ color:'#0f1218' }}>{del.name}</strong> will be removed from the roster. Their existing commission ledger entries are kept for history.
+              {del.has_login && <div style={{ marginTop:'0.6rem', color:'#c2410c' }}>This doctor has a Pathologist login — they'll be re-added automatically (at 0%) next time the list loads, since they can still validate reports.</div>}
+            </div>
+            <div style={{ display:'flex', gap:'0.6rem', justifyContent:'flex-end' }}>
+              <button onClick={()=>setDel(null)} style={{ background:'transparent', color:'#8892a4', border:'1px solid #e8ecf4', borderRadius:'10px', padding:'0.65rem 1.3rem', cursor:'pointer', fontWeight:600 }}>Cancel</button>
+              <button onClick={doDelete} style={{ background:'#dc2626', color:'#fff', border:'none', borderRadius:'10px', padding:'0.65rem 1.5rem', cursor:'pointer', fontWeight:700 }}>Delete</button>
             </div>
           </div>
         </div>
