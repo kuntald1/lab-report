@@ -80,6 +80,9 @@ def _summary(rows) -> dict:
 def list_doctors_with_totals(db: Session = Depends(get_db), scope: Scope = Depends(get_scope),
                              user: User = Depends(get_current_user)):
     _require_lab(user)
+    from services.doctor_sync import sync_pathologist_doctors, pathologist_name_set
+    sync_pathologist_doctors(db, scope.tenant_id)
+    path_names = pathologist_name_set(db, scope.tenant_id)
     q = db.query(ReferralDoctor).filter(ReferralDoctor.is_active.is_(True))
     if scope.tenant_id is not None:
         q = q.filter(ReferralDoctor.tenant_id == scope.tenant_id)
@@ -88,7 +91,8 @@ def list_doctors_with_totals(db: Session = Depends(get_db), scope: Scope = Depen
         rows = db.query(DoctorCommission).filter(DoctorCommission.referral_doctor_id == d.id).all()
         s = _summary(rows)
         out.append({"id": d.id, "name": d.name, "phone": d.phone or "",
-                    "commission_percent": d.commission_percent or 0, **s})
+                    "commission_percent": d.commission_percent or 0,
+                    "has_login": (d.name or "").strip().lower() in path_names, **s})
     return out
 
 

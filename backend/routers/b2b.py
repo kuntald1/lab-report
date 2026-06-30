@@ -614,11 +614,16 @@ class ReferralDoctorIn(BaseModel):
 
 @router.get("/referral-doctors")
 def list_referral_doctors(db: Session = Depends(get_db), scope: Scope = Depends(get_scope)):
+    from services.doctor_sync import sync_pathologist_doctors, pathologist_name_set
+    sync_pathologist_doctors(db, scope.tenant_id)
+    path_names = pathologist_name_set(db, scope.tenant_id)
     q = db.query(ReferralDoctor).filter(ReferralDoctor.is_active.is_(True))
     if scope.tenant_id is not None:
         q = q.filter(ReferralDoctor.tenant_id == scope.tenant_id)
     return [{"id": d.id, "name": d.name, "phone": d.phone or "",
-             "commission_percent": d.commission_percent or 0} for d in q.order_by(ReferralDoctor.name).all()]
+             "commission_percent": d.commission_percent or 0,
+             "has_login": (d.name or "").strip().lower() in path_names}
+            for d in q.order_by(ReferralDoctor.name).all()]
 
 
 @router.post("/referral-doctors")

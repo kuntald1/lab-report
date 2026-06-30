@@ -170,7 +170,7 @@ export default function Patients({ onBill = () => {} }) {
                   setForm({...form, doctor_name:name, referral_doctor_id: match ? match.id : null});
                 }}>
                   <option value="">— Select or type below —</option>
-                  {refDoctors.map(d=><option key={d.id} value={d.name}>{d.name}</option>)}
+                  {refDoctors.map(d=><option key={d.id} value={d.name}>{d.has_login ? '🩺 ' : ''}{d.name}</option>)}
                 </select>
                 <button type="button" title="Add new doctor" onClick={()=>{ setNewDocName(''); setAddingDoctor(true); }}
                   style={{ background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', border:'none', borderRadius:'9px', padding:'0 0.9rem', fontWeight:800, cursor:'pointer', fontSize:'1.1rem', flexShrink:0 }}>+</button>

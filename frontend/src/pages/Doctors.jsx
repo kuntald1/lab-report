@@ -99,7 +99,7 @@ export default function Doctors() {
         <div style={{ marginBottom:'1.5rem' }}>
           <div style={{ display:'inline-flex', background:'rgba(249,115,22,0.08)', border:'1px solid rgba(249,115,22,0.2)', color:'#f97316', padding:'4px 12px', borderRadius:'100px', fontSize:'0.62rem', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:'0.6rem' }}>Doctor Commission</div>
           <h1 style={{ fontFamily:'Manrope,sans-serif', fontSize:'2rem', fontWeight:800, color:'#0f1218', letterSpacing:'-0.025em' }}>{selected.name}</h1>
-          <p style={{ color:'#8892a4', fontSize:'0.82rem', marginTop:'0.2rem' }}>{selected.phone || 'No phone on file'} · {selected.commission_percent}% commission</p>
+          <p style={{ color:'#8892a4', fontSize:'0.82rem', marginTop:'0.2rem' }}>{selected.phone || 'No phone on file'} · {selected.commission_percent}% commission{selected.has_login && <span style={{ marginLeft:'0.5rem', fontSize:'0.62rem', background:'rgba(37,99,235,0.1)', color:'#2563eb', padding:'0.12rem 0.5rem', borderRadius:'20px', fontWeight:700 }}>🩺 Has login</span>}</p>
         </div>
 
         <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:'1rem', marginBottom:'1.2rem' }}>
@@ -205,6 +205,7 @@ export default function Doctors() {
               <tr key={d.id} style={{ borderBottom:'1px solid #f4f6fa' }}>
                 <td style={{ padding:'0.9rem 1.3rem', fontWeight:700, color:'#0f1218', fontSize:'0.88rem' }}>
                   {d.name} <span style={{ marginLeft:'0.4rem', fontSize:'0.6rem', background:'rgba(22,163,74,0.1)', color:'#16a34a', padding:'0.12rem 0.5rem', borderRadius:'20px', fontWeight:700 }}>✓ Registered</span>
+                  {d.has_login && <span title="Has a Pathologist login — can validate reports" style={{ marginLeft:'0.4rem', fontSize:'0.6rem', background:'rgba(37,99,235,0.1)', color:'#2563eb', padding:'0.12rem 0.5rem', borderRadius:'20px', fontWeight:700 }}>🩺 Login</span>}
                 </td>
                 <td style={{ padding:'0.9rem 1.3rem', color:'#8892a4', fontSize:'0.85rem' }}>{d.phone || '—'}</td>
                 <td style={{ padding:'0.9rem 1.3rem', textAlign:'right', color:'#0f1218', fontWeight:600, fontSize:'0.85rem' }}>{d.commission_percent}%</td>
