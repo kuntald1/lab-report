@@ -395,5 +395,5 @@ def rejected_notifications(db: Session = Depends(get_db), user: User = Depends(g
     return {
         "count": len(rows),
         "items": [{"patient_id": p.id, "barcode": p.barcode, "patient_name": p.patient_name,
-                   "rejected_at": p.updated_at or p.created_at} for p in rows],
+                   "rejected_at": p.created_at} for p in rows],
     }
