@@ -35,7 +35,7 @@ def get_all_results(db: Session = Depends(get_db), scope: Scope = Depends(get_sc
                    db.query(Patient.id).filter(
                        or_(Patient.organization_id == user.franchise_id,
                            Patient.registered_franchise_id == user.franchise_id),
-                       Patient.status == "reported"   # franchise only sees doctor-validated reports
+                       or_(Patient.status == "reported", Patient.status == "sample_rejected")
                    ).all()]
         q = q.filter(LabResult.patient_id.in_(own_ids or [-1]))
         fr_locked = is_franchise_locked(db, user.franchise_id)
@@ -87,7 +87,7 @@ def get_all_results(db: Session = Depends(get_db), scope: Scope = Depends(get_sc
         pq = pq.filter(
             or_(Patient.organization_id == user.franchise_id,
                 Patient.registered_franchise_id == user.franchise_id),
-            Patient.status == "reported"
+            or_(Patient.status == "reported", Patient.status == "sample_rejected")
         )
     if barcode:
         pq = pq.filter(Patient.barcode.ilike(f"%{barcode}%"))

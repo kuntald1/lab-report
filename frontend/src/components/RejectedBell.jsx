@@ -1,6 +1,22 @@
 import { useEffect, useRef, useState } from 'react';
 import { authedFetch } from '../services/auth';
 
+// Badge "seen" state lives in localStorage (per browser) rather than the
+// server, so opening the bell clears the count immediately without needing
+// a backend round-trip — new rejections after that still bump it back up.
+const SEEN_KEY = 'mc_seen_rejected';
+const MAX_SEEN = 300;   // bound growth over time
+
+const getSeenIds = () => {
+  try { return new Set(JSON.parse(localStorage.getItem(SEEN_KEY) || '[]')); }
+  catch { return new Set(); }
+};
+const addSeenIds = (ids) => {
+  const cur = Array.from(getSeenIds());
+  const merged = Array.from(new Set([...cur, ...ids])).slice(-MAX_SEEN);
+  try { localStorage.setItem(SEEN_KEY, JSON.stringify(merged)); } catch {}
+};
+
 /**
  * Bell badge for rejected samples.
  * Shown in the top bar for lab and franchise logins.
@@ -9,6 +25,7 @@ import { authedFetch } from '../services/auth';
 export default function RejectedBell({ onOpen = () => {} }) {
   const [data, setData] = useState({ count: 0, items: [] });
   const [show, setShow] = useState(false);
+  const [seenTick, setSeenTick] = useState(0);   // bumped to force a re-render after marking seen
   const ref = useRef(null);
 
   const load = () => authedFetch('/reports/notifications/rejected')
@@ -23,13 +40,26 @@ export default function RejectedBell({ onOpen = () => {} }) {
     return () => { clearInterval(t); document.removeEventListener('mousedown', onDoc); };
   }, []);
 
+  const seenIds = getSeenIds();   // re-read each render; cheap, and seenTick forces the re-render after a write
+  const unseenCount = data.items.filter(it => !seenIds.has(it.patient_id)).length;
+
+  const openBell = () => {
+    const willOpen = !show;
+    setShow(willOpen);
+    load();
+    if (willOpen && data.items.length > 0) {
+      addSeenIds(data.items.map(it => it.patient_id));
+      setSeenTick(t => t + 1);   // re-render with the badge now reflecting "seen"
+    }
+  };
+
   return (
     <div ref={ref} style={{ position: 'relative' }}>
-      <button onClick={() => { setShow(s => !s); load(); }} title="Rejected samples"
+      <button onClick={openBell} title="Rejected samples"
         style={{ position: 'relative', background: 'transparent', border: 'none', cursor: 'pointer', fontSize: '1.2rem', lineHeight: 1, padding: '0.3rem' }}>
         🚫
-        {data.count > 0 && (
-          <span style={{ position: 'absolute', top: '-2px', right: '-2px', background: '#dc2626', color: '#fff', fontSize: '0.6rem', fontWeight: 800, minWidth: '16px', height: '16px', borderRadius: '100px', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 4px' }}>{data.count}</span>
+        {unseenCount > 0 && (
+          <span style={{ position: 'absolute', top: '-2px', right: '-2px', background: '#dc2626', color: '#fff', fontSize: '0.6rem', fontWeight: 800, minWidth: '16px', height: '16px', borderRadius: '100px', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 4px' }}>{unseenCount}</span>
         )}
       </button>
 
@@ -37,7 +67,7 @@ export default function RejectedBell({ onOpen = () => {} }) {
         <div style={{ position: 'absolute', top: '120%', right: 0, width: '310px', maxHeight: '360px', overflowY: 'auto', background: '#fff', borderRadius: '12px', boxShadow: '0 16px 48px rgba(15,18,24,0.22)', border: '1px solid #eef1f6', zIndex: 9999 }}>
           <div style={{ padding: '0.8rem 1rem', borderBottom: '1px solid #f4f6fa', fontWeight: 800, color: '#0f1218', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
             <span>🚫</span>
-            <span>Rejected Samples {data.count > 0 && <span style={{ color: '#dc2626' }}>({data.count})</span>}</span>
+            <span>Rejected Samples {data.items.length > 0 && <span style={{ color: '#dc2626' }}>({data.items.length})</span>}</span>
           </div>
           {data.items.length === 0
             ? <div style={{ padding: '1.2rem 1rem', color: '#8892a4', fontSize: '0.82rem', textAlign: 'center' }}>No rejected samples 🎉</div>
