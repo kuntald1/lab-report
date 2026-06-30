@@ -105,18 +105,23 @@ def sample_details(
         for u in db.query(User).filter(User.id.in_(doc_ids)).all():
             doc_names[u.id] = getattr(u, "name", None) or getattr(u, "full_name", None) or u.email
 
-    # --- payment transactions (the full attempt history) keyed by bill ---
+    # --- payments: the ledger is the source of truth for money actually received ---
+    pay_by_bill = {}
+    if bill_ids:
+        for pay in (db.query(Payment)
+                      .filter(Payment.bill_id.in_(bill_ids), Payment.status == "success")
+                      .all()):
+            pay_by_bill.setdefault(pay.bill_id, []).append(pay)
+    # --- failed/cancelled/timed-out gateway attempts only — a successful attempt
+    # always has a matching row above, so excluding status=='success' here is what
+    # stops every completed payment from showing up twice in the history ---
     tx_by_bill = {}
     if bill_ids:
         for t in (db.query(PaymentTransaction)
-                    .filter(PaymentTransaction.bill_id.in_(bill_ids))
+                    .filter(PaymentTransaction.bill_id.in_(bill_ids),
+                            PaymentTransaction.status != "success")
                     .order_by(PaymentTransaction.created_at.asc()).all()):
             tx_by_bill.setdefault(t.bill_id, []).append(t)
-    # successful cash/manual payments are in the Payment table
-    pay_by_bill = {}
-    if bill_ids:
-        for pay in db.query(Payment).filter(Payment.bill_id.in_(bill_ids)).all():
-            pay_by_bill.setdefault(pay.bill_id, []).append(pay)
 
     # --- clinical history trail keyed by patient ---
     hist_by_patient = {}
@@ -157,25 +162,22 @@ def sample_details(
                     "package_id": it.package_id, "package_name": it.package_name,
                     "result_id": rid,        # for the per-test Report PDF link
                 })
-            # payment history: every transaction attempt (incl. failures)
+            # successful payments — one row per payment actually received, real method shown
+            for pay in pay_by_bill.get(b.id, []):
+                if pay.method:
+                    payment_modes.add(pay.method)
+                payment_history.append({
+                    "bill_no": b.bill_no, "kind": "payment", "amount": pay.amount,
+                    "method": pay.method, "status": pay.status or "success",
+                    "error": None, "at": pay.created_at,
+                })
+            # failed/cancelled/timed-out attempts — kept visible for troubleshooting,
+            # but never counted toward payment_modes since no money actually moved
             for t in tx_by_bill.get(b.id, []):
-                if t.method:
-                    payment_modes.add(t.method)
                 payment_history.append({
                     "bill_no": b.bill_no, "kind": t.kind, "amount": t.amount,
                     "method": t.method, "status": t.status,
                     "error": t.error_description, "at": t.created_at,
-                })
-            # successful manual/cash payments
-            for pay in pay_by_bill.get(b.id, []):
-                if getattr(pay, "mode", None):
-                    payment_modes.add(pay.mode)
-                payment_history.append({
-                    "bill_no": b.bill_no, "kind": "payment",
-                    "amount": getattr(pay, "amount", None),
-                    "method": getattr(pay, "mode", None),
-                    "status": getattr(pay, "status", "success"),
-                    "error": None, "at": getattr(pay, "created_at", None),
                 })
 
         payment_history.sort(key=lambda x: (x["at"] or datetime.min))
