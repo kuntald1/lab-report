@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from database import get_db
 from models.models import Patient
+from models.billing import Bill, BillItem
 from auth.deps import get_current_user, get_scope, apply_scope, Scope
 from auth.audit import write_audit
 from services.lifecycle import record_status
@@ -18,6 +19,7 @@ class PatientCreate(BaseModel):
     age:          Optional[int] = None
     gender:       Optional[str] = None
     doctor_name:  Optional[str] = None
+    referral_doctor_id: Optional[int] = None   # links to a registered doctor for commission tracking
     sample_type:  Optional[str] = "Blood"
     barcode:      Optional[str] = None
     abha_number:  Optional[str] = None
@@ -35,6 +37,7 @@ class PatientUpdate(BaseModel):
     age:          Optional[int] = None
     gender:       Optional[str] = None
     doctor_name:  Optional[str] = None
+    referral_doctor_id: Optional[int] = None
     sample_type:  Optional[str] = None
     abha_number:  Optional[str] = None
     phone:        Optional[str] = None
@@ -57,10 +60,11 @@ def _clean_abha(v: Optional[str]) -> Optional[str]:
     return digits or None
 
 
-def _serialize(p: Patient) -> dict:
+def _serialize(p: Patient, tests_summary: Optional[list] = None) -> dict:
     return {
         "id": p.id, "barcode": p.barcode, "patient_name": p.patient_name,
         "age": p.age, "gender": p.gender, "doctor_name": p.doctor_name,
+        "referral_doctor_id": p.referral_doctor_id,
         "sample_type": p.sample_type, "status": p.status,
         "abha_number": p.abha_number, "phone": p.phone, "is_active": p.is_active,
         "tenant_id": p.tenant_id, "branch_id": p.branch_id,
@@ -68,7 +72,32 @@ def _serialize(p: Patient) -> dict:
         "organization_id": p.organization_id, "created_at": p.created_at,
         "clinical_history": p.clinical_history, "history_checklist": p.history_checklist,
         "needs_history": p.needs_history,
+        "tests_summary": tests_summary or [],
     }
+
+
+def _tests_summary_map(db: Session, patient_ids: list) -> dict:
+    """patient_id -> [test/group names] from each patient's most recent bill.
+    Two queries total regardless of list size (no N+1)."""
+    if not patient_ids:
+        return {}
+    bills = (db.query(Bill)
+               .filter(Bill.patient_id.in_(patient_ids))
+               .order_by(Bill.created_at.desc()).all())
+    latest_bill_for = {}
+    for b in bills:
+        latest_bill_for.setdefault(b.patient_id, b.id)   # first hit = most recent (desc order)
+    bill_ids = list(latest_bill_for.values())
+    if not bill_ids:
+        return {}
+    items = db.query(BillItem).filter(BillItem.bill_id.in_(bill_ids)).all()
+    names_by_bill = {}
+    for it in items:
+        names_by_bill.setdefault(it.bill_id, [])
+        name = it.package_name or it.test_name
+        if name not in names_by_bill[it.bill_id]:
+            names_by_bill[it.bill_id].append(name)
+    return {pid: names_by_bill.get(bid, []) for pid, bid in latest_bill_for.items()}
 
 
 @router.get("/")
@@ -78,7 +107,9 @@ def get_patients(db: Session = Depends(get_db), scope: Scope = Depends(get_scope
     if not include_inactive:
         # soft-deleted patients are hidden by default
         q = q.filter(Patient.is_active.is_(True))
-    return [_serialize(p) for p in q.order_by(Patient.created_at.desc()).limit(500).all()]
+    rows = q.order_by(Patient.created_at.desc()).limit(500).all()
+    tmap = _tests_summary_map(db, [p.id for p in rows])
+    return [_serialize(p, tmap.get(p.id)) for p in rows]
 
 
 @router.post("/")
@@ -89,7 +120,8 @@ def create_patient(patient: PatientCreate, request: Request,
         barcode = generate_barcode()
     db_patient = Patient(
         patient_name=patient.patient_name, age=patient.age, gender=patient.gender,
-        doctor_name=patient.doctor_name, sample_type=patient.sample_type, barcode=barcode,
+        doctor_name=patient.doctor_name, referral_doctor_id=patient.referral_doctor_id,
+        sample_type=patient.sample_type, barcode=barcode,
         abha_number=_clean_abha(patient.abha_number),
         phone=patient.phone,
         # tenant always inherited from the registering user (no cross-tenant);

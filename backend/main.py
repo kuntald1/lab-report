@@ -20,6 +20,8 @@ import models.messaging
 from routers import reports as reports_router
 import models.reports
 from routers import reports2 as reports2_router
+from routers import commission as commission_router
+import models.commission
    
 
 
@@ -55,6 +57,7 @@ app.include_router(public_report.router, prefix="/api/public", tags=["Public Rep
 app.include_router(messaging_router.router, prefix="/api/billing", tags=["Messaging"])
 app.include_router(reports_router.router, prefix="/api/reports", tags=["Reports"])
 app.include_router(reports2_router.router, prefix="/api/reports2", tags=["Reports2"])
+app.include_router(commission_router.router, prefix="/api/commission", tags=["Doctor Commission"])
 
 @app.get("/")
 def root():

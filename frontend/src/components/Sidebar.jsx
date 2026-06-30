@@ -16,10 +16,12 @@ const nav = [
   { id:'users', icon:'👥', label:'Users & Staff', section:'master' },
   { id:'billing', icon:'🧾', label:'New Bill', section:'master' },
   { id:'bills',   icon:'📑', label:'Bills',    section:'master' },
+  { id:'doctors', icon:'💵', label:'Doctor Commission', section:'master' },
   { id:'simulator', icon:'⚡', label:'Simulator',     section:'tools', tag:'DEMO' },
   { id:'tcp',       icon:'🔌', label:'Live Connect',  section:'tools', tag:'PHASE 2' },
   { id:'reportvalidate', icon:'🩺', label:'Report Validate',  section:'reports', who:'doctor' },
   { id:'validatehistory', icon:'📋', label:'Validate History', section:'reports', who:'doctor' },
+  { id:'mycommission', icon:'💰', label:'My Commission', section:'reports', who:'doctor' },
   { id:'historyneeded', icon:'📥', label:'History Needed', section:'reports', who:'lab' },
   { id:'samplereport', icon:'📊', label:'Sample Report', section:'reports', who:'lab' },
 ];

@@ -10,7 +10,7 @@ const S   = { card: { background:'#fff', border:'1px solid #e8ecf4', borderRadiu
 const sampleColor = { Blood:'#fff1ee', Serum:'#eff6ff', Urine:'#fefce8', Plasma:'#fdf4ff', Sodium:'#f0fdf4', Potassium:'#fef9c3', Electrolyte:'#f0fdf4' };
 const sampleText  = { Blood:'#c2410c', Serum:'#1d4ed8', Urine:'#854d0e', Plasma:'#7e22ce', Sodium:'#16a34a', Potassium:'#854d0e', Electrolyte:'#16a34a' };
 
-const BLANK = { patient_name:'', age:'', gender:'Male', doctor_name:'', barcode:'', abha_number:'', phone:'', branch_id:'', registered_franchise_id:'', organization_id:'', checklist:{diabetic:false,on_medication:false,hypertension:false,fasting_sample:false,pregnant:false}, note:'' };
+const BLANK = { patient_name:'', age:'', gender:'Male', doctor_name:'', referral_doctor_id:null, barcode:'', abha_number:'', phone:'', branch_id:'', registered_franchise_id:'', organization_id:'', checklist:{diabetic:false,on_medication:false,hypertension:false,fasting_sample:false,pregnant:false}, note:'' };
 
 // pretty-print a 14-digit ABHA as XX-XXXX-XXXX-XXXX
 const fmtAbha = (n) => {
@@ -59,7 +59,7 @@ export default function Patients({ onBill = () => {} }) {
     setEditingId(p.id);
     setForm({
       patient_name: p.patient_name || '', age: p.age ?? '', gender: p.gender || 'Male',
-      doctor_name: p.doctor_name || '', barcode: p.barcode || '',
+      doctor_name: p.doctor_name || '', referral_doctor_id: p.referral_doctor_id ?? null, barcode: p.barcode || '',
       abha_number: p.abha_number || '',
       phone: p.phone || '',
       branch_id: p.branch_id ?? '', registered_franchise_id: p.registered_franchise_id ?? '',
@@ -77,6 +77,7 @@ export default function Patients({ onBill = () => {} }) {
       age: form.age ? parseInt(form.age) : null,
       gender: form.gender,
       doctor_name: form.doctor_name || null,
+      referral_doctor_id: form.referral_doctor_id || null,
       checklist: form.checklist || null,
       note: form.note || null,
       abha_number: form.abha_number || null,
@@ -115,7 +116,7 @@ export default function Patients({ onBill = () => {} }) {
       if (!res.ok) throw new Error();
       const doc = await res.json();
       setRefDoctors(prev=>[...prev, doc]);
-      setForm(f=>({...f, doctor_name: doc.name}));
+      setForm(f=>({...f, doctor_name: doc.name, referral_doctor_id: doc.id}));
       setAddingDoctor(false);
     } catch { alert('Failed to add doctor'); }
   };
@@ -161,17 +162,21 @@ export default function Patients({ onBill = () => {} }) {
                 <option>Male</option><option>Female</option><option>Other</option>
               </select></div>
             <div>
-              <label style={lbl}>Doctor Name</label>
+              <label style={lbl}>Doctor Name {form.referral_doctor_id && <span style={{ color:'#16a34a', fontWeight:700, textTransform:'none' }}>✓ Registered</span>}</label>
               <div style={{ display:'flex', gap:'0.4rem', alignItems:'stretch' }}>
-                <select style={{ ...inp, flex:1 }} value={form.doctor_name} onChange={e=>setForm({...form,doctor_name:e.target.value})}>
+                <select style={{ ...inp, flex:1 }} value={form.doctor_name} onChange={e=>{
+                  const name = e.target.value;
+                  const match = refDoctors.find(d=>d.name===name);
+                  setForm({...form, doctor_name:name, referral_doctor_id: match ? match.id : null});
+                }}>
                   <option value="">— Select or type below —</option>
                   {refDoctors.map(d=><option key={d.id} value={d.name}>{d.name}</option>)}
                 </select>
                 <button type="button" title="Add new doctor" onClick={()=>{ setNewDocName(''); setAddingDoctor(true); }}
                   style={{ background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', border:'none', borderRadius:'9px', padding:'0 0.9rem', fontWeight:800, cursor:'pointer', fontSize:'1.1rem', flexShrink:0 }}>+</button>
               </div>
-              {/* also allow free-type if name not in list */}
-              <input style={{ ...inp, marginTop:'0.3rem', fontSize:'0.78rem', padding:'0.4rem 0.7rem' }} placeholder="or type a name directly" value={form.doctor_name} onChange={e=>setForm({...form,doctor_name:e.target.value})} />
+              {/* free-type names aren't linked to a registered profile, so they won't accrue commission */}
+              <input style={{ ...inp, marginTop:'0.3rem', fontSize:'0.78rem', padding:'0.4rem 0.7rem' }} placeholder="or type a name directly (no commission tracking)" value={form.doctor_name} onChange={e=>setForm({...form, doctor_name:e.target.value, referral_doctor_id:null})} />
             </div>
             <div><label style={lbl}>ABHA Number <span style={{ textTransform:'none', letterSpacing:0, fontWeight:400 }}>(14-digit health ID)</span></label>
               <input style={{ ...inp, fontFamily:'monospace', letterSpacing:'0.04em' }} placeholder="e.g. 91-1234-5678-9012" value={form.abha_number} onChange={e=>setForm({...form,abha_number:e.target.value})} /></div>
@@ -236,7 +241,7 @@ export default function Patients({ onBill = () => {} }) {
         <table style={{ width:'100%', borderCollapse:'collapse' }}>
           <thead>
             <tr style={{ background:'#fafbfc', borderBottom:'1.5px solid #e8ecf4' }}>
-              {['Barcode','Patient Name','Age','Gender','Doctor','ABHA','Status','Registered','Actions'].map(h => (
+              {['Barcode','Patient Name','Age','Gender','Doctor','ABHA','Tests','Status','Registered','Actions'].map(h => (
                 <th key={h} style={{ textAlign:'left', padding:'0.8rem 1.3rem', fontSize:'0.65rem', color:'#8892a4', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.07em' }}>{h}</th>
               ))}
             </tr>
@@ -261,7 +266,14 @@ export default function Patients({ onBill = () => {} }) {
                 <td style={{ padding:'0.9rem 1.3rem', color:'#8892a4', fontSize:'0.85rem' }}>{p.doctor_name||'—'}</td>
                 <td style={{ padding:'0.9rem 1.3rem', color:'#475569', fontSize:'0.78rem', fontFamily:'monospace' }}>{fmtAbha(p.abha_number)}</td>
                 <td style={{ padding:'0.9rem 1.3rem' }}>
-                  <span style={{ background:sampleColor[p.sample_type]||'#f5f5f5', color:sampleText[p.sample_type]||'#333', padding:'0.2rem 0.7rem', borderRadius:'20px', fontSize:'0.72rem', fontWeight:700 }}>{p.sample_type}</span>
+                  {(p.tests_summary && p.tests_summary.length > 0) ? (
+                    <div style={{ display:'flex', flexWrap:'wrap', gap:'0.25rem', maxWidth:'220px' }}>
+                      {p.tests_summary.slice(0,2).map((t,i) => (
+                        <span key={i} style={{ background:'rgba(249,115,22,0.08)', color:'#c2410c', padding:'0.15rem 0.55rem', borderRadius:'20px', fontSize:'0.68rem', fontWeight:600 }}>{t}</span>
+                      ))}
+                      {p.tests_summary.length > 2 && <span style={{ fontSize:'0.68rem', color:'#8892a4' }}>+{p.tests_summary.length-2} more</span>}
+                    </div>
+                  ) : <span style={{ color:'#c4cad6', fontSize:'0.78rem' }}>—</span>}
                 </td>
                 <td style={{ padding:'0.9rem 1.3rem' }}>
                   <span style={{ background:(statusColor[p.status]||'#94a3b8')+'22', color:statusColor[p.status]||'#94a3b8', padding:'0.2rem 0.7rem', borderRadius:'20px', fontSize:'0.7rem', fontWeight:800, textTransform:'capitalize' }}>{p.status||'—'}</span>
