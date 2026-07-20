@@ -13,6 +13,7 @@ from reportlab.graphics.barcode.qr import QrCodeWidget
 from reportlab.graphics.shapes import Drawing, Rect
 from services.report_link import report_view_url
 import io
+import os
 from datetime import datetime
 import matplotlib
 matplotlib.use('Agg')
@@ -44,7 +45,7 @@ def _render_chromatogram(values, color):
     ax.set_ylabel('10mOD', fontsize=7, color=color)
     ax.tick_params(axis='both', labelsize=6, colors=color)
     for spine in ax.spines.values():
-        spine.set_color('#d4e6d6')
+        spine.set_color('#bdeae2')
     fig.tight_layout()
     buf = io.BytesIO()
     fig.savefig(buf, format='png', transparent=True)
@@ -63,21 +64,15 @@ def _qr_drawing(data: str, size_cm: float = 2.0) -> Drawing:
     return d
 
 
-def _logo_mark(size: float = 30):
-    """A clean drawn brand mark (rounded green badge with a lab-flask glyph),
-    so we never depend on an emoji font that may render as a box."""
-    from reportlab.graphics.shapes import Drawing, Rect, Polygon, Circle
-    g = colors.HexColor('#1a3a1c'); acc = colors.HexColor('#4caf50')
-    d = Drawing(size, size)
-    d.add(Rect(0, 0, size, size, rx=8, ry=8, fillColor=g, strokeColor=None))
-    s = size
-    # simple Erlenmeyer flask in white/green-accent
-    d.add(Polygon(points=[0.42*s,0.74*s, 0.58*s,0.74*s, 0.72*s,0.30*s, 0.28*s,0.30*s],
-                  fillColor=colors.white, strokeColor=None))
-    d.add(Rect(0.45*s, 0.72*s, 0.10*s, 0.08*s, fillColor=colors.white, strokeColor=None))
-    d.add(Circle(0.46*s, 0.40*s, 0.035*s, fillColor=acc, strokeColor=None))
-    d.add(Circle(0.56*s, 0.36*s, 0.028*s, fillColor=acc, strokeColor=None))
-    return d
+_LOGO_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'assets', 'healthycian_logo.jpg')
+_LOGO_ASPECT = 320 / 994   # source image is 994x320 (icon + wordmark + tagline lockup)
+
+
+def _logo_image(width_cm: float = 4.6):
+    """The real Healthycian logo (icon+wordmark+tagline), sized to width_cm with height from its own aspect ratio."""
+    w = width_cm * cm
+    h = w * _LOGO_ASPECT
+    return Image(_LOGO_PATH, width=w, height=h)
 
 
 def generate_pdf(result: LabResult) -> bytes:
@@ -87,15 +82,15 @@ def generate_pdf(result: LabResult) -> bytes:
         pagesize=A4,
         rightMargin=1.5*cm, leftMargin=1.5*cm,
         topMargin=1.5*cm,   bottomMargin=1.5*cm,
-        title=f"MediCloud Lab Report #{result.id}"
+        title=f"Healthycian Lab Report #{result.id}"
     )
 
     styles = getSampleStyleSheet()
-    GREEN      = colors.HexColor('#1a3a1c')
-    GREEN_LIGHT= colors.HexColor('#e8f5e0')
-    GREEN_ACC  = colors.HexColor('#4caf50')
-    CREAM      = colors.HexColor('#faf8f3')
-    MUTED      = colors.HexColor('#5a7060')
+    GREEN      = colors.HexColor('#0e7d6b')
+    GREEN_LIGHT= colors.HexColor('#e3f7f3')
+    GREEN_ACC  = colors.HexColor('#17b9a1')
+    CREAM      = colors.HexColor('#f2fbfa')
+    MUTED      = colors.HexColor('#5c7370')
     RED        = colors.HexColor('#dc2626')
     BLUE       = colors.HexColor('#2563eb')
     AMBER      = colors.HexColor('#d97706')
@@ -115,15 +110,15 @@ def generate_pdf(result: LabResult) -> bytes:
     brand_style = ParagraphStyle('brand', fontName='Helvetica-Bold', fontSize=17, textColor=GREEN, leading=18)
     brand_sub   = ParagraphStyle('brandsub', fontName='Helvetica-Bold', fontSize=8, textColor=MUTED, leading=11, spaceBefore=1)
 
-    # left cell: logo mark + "MediCloud" / "LAB REPORT · Report #N"
-    left_block = Table([[
-        _logo_mark(30),
-        Paragraph(f'MediCloud<br/><font size="8" color="#5a7060">LAB REPORT&nbsp;·&nbsp;Report #{result.id}</font>', brand_style),
-    ]], colWidths=[36, None])
+    # left cell: real Healthycian logo (icon+wordmark+tagline already baked into the image) + "LAB REPORT · Report #N"
+    left_block = Table([
+        [_logo_image(4.6)],
+        [Paragraph(f'LAB REPORT&nbsp;·&nbsp;Report #{result.id}', brand_sub)],
+    ])
     left_block.setStyle(TableStyle([
-        ('VALIGN', (0,0),(-1,-1), 'MIDDLE'),
-        ('LEFTPADDING', (0,0),(-1,-1), 0), ('RIGHTPADDING', (0,0),(0,0), 8),
-        ('TOPPADDING', (0,0),(-1,-1), 0), ('BOTTOMPADDING', (0,0),(-1,-1), 0),
+        ('ALIGN', (0,0),(-1,-1), 'LEFT'),
+        ('LEFTPADDING', (0,0),(-1,-1), 0), ('RIGHTPADDING', (0,0),(-1,-1), 0),
+        ('TOPPADDING', (0,0),(-1,-1), 0), ('BOTTOMPADDING', (0,0),(0,0), 2),
     ]))
 
     header_data = [[
@@ -140,7 +135,7 @@ def generate_pdf(result: LabResult) -> bytes:
         ('RIGHTPADDING',  (0,0),(-1,-1), 16),
         ('VALIGN',        (0,0),(-1,-1), 'MIDDLE'),
         ('ALIGN',         (1,0),(1,0), 'RIGHT'),
-        ('BOX',           (0,0),(-1,-1), 1, colors.HexColor('#b8ddb8')),
+        ('BOX',           (0,0),(-1,-1), 1, colors.HexColor('#9fe0d3')),
     ]))
     story.append(header_table)
     story.append(Spacer(1, 0.4*cm))
@@ -184,7 +179,7 @@ def generate_pdf(result: LabResult) -> bytes:
     info_table = Table(info_data, colWidths=['20%','20%','20%','20%','20%'])
     info_table.setStyle(TableStyle([
         ('BACKGROUND',    (0,0),(-1,-1), colors.white),
-        ('BOX',           (0,0),(-1,-1), 1, colors.HexColor('#d4e6d6')),
+        ('BOX',           (0,0),(-1,-1), 1, colors.HexColor('#bdeae2')),
         ('GRID',          (0,0),(-1,-1), 0.5, colors.HexColor('#f0f4f0')),
         ('TOPPADDING',    (0,0),(-1,-1), 7),
         ('BOTTOMPADDING', (0,0),(-1,-1), 7),
@@ -245,8 +240,8 @@ def generate_pdf(result: LabResult) -> bytes:
             ('BOTTOMPADDING', (0,0),(-1,-1), 8),
             ('LEFTPADDING',   (0,0),(-1,-1), 10),
             ('RIGHTPADDING',  (0,0),(-1,-1), 10),
-            ('BOX',           (0,0),(-1,-1), 1, colors.HexColor('#d4e6d6')),
-            ('LINEBELOW',     (0,0),(-1,-2), 0.5, colors.HexColor('#e8f5e0')),
+            ('BOX',           (0,0),(-1,-1), 1, colors.HexColor('#bdeae2')),
+            ('LINEBELOW',     (0,0),(-1,-2), 0.5, colors.HexColor('#e3f7f3')),
             ('VALIGN',        (0,0),(-1,-1), 'MIDDLE'),
             *row_styles,
         ]))
@@ -275,7 +270,7 @@ def generate_pdf(result: LabResult) -> bytes:
         gh_table = Table(gh_data, colWidths=['33.33%','33.33%','33.34%'])
         gh_table.setStyle(TableStyle([
             ('BACKGROUND',    (0,0),(-1,-1), colors.white),
-            ('BOX',           (0,0),(-1,-1), 1, colors.HexColor('#d4e6d6')),
+            ('BOX',           (0,0),(-1,-1), 1, colors.HexColor('#bdeae2')),
             ('GRID',          (0,0),(-1,-1), 0.5, colors.HexColor('#f0f4f0')),
             ('TOPPADDING',    (0,0),(-1,-1), 7),
             ('BOTTOMPADDING', (0,0),(-1,-1), 7),
@@ -290,7 +285,7 @@ def generate_pdf(result: LabResult) -> bytes:
     chromatogram = parsed.get('chromatogram')
     if chromatogram:
         story.append(Paragraph('CHROMATOGRAM', section_style))
-        chart_buf = _render_chromatogram(chromatogram, '#5a7060')
+        chart_buf = _render_chromatogram(chromatogram, '#5c7370')
         story.append(Image(chart_buf, width=16*cm, height=5.5*cm))
         story.append(Spacer(1, 0.4*cm))
 
@@ -300,7 +295,7 @@ def generate_pdf(result: LabResult) -> bytes:
         note_table = Table([[Paragraph(result.note.replace('\n', '<br/>'), normal_style)]], colWidths=['100%'])
         note_table.setStyle(TableStyle([
             ('BACKGROUND',    (0,0),(-1,-1), CREAM),
-            ('BOX',           (0,0),(-1,-1), 1, colors.HexColor('#d4e6d6')),
+            ('BOX',           (0,0),(-1,-1), 1, colors.HexColor('#bdeae2')),
             ('TOPPADDING',    (0,0),(-1,-1), 10), ('BOTTOMPADDING', (0,0),(-1,-1), 10),
             ('LEFTPADDING',   (0,0),(-1,-1), 12), ('RIGHTPADDING',  (0,0),(-1,-1), 12),
         ]))
@@ -317,7 +312,7 @@ def generate_pdf(result: LabResult) -> bytes:
     legend_table = Table(legend_data, colWidths=['15%','30%','27%','28%'])
     legend_table.setStyle(TableStyle([
         ('BACKGROUND',    (0,0),(-1,-1), CREAM),
-        ('BOX',           (0,0),(-1,-1), 1, colors.HexColor('#d4e6d6')),
+        ('BOX',           (0,0),(-1,-1), 1, colors.HexColor('#bdeae2')),
         ('TOPPADDING',    (0,0),(-1,-1), 6),
         ('BOTTOMPADDING', (0,0),(-1,-1), 6),
         ('LEFTPADDING',   (0,0),(-1,-1), 10),
@@ -326,12 +321,12 @@ def generate_pdf(result: LabResult) -> bytes:
     ]))
     story.append(legend_table)
     story.append(Spacer(1, 0.5*cm))
-    story.append(HRFlowable(width='100%', thickness=1, color=colors.HexColor('#d4e6d6')))
+    story.append(HRFlowable(width='100%', thickness=1, color=colors.HexColor('#bdeae2')))
     story.append(Spacer(1, 0.2*cm))
 
     # ── FOOTER ───────────────────────────────────────────────
     story.append(Paragraph(
-        f'Generated by MediCloud Lab Middleware · {datetime.now().strftime("%d %b %Y %I:%M %p")} · This report is computer-generated and valid without signature.',
+        f'Generated by Healthycian Lab Middleware · {datetime.now().strftime("%d %b %Y %I:%M %p")} · This report is computer-generated and valid without signature.',
         footer_style
     ))
 
@@ -351,14 +346,14 @@ def generate_combined_pdf(results: list) -> bytes:
         pagesize=A4,
         rightMargin=1.5*cm, leftMargin=1.5*cm,
         topMargin=1.5*cm,   bottomMargin=1.5*cm,
-        title=f"MediCloud Lab Report — {first.barcode}"
+        title=f"Healthycian Lab Report — {first.barcode}"
     )
 
     styles = getSampleStyleSheet()
-    GREEN      = colors.HexColor('#1a3a1c')
-    GREEN_LIGHT= colors.HexColor('#e8f5e0')
-    CREAM      = colors.HexColor('#faf8f3')
-    MUTED      = colors.HexColor('#5a7060')
+    GREEN      = colors.HexColor('#0e7d6b')
+    GREEN_LIGHT= colors.HexColor('#e3f7f3')
+    CREAM      = colors.HexColor('#f2fbfa')
+    MUTED      = colors.HexColor('#5c7370')
     RED        = colors.HexColor('#dc2626')
     BLUE       = colors.HexColor('#2563eb')
 
@@ -368,20 +363,20 @@ def generate_combined_pdf(results: list) -> bytes:
     normal_style= ParagraphStyle('norm',  fontName='Helvetica',      fontSize=9,  textColor=GREEN, leading=13)
     footer_style= ParagraphStyle('footer',fontName='Helvetica',      fontSize=7,  textColor=MUTED, alignment=TA_CENTER)
     qr_caption  = ParagraphStyle('qrcap', fontName='Helvetica', fontSize=6, textColor=MUTED, alignment=TA_CENTER, spaceBefore=2, leading=7)
-    brand_style = ParagraphStyle('brand', fontName='Helvetica-Bold', fontSize=17, textColor=GREEN, leading=18)
+    brand_sub   = ParagraphStyle('brandsub', fontName='Helvetica-Bold', fontSize=8, textColor=MUTED, leading=11, spaceBefore=1)
 
     story = []
     patient = first.patient
 
     # ── HEADER (once) ──────────────────────────────────────────
-    left_block = Table([[
-        _logo_mark(30),
-        Paragraph(f'MediCloud<br/><font size="8" color="#5a7060">LAB REPORT&nbsp;·&nbsp;Combined ({len(results)} tests)</font>', brand_style),
-    ]], colWidths=[36, None])
+    left_block = Table([
+        [_logo_image(4.6)],
+        [Paragraph(f'LAB REPORT&nbsp;·&nbsp;Combined ({len(results)} tests)', brand_sub)],
+    ])
     left_block.setStyle(TableStyle([
-        ('VALIGN', (0,0),(-1,-1), 'MIDDLE'),
-        ('LEFTPADDING', (0,0),(-1,-1), 0), ('RIGHTPADDING', (0,0),(0,0), 8),
-        ('TOPPADDING', (0,0),(-1,-1), 0), ('BOTTOMPADDING', (0,0),(-1,-1), 0),
+        ('ALIGN', (0,0),(-1,-1), 'LEFT'),
+        ('LEFTPADDING', (0,0),(-1,-1), 0), ('RIGHTPADDING', (0,0),(-1,-1), 0),
+        ('TOPPADDING', (0,0),(-1,-1), 0), ('BOTTOMPADDING', (0,0),(0,0), 2),
     ]))
     header_data = [[
         left_block,
@@ -394,7 +389,7 @@ def generate_combined_pdf(results: list) -> bytes:
         ('TOPPADDING',    (0,0),(-1,-1), 12), ('BOTTOMPADDING', (0,0),(-1,-1), 12),
         ('LEFTPADDING',   (0,0),(-1,-1), 16), ('RIGHTPADDING',  (0,0),(-1,-1), 16),
         ('VALIGN',        (0,0),(-1,-1), 'MIDDLE'), ('ALIGN', (1,0),(1,0), 'RIGHT'),
-        ('BOX',           (0,0),(-1,-1), 1, colors.HexColor('#b8ddb8')),
+        ('BOX',           (0,0),(-1,-1), 1, colors.HexColor('#9fe0d3')),
     ]))
     story.append(header_table)
     story.append(Spacer(1, 0.4*cm))
@@ -419,7 +414,7 @@ def generate_combined_pdf(results: list) -> bytes:
     info_table = Table(info_data, colWidths=['25%','25%','25%','25%'])
     info_table.setStyle(TableStyle([
         ('BACKGROUND',    (0,0),(-1,-1), colors.white),
-        ('BOX',           (0,0),(-1,-1), 1, colors.HexColor('#d4e6d6')),
+        ('BOX',           (0,0),(-1,-1), 1, colors.HexColor('#bdeae2')),
         ('GRID',          (0,0),(-1,-1), 0.5, colors.HexColor('#f0f4f0')),
         ('TOPPADDING',    (0,0),(-1,-1), 7), ('BOTTOMPADDING', (0,0),(-1,-1), 7),
         ('LEFTPADDING',   (0,0),(-1,-1), 10), ('RIGHTPADDING',  (0,0),(-1,-1), 10),
@@ -468,8 +463,8 @@ def generate_combined_pdf(results: list) -> bytes:
                 ('BACKGROUND',    (0,0),(-1,0),  GREEN),
                 ('TOPPADDING',    (0,0),(-1,-1), 8), ('BOTTOMPADDING', (0,0),(-1,-1), 8),
                 ('LEFTPADDING',   (0,0),(-1,-1), 10), ('RIGHTPADDING',  (0,0),(-1,-1), 10),
-                ('BOX',           (0,0),(-1,-1), 1, colors.HexColor('#d4e6d6')),
-                ('LINEBELOW',     (0,0),(-1,-2), 0.5, colors.HexColor('#e8f5e0')),
+                ('BOX',           (0,0),(-1,-1), 1, colors.HexColor('#bdeae2')),
+                ('LINEBELOW',     (0,0),(-1,-2), 0.5, colors.HexColor('#e3f7f3')),
                 ('VALIGN',        (0,0),(-1,-1), 'MIDDLE'),
                 *row_styles,
             ]))
@@ -480,7 +475,7 @@ def generate_combined_pdf(results: list) -> bytes:
             note_table = Table([[Paragraph(f'<b>Note:</b> {r.note}'.replace(chr(10), "<br/>"), normal_style)]], colWidths=['100%'])
             note_table.setStyle(TableStyle([
                 ('BACKGROUND',    (0,0),(-1,-1), CREAM),
-                ('BOX',           (0,0),(-1,-1), 1, colors.HexColor('#d4e6d6')),
+                ('BOX',           (0,0),(-1,-1), 1, colors.HexColor('#bdeae2')),
                 ('TOPPADDING',    (0,0),(-1,-1), 8), ('BOTTOMPADDING', (0,0),(-1,-1), 8),
                 ('LEFTPADDING',   (0,0),(-1,-1), 10), ('RIGHTPADDING',  (0,0),(-1,-1), 10),
             ]))
@@ -498,17 +493,17 @@ def generate_combined_pdf(results: list) -> bytes:
     legend_table = Table(legend_data, colWidths=['15%','30%','27%','28%'])
     legend_table.setStyle(TableStyle([
         ('BACKGROUND',    (0,0),(-1,-1), CREAM),
-        ('BOX',           (0,0),(-1,-1), 1, colors.HexColor('#d4e6d6')),
+        ('BOX',           (0,0),(-1,-1), 1, colors.HexColor('#bdeae2')),
         ('TOPPADDING',    (0,0),(-1,-1), 6), ('BOTTOMPADDING', (0,0),(-1,-1), 6),
         ('LEFTPADDING',   (0,0),(-1,-1), 10), ('RIGHTPADDING',  (0,0),(-1,-1), 10),
         ('VALIGN',        (0,0),(-1,-1), 'MIDDLE'),
     ]))
     story.append(legend_table)
     story.append(Spacer(1, 0.5*cm))
-    story.append(HRFlowable(width='100%', thickness=1, color=colors.HexColor('#d4e6d6')))
+    story.append(HRFlowable(width='100%', thickness=1, color=colors.HexColor('#bdeae2')))
     story.append(Spacer(1, 0.2*cm))
     story.append(Paragraph(
-        f'Generated by MediCloud Lab Middleware · {datetime.now().strftime("%d %b %Y %I:%M %p")} · This report is computer-generated and valid without signature.',
+        f'Generated by Healthycian Lab Middleware · {datetime.now().strftime("%d %b %Y %I:%M %p")} · This report is computer-generated and valid without signature.',
         footer_style
     ))
 
@@ -534,7 +529,7 @@ def download_combined_pdf(ids: str, db: Session = Depends(get_db)):
     return StreamingResponse(
         io.BytesIO(pdf_bytes),
         media_type="application/pdf",
-        headers={"Content-Disposition": f"attachment; filename=MediCloud_Combined_{results[0].barcode}.pdf"}
+        headers={"Content-Disposition": f"attachment; filename=Healthycian_Combined_{results[0].barcode}.pdf"}
     )
 
 
@@ -551,5 +546,5 @@ def download_pdf(result_id: int, db: Session = Depends(get_db)):
     return StreamingResponse(
         io.BytesIO(pdf_bytes),
         media_type="application/pdf",
-        headers={"Content-Disposition": f"attachment; filename=MediCloud_Report_{result_id}.pdf"}
+        headers={"Content-Disposition": f"attachment; filename=Healthycian_Report_{result_id}.pdf"}
     )

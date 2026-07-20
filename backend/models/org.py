@@ -128,6 +128,21 @@ class User(Base):
     tenant        = relationship("Tenant", back_populates="users")
 
 
+class RoleDef(Base):
+    """Master list of roles shown in dropdowns (Users & Staff, Menu Permissions, ...).
+    The KEY set is fixed to the roles the backend actually knows how to scope/authorize
+    (see Role class below) — creating a row with an unrecognized key would produce a
+    login the system can't grant any permissions to, so this table only lets an admin
+    rename the display label and mark a role inactive (hidden from pickers), not invent
+    new keys. This is what makes role dropdowns across the app "dynamic" instead of
+    each page hardcoding its own copy of the list."""
+    __tablename__ = "role_defs"
+    role_key   = Column(String, primary_key=True)
+    label      = Column(String, nullable=False)
+    is_active  = Column(Boolean, default=True)
+    sort_order = Column(Integer, default=0)
+
+
 class RoleMenuConfig(Base):
     """Which sidebar menu items are hidden for a given role. Absence of a row
     (or an empty hidden_keys list) means that role sees everything — this is

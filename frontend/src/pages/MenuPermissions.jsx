@@ -21,6 +21,7 @@ const MENU_ITEMS = [
   { id:'pricing', label:'Group / Org Pricing', group:'Master' },
   { id:'testscatalog', label:'Tests Catalog', group:'Master' },
   { id:'users', label:'Users & Staff', group:'Master' },
+  { id:'roles', label:'Roles', group:'Master' },
   { id:'menupermissions', label:'Menu Permissions', group:'Master' },
   { id:'billing', label:'New Bill', group:'Master' },
   { id:'bills', label:'Bills', group:'Master' },
@@ -36,23 +37,27 @@ const MENU_ITEMS = [
 ];
 const GROUPS = [...new Set(MENU_ITEMS.map(m=>m.group))];
 
-const ROLES = [
-  { value:'pathologist',  label:'Doctor' },
-  { value:'technician',   label:'Technician' },
-  { value:'receptionist', label:'Receptionist' },
-  { value:'phlebotomist', label:'Phlebotomist' },
-  { value:'franchise',    label:'Organization' },
-];
+// roles configurable here (must match backend's CONFIGURABLE_ROLES) — fetched from the
+// dynamic Roles master list instead of hardcoded, so a relabel there shows up here too.
+const CONFIGURABLE_ROLE_KEYS = ['pathologist','technician','receptionist','phlebotomist','franchise'];
 
 export default function MenuPermissions() {
   const [config, setConfig] = useState(null);   // {role: [hidden_key,...]}
+  const [roleDefs, setRoleDefs] = useState(null); // [{role_key,label},...] from the dynamic Roles master list
   const [saving, setSaving] = useState(null);    // role currently saving
   const [toast, setToast]   = useState(null);
 
   const showToast = (kind, msg) => { setToast({ kind, msg }); setTimeout(()=>setToast(null), 3000); };
 
-  const load = () => authedFetch('/admin/menu-config').then(r=>r.ok?r.json():{}).then(setConfig).catch(()=>setConfig({}));
+  const load = () => {
+    authedFetch('/admin/menu-config').then(r=>r.ok?r.json():{}).then(setConfig).catch(()=>setConfig({}));
+    authedFetch('/admin/roles').then(r=>r.ok?r.json():[]).then(setRoleDefs).catch(()=>setRoleDefs([]));
+  };
   useEffect(() => { load(); }, []);
+
+  const ROLES = (roleDefs || [])
+    .filter(r => CONFIGURABLE_ROLE_KEYS.includes(r.role_key))
+    .map(r => ({ value: r.role_key, label: r.label }));
 
   const isHidden = (role, id) => (config?.[role] || []).includes(id);
   const toggle = (role, id) => {
@@ -60,6 +65,22 @@ export default function MenuPermissions() {
       const cur = prev[role] || [];
       const next = cur.includes(id) ? cur.filter(k=>k!==id) : [...cur, id];
       return { ...prev, [role]: next };
+    });
+  };
+
+  // group-level: are ALL items in this group currently visible for this role?
+  const groupAllVisible = (role, group) => {
+    const ids = MENU_ITEMS.filter(m=>m.group===group).map(m=>m.id);
+    const hiddenSet = new Set(config?.[role] || []);
+    return ids.every(id => !hiddenSet.has(id));
+  };
+  const toggleGroup = (role, group) => {
+    const ids = MENU_ITEMS.filter(m=>m.group===group).map(m=>m.id);
+    const allVisible = groupAllVisible(role, group);
+    setConfig(prev => {
+      const cur = new Set(prev[role] || []);
+      ids.forEach(id => { if (allVisible) cur.add(id); else cur.delete(id); });   // all visible -> hide all; else -> show all
+      return { ...prev, [role]: [...cur] };
     });
   };
 
@@ -74,7 +95,7 @@ export default function MenuPermissions() {
     setSaving(null);
   };
 
-  if (config === null) return <div style={{ color:'#8892a4', padding:'2rem' }}>Loading…</div>;
+  if (config === null || roleDefs === null) return <div style={{ color:'#8892a4', padding:'2rem' }}>Loading…</div>;
 
   return (
     <div>
@@ -115,7 +136,13 @@ export default function MenuPermissions() {
             {GROUPS.map(group => (
               <Fragment key={group}>
                 <tr>
-                  <td colSpan={ROLES.length+1} style={{ padding:'0.6rem 1.2rem 0.3rem', fontSize:'0.62rem', fontWeight:800, color:'#c2410c', textTransform:'uppercase', letterSpacing:'0.07em', background:'rgba(249,115,22,0.04)' }}>{group}</td>
+                  <td style={{ padding:'0.6rem 1.2rem 0.3rem', fontSize:'0.62rem', fontWeight:800, color:'#c2410c', textTransform:'uppercase', letterSpacing:'0.07em', background:'rgba(249,115,22,0.04)', position:'sticky', left:0 }}>{group}</td>
+                  {ROLES.map(r => (
+                    <td key={r.value} style={{ textAlign:'center', padding:'0.3rem 1rem', background:'rgba(249,115,22,0.04)' }}>
+                      <input type="checkbox" title={`Toggle all "${group}" items for ${r.label}`} checked={groupAllVisible(r.value, group)} onChange={()=>toggleGroup(r.value, group)}
+                        style={{ width:'15px', height:'15px', accentColor:'#f97316', cursor:'pointer' }} />
+                    </td>
+                  ))}
                 </tr>
                 {MENU_ITEMS.filter(m=>m.group===group).map(m => (
                   <tr key={m.id} style={{ borderBottom:'1px solid #f4f6fa' }}>

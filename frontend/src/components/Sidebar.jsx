@@ -16,6 +16,7 @@ const nav = [
   { id:'pricing', icon:'💰', label:'Group / Org Pricing', section:'master', tag:'NEW' },
   { id:'testscatalog', icon:'🧾', label:'Tests Catalog', section:'master' },
   { id:'users', icon:'👥', label:'Users & Staff', section:'master' },
+  { id:'roles', icon:'🎭', label:'Roles', section:'master', tag:'NEW' },
   { id:'menupermissions', icon:'🔐', label:'Menu Permissions', section:'master', tag:'NEW' },
   { id:'billing', icon:'🧾', label:'New Bill', section:'master' },
   { id:'bills',   icon:'📑', label:'Bills',    section:'master' },
