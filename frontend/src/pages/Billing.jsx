@@ -140,19 +140,35 @@ export default function Billing({ isAdmin = true, initialPatientId = '', onManag
     return ids;
   }, [pickedGroups, picked]); // eslint-disable-line
 
-  // keep the accession-number preview in sync: assign a default (by current position) to every line,
-  // but never overwrite a value the user hand-edited (tracked in manualAcc) — this is what was causing
-  // two lines to show the same suffix after a group got added/reordered.
+  // keep the accession-number preview in sync: ask the backend for the next unique suggestions for this
+  // barcode (it knows about every accession already issued across ALL bills, not just this one), assign
+  // them to every line, but never overwrite a value the user hand-edited (tracked in manualAcc).
   useEffect(() => {
-    if (!patient) return;
-    setAccessions(prev => {
-      const next = {};
-      orderedLineIds.forEach((tid, idx) => {
-        const def = `${patient.barcode}${suffixFor(idx)}`;
-        next[tid] = (manualAcc[tid] && prev[tid]) ? prev[tid] : def;
+    if (!patient || orderedLineIds.length === 0) return;
+    let cancelled = false;
+    authedFetch(`/billing/next-accessions?barcode=${encodeURIComponent(patient.barcode)}&count=${orderedLineIds.length}`)
+      .then(r=>r.ok?r.json():{accessions:[]})
+      .then(d => {
+        if (cancelled) return;
+        const suggestions = d.accessions || [];
+        let si = 0;
+        setAccessions(prev => {
+          const next = {};
+          orderedLineIds.forEach((tid) => {
+            next[tid] = (manualAcc[tid] && prev[tid]) ? prev[tid] : (suggestions[si++] || `${patient.barcode}${suffixFor(si)}`);
+          });
+          return next;
+        });
+      }).catch(() => {
+        // fallback: fall back to plain client-side suffixing if the lookup fails (still better than nothing)
+        if (cancelled) return;
+        setAccessions(prev => {
+          const next = {};
+          orderedLineIds.forEach((tid, idx) => { next[tid] = (manualAcc[tid] && prev[tid]) ? prev[tid] : `${patient.barcode}${suffixFor(idx)}`; });
+          return next;
+        });
       });
-      return next;
-    });
+    return () => { cancelled = true; };
   }, [orderedLineIds.join(','), patient?.barcode]); // eslint-disable-line
 
   const setAccession = (tid, val) => { setAccessions(prev => ({ ...prev, [tid]: val })); setManualAcc(prev => ({ ...prev, [tid]: true })); };

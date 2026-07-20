@@ -45,6 +45,26 @@ def _suffix(idx: int) -> str:
     return s
 
 
+def _accession_taken(db: Session, value: str, exclude_item_id: Optional[int] = None) -> bool:
+    q = db.query(BillItem).filter(BillItem.accession_number == value)
+    if exclude_item_id is not None:
+        q = q.filter(BillItem.id != exclude_item_id)
+    return q.first() is not None
+
+
+def _next_accessions(db: Session, base_barcode: str, count: int) -> List[str]:
+    """Next `count` accession numbers for this barcode that are NOT already used
+    anywhere in bill_items — globally unique, gap-aware (skips ones already taken,
+    e.g. by an earlier bill for the same patient)."""
+    out, n = [], 0
+    while len(out) < count:
+        candidate = f"{base_barcode}{_suffix(n)}"
+        n += 1
+        if not _accession_taken(db, candidate) and candidate not in out:
+            out.append(candidate)
+    return out
+
+
 def _org_outstanding(db: Session, organization_id: int) -> float:
     """Latest running balance for an org from its ledger (0 if none)."""
     last = (db.query(OrgLedger)
@@ -85,6 +105,15 @@ def find_by_accession(q: str = Query(..., min_length=1), db: Session = Depends(g
     bills = db.query(Bill).filter(Bill.id.in_(bill_ids)).all()
     patient_ids = sorted({b.patient_id for b in bills if b.patient_id})
     return {"patient_ids": patient_ids}
+
+
+@router.get("/next-accessions")
+def next_accessions(barcode: str, count: int = 1, db: Session = Depends(get_db),
+                    user: User = Depends(get_current_user)):
+    """Used by New Bill to preview accession-number suggestions that are
+    guaranteed not to collide with any already-issued ones for this barcode."""
+    count = max(1, min(count, 50))
+    return {"barcode": barcode, "accessions": _next_accessions(db, barcode, count)}
 
 
 # ----------------------------------------------------------------- create bill
@@ -177,11 +206,25 @@ def create_bill(payload: BillCreate, request: Request,
     db.add(bill); db.flush()                # get bill.id
     bill.bill_no = f"B{bill.id:06d}"
     base_barcode = patient.barcode or ""
+    used_this_bill = set()   # guards against duplicates within THIS bill too, not just against the DB
     for idx, it in enumerate(items):
         it.bill_id = bill.id
         override = (payload.accessions or {}).get(str(it.test_id))
-        it.accession_number = (override.strip() if override and override.strip()
-                                else f"{base_barcode}{_suffix(idx)}")   # e.g. FD-18A, FD-18B, ... — sticks on the sample tube
+        if override and override.strip():
+            candidate = override.strip()
+            if candidate in used_this_bill or _accession_taken(db, candidate):
+                db.rollback()
+                raise HTTPException(400, f"Accession number '{candidate}' is already in use — "
+                                          f"please choose a different one for {it.test_name}")
+        else:
+            # auto-generate: walk the suffix sequence, skipping anything already taken (by any bill/patient)
+            n = idx
+            candidate = f"{base_barcode}{_suffix(n)}"
+            while candidate in used_this_bill or _accession_taken(db, candidate):
+                n += 1
+                candidate = f"{base_barcode}{_suffix(n)}"
+        it.accession_number = candidate
+        used_this_bill.add(candidate)
         db.add(it)
 
     # B2B credit -> add to the org ledger
@@ -276,8 +319,13 @@ def update_accession_number(bill_id: int, item_id: int, payload: AccessionIn, re
     it = db.query(BillItem).filter(BillItem.id == item_id, BillItem.bill_id == bill_id).first()
     if not it:
         raise HTTPException(404, "bill item not found")
+    new_value = payload.accession_number.strip()
+    if not new_value:
+        raise HTTPException(400, "accession number cannot be blank")
+    if _accession_taken(db, new_value, exclude_item_id=it.id):
+        raise HTTPException(400, f"Accession number '{new_value}' is already in use by another test")
     before = it.accession_number
-    it.accession_number = payload.accession_number.strip()
+    it.accession_number = new_value
     db.commit()
     write_audit(db, action="update", user=user, entity="bill_item", entity_id=it.id,
                 before={"accession_number": before}, after={"accession_number": it.accession_number}, ip=_ip(request))
