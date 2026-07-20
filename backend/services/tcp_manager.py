@@ -68,12 +68,18 @@ def save_result(device_id: int, raw_data: str, device_type: str = "Hematology"):
         parsed  = auto_parse(raw_data, device_type)
         barcode = parsed.get("barcode") or "UNKNOWN"
         db      = SessionLocal()
-        patient = db.query(Patient).filter(Patient.barcode == barcode).first()
+        test_name = f"{parsed.get('device_type','Unknown')} ({len(parsed.get('parameters',[]))} params)"
+        try:
+            from services.accession import resolve_patient_and_accession
+            patient, accession_number = resolve_patient_and_accession(db, barcode, test_name)
+        except Exception:
+            patient, accession_number = db.query(Patient).filter(Patient.barcode == barcode).first(), None
         result  = LabResult(
             patient_id  = patient.id if patient else None,
             device_id   = device_id,
             barcode     = barcode,
-            test_name   = f"{parsed.get('device_type','Unknown')} ({len(parsed.get('parameters',[]))} params)",
+            accession_number = accession_number,
+            test_name   = test_name,
             raw_data    = raw_data,
             parsed_data = parsed,
             status      = "completed"

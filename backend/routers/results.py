@@ -153,25 +153,29 @@ def parse_raw_data(payload: RawDataSubmit, db: Session = Depends(get_db)):
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Parse error: {str(e)}")
 
-    # Find patient by barcode
+    # Find patient by barcode (or by a specific accession number scanned at the analyser)
     barcode = payload.barcode or parsed.get("barcode") or "UNKNOWN"
-    patient = db.query(Patient).filter(Patient.barcode == barcode).first()
+    params = parsed.get("parameters", [])
+    test_name = payload.device_type or "Unknown Test"
+    if params:
+        test_name = f"{payload.device_type} ({len(params)} parameters)"
+    try:
+        from services.accession import resolve_patient_and_accession
+        patient, accession_number = resolve_patient_and_accession(db, barcode, test_name)
+    except Exception:
+        patient = db.query(Patient).filter(Patient.barcode == barcode).first()
+        accession_number = None
 
     # Find device
     device = None
     if payload.device_id:
         device = db.query(Device).filter(Device.id == payload.device_id).first()
 
-    # Determine test name from parameters
-    params = parsed.get("parameters", [])
-    test_name = payload.device_type or "Unknown Test"
-    if params:
-        test_name = f"{payload.device_type} ({len(params)} parameters)"
-
     db_result = LabResult(
         patient_id  = patient.id if patient else None,
         device_id   = device.id if device else None,
         barcode     = barcode,
+        accession_number = accession_number,
         test_name   = test_name,
         raw_data    = payload.raw_data,
         parsed_data = parsed,
