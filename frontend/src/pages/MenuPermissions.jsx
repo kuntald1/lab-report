@@ -37,27 +37,23 @@ const MENU_ITEMS = [
 ];
 const GROUPS = [...new Set(MENU_ITEMS.map(m=>m.group))];
 
-// roles configurable here (must match backend's CONFIGURABLE_ROLES) — fetched from the
-// dynamic Roles master list instead of hardcoded, so a relabel there shows up here too.
-const CONFIGURABLE_ROLE_KEYS = ['pathologist','technician','receptionist','phlebotomist','franchise'];
+const ROLES = [
+  { value:'pathologist',  label:'Doctor' },
+  { value:'technician',   label:'Technician' },
+  { value:'receptionist', label:'Receptionist' },
+  { value:'phlebotomist', label:'Phlebotomist' },
+  { value:'franchise',    label:'Organization' },
+];
 
 export default function MenuPermissions() {
   const [config, setConfig] = useState(null);   // {role: [hidden_key,...]}
-  const [roleDefs, setRoleDefs] = useState(null); // [{role_key,label},...] from the dynamic Roles master list
   const [saving, setSaving] = useState(null);    // role currently saving
   const [toast, setToast]   = useState(null);
 
   const showToast = (kind, msg) => { setToast({ kind, msg }); setTimeout(()=>setToast(null), 3000); };
 
-  const load = () => {
-    authedFetch('/admin/menu-config').then(r=>r.ok?r.json():{}).then(setConfig).catch(()=>setConfig({}));
-    authedFetch('/admin/roles').then(r=>r.ok?r.json():[]).then(setRoleDefs).catch(()=>setRoleDefs([]));
-  };
+  const load = () => authedFetch('/admin/menu-config').then(r=>r.ok?r.json():{}).then(setConfig).catch(()=>setConfig({}));
   useEffect(() => { load(); }, []);
-
-  const ROLES = (roleDefs || [])
-    .filter(r => CONFIGURABLE_ROLE_KEYS.includes(r.role_key))
-    .map(r => ({ value: r.role_key, label: r.label }));
 
   const isHidden = (role, id) => (config?.[role] || []).includes(id);
   const toggle = (role, id) => {
@@ -95,7 +91,7 @@ export default function MenuPermissions() {
     setSaving(null);
   };
 
-  if (config === null || roleDefs === null) return <div style={{ color:'#8892a4', padding:'2rem' }}>Loading…</div>;
+  if (config === null) return <div style={{ color:'#8892a4', padding:'2rem' }}>Loading…</div>;
 
   return (
     <div>

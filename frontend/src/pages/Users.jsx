@@ -6,7 +6,14 @@ const lbl = { fontSize:'0.7rem', color:'#8892a4', fontWeight:600, textTransform:
 const S   = { card: { background:'#fff', border:'1px solid #e8ecf4', borderRadius:'14px', padding:'1.5rem', boxShadow:'0 2px 16px rgba(15,18,24,0.07)' } };
 
 // roles a lab_admin can create (super/lab admin excluded by backend anyway)
-const CREATABLE_ROLE_KEYS = ['pathologist','technician','receptionist','phlebotomist','franchise'];
+const ROLE_OPTIONS = [
+  { value:'pathologist',  label:'Doctor (Pathologist)' },
+  { value:'technician',   label:'Staff — Technician' },
+  { value:'receptionist', label:'Staff — Receptionist' },
+  { value:'phlebotomist', label:'Staff — Phlebotomist' },
+  { value:'franchise',    label:'Organization login' },
+];
+const roleLabel = (r) => ROLE_OPTIONS.find(o=>o.value===r)?.label || r;
 const roleColor = { pathologist:'#16a34a', technician:'#2563eb', receptionist:'#8b5cf6', phlebotomist:'#0ea5e9', franchise:'#f97316', lab_admin:'#dc2626', super_admin:'#dc2626', patient:'#64748b' };
 
 const BLANK = { full_name:'', email:'', password:'', role:'technician', franchise_id:'', branch_id:'', department_id:'', phone:'' };
@@ -16,7 +23,6 @@ export default function Users() {
   const [orgs, setOrgs]         = useState([]);
   const [branches, setBranches] = useState([]);
   const [departments, setDepartments] = useState([]);
-  const [roleDefs, setRoleDefs] = useState([]);   // dynamic role list from /admin/roles, was hardcoded before
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving]     = useState(false);
   const [form, setForm]         = useState(BLANK);
@@ -26,16 +32,12 @@ export default function Users() {
 
   const showToast = (kind, msg) => { setToast({ kind, msg }); setTimeout(()=>setToast(null), 3200); };
 
-  const ROLE_OPTIONS = roleDefs.filter(r => CREATABLE_ROLE_KEYS.includes(r.role_key)).map(r => ({ value: r.role_key, label: r.label }));
-  const roleLabel = (r) => roleDefs.find(o=>o.role_key===r)?.label || r;
-
   const load = () => authedFetch('/admin/users').then(r=>r.ok?r.json():[]).then(setUsers).catch(()=>{});
   useEffect(() => {
     load();
     authedFetch('/b2b/organizations').then(r=>r.ok?r.json():[]).then(setOrgs).catch(()=>{});
     authedFetch('/admin/branches').then(r=>r.ok?r.json():[]).then(setBranches).catch(()=>{});
     authedFetch('/catalog/departments').then(r=>r.ok?r.json():[]).then(setDepartments).catch(()=>{});
-    authedFetch('/admin/roles?active_only=false').then(r=>r.ok?r.json():[]).then(setRoleDefs).catch(()=>{});
   }, []);
 
   const orgName = (id) => orgs.find(o=>o.id===id)?.name || '—';
