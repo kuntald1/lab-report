@@ -122,6 +122,7 @@ def get_all_results(db: Session = Depends(get_db), scope: Scope = Depends(get_sc
             "status":       r.status,
             "lifecycle_status": r.patient.status if r.patient else None,
             "parsed_data":  None if fr_locked else r.parsed_data,
+            "note":         None if fr_locked else r.note,
             "created_at":   r.created_at,
             "patient_name": r.patient.patient_name if r.patient else "Unknown",
             "device_name":  r.device.name if r.device else "Manual",
@@ -220,6 +221,7 @@ class ParameterEdit(BaseModel):
 
 class ResultEdit(BaseModel):
     parameters: List[ParameterEdit]
+    note: Optional[str] = None
 
 
 @router.put("/{result_id}")
@@ -238,13 +240,17 @@ def update_result(result_id: int, payload: ResultEdit, request: Request,
     before_params = parsed.get("parameters")
     parsed["parameters"] = [p.model_dump() for p in payload.parameters]
     result.parsed_data = parsed
+    before_note = result.note
+    if payload.note is not None:
+        result.note = payload.note.strip() or None
     db.commit()
     db.refresh(result)
 
     write_audit(db, action="update", user=user, entity="lab_result", entity_id=result.id,
-                before={"parameters": before_params}, after={"parameters": parsed["parameters"]},
+                before={"parameters": before_params, "note": before_note},
+                after={"parameters": parsed["parameters"], "note": result.note},
                 ip=request.client.host if request.client else None)
-    return {"id": result.id, "parsed_data": result.parsed_data}
+    return {"id": result.id, "parsed_data": result.parsed_data, "note": result.note}
 
 
 @router.get("/{result_id}")
@@ -272,6 +278,7 @@ def get_result(result_id: int, db: Session = Depends(get_db),
         "barcode":     result.barcode,
         "raw_data":    result.raw_data,
         "parsed_data": result.parsed_data,
+        "note":        result.note,
         "status":      result.status,
         "created_at":  result.created_at,
         "locked":      False,

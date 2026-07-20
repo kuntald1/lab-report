@@ -35,6 +35,7 @@ export default function ReportValidate() {
   const [note, setNote]       = useState('');
   const [editingResultId, setEditingResultId] = useState(null);
   const [editParams, setEditParams] = useState([]);
+  const [editResultNote, setEditResultNote] = useState('');
   const [savingResult, setSavingResult] = useState(false);
 
   const showToast = (kind, msg) => { setToast({ kind, msg }); setTimeout(()=>setToast(null), 3200); };
@@ -50,7 +51,7 @@ export default function ReportValidate() {
     authedFetch(`/reports/${p.id}`).then(r=>r.ok?r.json():null).then(setDetail).catch(()=>{});
   };
 
-  const startEditResult = (r) => { setEditingResultId(r.id); setEditParams((r.parsed_data?.parameters||[]).map(p=>({...p}))); };
+  const startEditResult = (r) => { setEditingResultId(r.id); setEditParams((r.parsed_data?.parameters||[]).map(p=>({...p}))); setEditResultNote(r.note || ''); };
   const cancelEditResult = () => setEditingResultId(null);
   const changeEditParam = (i, field, val) => setEditParams(prev => prev.map((p,idx)=> idx===i ? {...p, [field]: val} : p));
 
@@ -58,10 +59,10 @@ export default function ReportValidate() {
     setSavingResult(true);
     try {
       const res = await authedFetch(`/results/${resultId}`, { method:'PUT',
-        headers:{'Content-Type':'application/json'}, body: JSON.stringify({ parameters: editParams }) });
+        headers:{'Content-Type':'application/json'}, body: JSON.stringify({ parameters: editParams, note: editResultNote }) });
       if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(apiErrorText(e.detail) || 'Save failed'); }
       const updated = await res.json();
-      setDetail(prev => prev ? { ...prev, results: prev.results.map(r => r.id === resultId ? { ...r, parsed_data: updated.parsed_data } : r) } : prev);
+      setDetail(prev => prev ? { ...prev, results: prev.results.map(r => r.id === resultId ? { ...r, parsed_data: updated.parsed_data, note: updated.note } : r) } : prev);
       setEditingResultId(null);
       showToast('success', 'Result updated');
     } catch (e) { showToast('error', String(e.message||'Save failed')); }
@@ -193,9 +194,10 @@ export default function ReportValidate() {
                   </div>
                   {editingResultId === r.id ? (
                     <EditableResult params={editParams} onChange={changeEditParam}
+                      note={editResultNote} onNoteChange={setEditResultNote}
                       onSave={()=>saveEditResult(r.id)} onCancel={cancelEditResult} saving={savingResult} />
                   ) : (
-                    <ResultPreview data={r.parsed_data} />
+                    <ResultPreview data={r.parsed_data} note={r.note} />
                   )}
                 </div>
               ))}
@@ -239,7 +241,7 @@ export default function ReportValidate() {
 }
 
 // Editable version of ResultPreview — used while a doctor is correcting a value pre-validation
-function EditableResult({ params, onChange, onSave, onCancel, saving }) {
+function EditableResult({ params, onChange, note, onNoteChange, onSave, onCancel, saving }) {
   const cell = { padding:'0.3rem 0.6rem', fontSize:'0.78rem', borderBottom:'1px solid #f4f6fa' };
   if (!params || params.length === 0) return <div style={{ fontSize:'0.78rem', color:'#8892a4' }}>No parsed values to edit.</div>;
   return (
@@ -273,7 +275,12 @@ function EditableResult({ params, onChange, onSave, onCancel, saving }) {
           ))}
         </tbody>
       </table>
-      <div style={{ display:'flex', gap:'0.4rem', padding:'0.6rem' }}>
+      <div style={{ padding:'0.6rem' }}>
+        <label style={{ fontSize:'0.64rem', color:'#8892a4', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.04em', display:'block', marginBottom:'0.3rem' }}>Note (shown at the end of the report if filled in)</label>
+        <textarea value={note} onChange={e=>onNoteChange(e.target.value)} placeholder="e.g. Confirm fasting status before repeat"
+          style={{ width:'100%', minHeight:'55px', padding:'0.5rem 0.7rem', borderRadius:7, border:'1px solid #e8ecf4', fontSize:'0.78rem', fontFamily:'Manrope,sans-serif', resize:'vertical', boxSizing:'border-box' }} />
+      </div>
+      <div style={{ display:'flex', gap:'0.4rem', padding:'0 0.6rem 0.6rem' }}>
         <button onClick={onSave} disabled={saving} style={{ background:'#16a34a', color:'#fff', border:'none', borderRadius:'7px', padding:'0.4rem 0.9rem', fontWeight:700, cursor:'pointer', fontSize:'0.76rem', fontFamily:'Manrope,sans-serif' }}>{saving?'Saving…':'✓ Save'}</button>
         <button onClick={onCancel} disabled={saving} style={{ background:'transparent', border:'1px solid #e8ecf4', color:'#8892a4', borderRadius:'7px', padding:'0.4rem 0.9rem', cursor:'pointer', fontSize:'0.76rem', fontFamily:'Manrope,sans-serif' }}>Cancel</button>
       </div>
@@ -282,7 +289,7 @@ function EditableResult({ params, onChange, onSave, onCancel, saving }) {
 }
 
 // Render parsed_data in a readable way (handles flat objects, {parameters:[...]}, and arrays)
-function ResultPreview({ data }) {
+function ResultPreview({ data, note }) {
   if (data == null) return <div style={{ fontSize:'0.78rem', color:'#8892a4' }}>No parsed values.</div>;
   if (typeof data !== 'object') return <div style={{ fontSize:'0.82rem', color:'#475569' }}>{String(data)}</div>;
 
@@ -295,34 +302,41 @@ function ResultPreview({ data }) {
   const flagColor = (f) => /high|↑/i.test(f||'') ? '#dc2626' : /low|↓/i.test(f||'') ? '#2563eb' : '#16a34a';
 
   return (
-    <div style={{ border:'1px solid #f4f6fa', borderRadius:'8px', overflow:'hidden' }}>
-      <table style={{ width:'100%', borderCollapse:'collapse' }}>
-        <thead>
-          <tr style={{ background:'#fafbfc' }}>
-            {['Parameter','Result','Unit','Range','Flag'].map(h => (
-              <th key={h} style={{ ...cell, textAlign:'left', color:'#8892a4', fontWeight:700, fontSize:'0.66rem', textTransform:'uppercase', letterSpacing:'0.04em' }}>{h}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r, i) => {
-            const name  = r.name ?? r.parameter ?? r.test ?? '';
-            const value = r.value ?? r.result ?? '';
-            const unit  = r.unit ?? r.units ?? '';
-            const range = r.range ?? r.reference ?? r.ref ?? r.normal_value ?? '';
-            const flag  = r.flag ?? r.status ?? '';
-            return (
-              <tr key={i}>
-                <td style={{ ...cell, color:'#0f1218', fontWeight:600 }}>{name}</td>
-                <td style={{ ...cell, color:'#0f1218', fontWeight:700 }}>{String(value)}</td>
-                <td style={{ ...cell, color:'#8892a4' }}>{unit}</td>
-                <td style={{ ...cell, color:'#8892a4' }}>{range}</td>
-                <td style={{ ...cell, color:flagColor(flag), fontWeight:700 }}>{flag}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+    <div>
+      <div style={{ border:'1px solid #f4f6fa', borderRadius:'8px', overflow:'hidden' }}>
+        <table style={{ width:'100%', borderCollapse:'collapse' }}>
+          <thead>
+            <tr style={{ background:'#fafbfc' }}>
+              {['Parameter','Result','Unit','Range','Flag'].map(h => (
+                <th key={h} style={{ ...cell, textAlign:'left', color:'#8892a4', fontWeight:700, fontSize:'0.66rem', textTransform:'uppercase', letterSpacing:'0.04em' }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r, i) => {
+              const name  = r.name ?? r.parameter ?? r.test ?? '';
+              const value = r.value ?? r.result ?? '';
+              const unit  = r.unit ?? r.units ?? '';
+              const range = r.range ?? r.reference ?? r.ref ?? r.normal_value ?? '';
+              const flag  = r.flag ?? r.status ?? '';
+              return (
+                <tr key={i}>
+                  <td style={{ ...cell, color:'#0f1218', fontWeight:600 }}>{name}</td>
+                  <td style={{ ...cell, color:'#0f1218', fontWeight:700 }}>{String(value)}</td>
+                  <td style={{ ...cell, color:'#8892a4' }}>{unit}</td>
+                  <td style={{ ...cell, color:'#8892a4' }}>{range}</td>
+                  <td style={{ ...cell, color:flagColor(flag), fontWeight:700 }}>{flag}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      {note && (
+        <div style={{ marginTop:'0.5rem', background:'#fafbfc', border:'1px solid #e8ecf4', borderRadius:'7px', padding:'0.6rem 0.8rem', fontSize:'0.78rem', color:'#475569', whiteSpace:'pre-wrap' }}>
+          <span style={{ fontWeight:700, color:'#0f1218' }}>Note: </span>{note}
+        </div>
+      )}
     </div>
   );
 }

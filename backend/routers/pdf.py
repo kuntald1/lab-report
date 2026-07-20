@@ -294,6 +294,19 @@ def generate_pdf(result: LabResult) -> bytes:
         story.append(Image(chart_buf, width=16*cm, height=5.5*cm))
         story.append(Spacer(1, 0.4*cm))
 
+    # ── NOTES (only if present) ────────────────────────────────
+    if result.note:
+        story.append(Paragraph('NOTES', section_style))
+        note_table = Table([[Paragraph(result.note.replace('\n', '<br/>'), normal_style)]], colWidths=['100%'])
+        note_table.setStyle(TableStyle([
+            ('BACKGROUND',    (0,0),(-1,-1), CREAM),
+            ('BOX',           (0,0),(-1,-1), 1, colors.HexColor('#d4e6d6')),
+            ('TOPPADDING',    (0,0),(-1,-1), 10), ('BOTTOMPADDING', (0,0),(-1,-1), 10),
+            ('LEFTPADDING',   (0,0),(-1,-1), 12), ('RIGHTPADDING',  (0,0),(-1,-1), 12),
+        ]))
+        story.append(note_table)
+        story.append(Spacer(1, 0.4*cm))
+
     # ── LEGEND ───────────────────────────────────────────────
     legend_data = [[
         Paragraph('<b>Legend:</b>',        ParagraphStyle('leg', fontName='Helvetica-Bold', fontSize=8, textColor=GREEN)),
@@ -463,6 +476,16 @@ def generate_combined_pdf(results: list) -> bytes:
             story.append(result_table)
         else:
             story.append(Paragraph('No parameters found in this result.', normal_style))
+        if r.note:
+            note_table = Table([[Paragraph(f'<b>Note:</b> {r.note}'.replace(chr(10), "<br/>"), normal_style)]], colWidths=['100%'])
+            note_table.setStyle(TableStyle([
+                ('BACKGROUND',    (0,0),(-1,-1), CREAM),
+                ('BOX',           (0,0),(-1,-1), 1, colors.HexColor('#d4e6d6')),
+                ('TOPPADDING',    (0,0),(-1,-1), 8), ('BOTTOMPADDING', (0,0),(-1,-1), 8),
+                ('LEFTPADDING',   (0,0),(-1,-1), 10), ('RIGHTPADDING',  (0,0),(-1,-1), 10),
+            ]))
+            story.append(Spacer(1, 0.15*cm))
+            story.append(note_table)
         story.append(Spacer(1, 0.45*cm))
 
     # ── LEGEND + FOOTER (once) ────────────────────────────────

@@ -60,6 +60,7 @@ class LabResult(Base):
     raw_data    = Column(Text)
     parsed_data = Column(JSON)
     status      = Column(String, default="pending")
+    note        = Column(Text, nullable=True)   # free-text note shown at the end of the report if present; editable by admin + doctor
     # --- Phase 1: multi-tenant scoping (nullable; ingestion path untouched) ---
     tenant_id   = Column(Integer, ForeignKey("tenants.id"),  nullable=True, index=True)
     branch_id   = Column(Integer, ForeignKey("branches.id"), nullable=True, index=True)

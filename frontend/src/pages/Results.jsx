@@ -114,9 +114,10 @@ export default function Results() {
   // ---- inline edit of parameter values ----
   const [editing, setEditing]     = useState(false);
   const [editParams, setEditParams] = useState([]);
+  const [editNote, setEditNote]   = useState('');
   const [saving, setSaving]       = useState(false);
 
-  const startEdit = () => { setEditParams((sel.parsed_data?.parameters||[]).map(p=>({...p}))); setEditing(true); };
+  const startEdit = () => { setEditParams((sel.parsed_data?.parameters||[]).map(p=>({...p}))); setEditNote(sel.note || ''); setEditing(true); };
   const cancelEdit = () => setEditing(false);
   const changeParam = (i, field, val) => setEditParams(prev => prev.map((p,idx)=> idx===i ? {...p, [field]: val} : p));
 
@@ -124,11 +125,11 @@ export default function Results() {
     setSaving(true);
     try {
       const res = await authedFetch(`/results/${sel.id}`, { method:'PUT',
-        headers:{'Content-Type':'application/json'}, body: JSON.stringify({ parameters: editParams }) });
+        headers:{'Content-Type':'application/json'}, body: JSON.stringify({ parameters: editParams, note: editNote }) });
       if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(apiErrorText(e.detail) || 'Save failed'); }
       const updated = await res.json();
-      setSel(prev => ({ ...prev, parsed_data: updated.parsed_data }));
-      setResults(prev => prev.map(r => r.id === sel.id ? { ...r, parsed_data: updated.parsed_data } : r));
+      setSel(prev => ({ ...prev, parsed_data: updated.parsed_data, note: updated.note }));
+      setResults(prev => prev.map(r => r.id === sel.id ? { ...r, parsed_data: updated.parsed_data, note: updated.note } : r));
       setEditing(false);
     } catch (err) { alert(String(err.message || 'Save failed')); }
     setSaving(false);
@@ -266,6 +267,11 @@ export default function Results() {
                     <div style={{ fontSize:'0.68rem', color:'#8892a4' }}>{p.unit} · {p.ref_min}–{p.ref_max}</div>
                   </div>
                 ))}
+                <div>
+                  <label style={{ fontSize:'0.68rem', color:'#8892a4', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.05em', display:'block', marginBottom:'0.3rem' }}>Note (shown at the end of the report if filled in)</label>
+                  <textarea value={editNote} onChange={e=>setEditNote(e.target.value)} placeholder="e.g. Sample slightly hemolysed; recommend repeat in 2 weeks"
+                    style={{ width:'100%', minHeight:'70px', padding:'0.6rem 0.8rem', borderRadius:9, border:'1.5px solid #e8ecf4', fontSize:'0.82rem', fontFamily:'Manrope,sans-serif', resize:'vertical', boxSizing:'border-box' }} />
+                </div>
                 <div style={{ display:'flex', gap:'0.5rem', marginTop:'0.4rem' }}>
                   <button onClick={saveEdit} disabled={saving} style={{ flex:1, background:'linear-gradient(135deg,#16a34a,#22c55e)', color:'#fff', border:'none', borderRadius:'9px', padding:'0.6rem', cursor:'pointer', fontWeight:700, fontFamily:'Manrope,sans-serif' }}>{saving?'Saving…':'✓ Save Changes'}</button>
                   <button onClick={cancelEdit} disabled={saving} style={{ background:'transparent', border:'1px solid #e8ecf4', color:'#8892a4', borderRadius:'9px', padding:'0.6rem 1rem', cursor:'pointer', fontFamily:'Manrope,sans-serif' }}>Cancel</button>
@@ -322,6 +328,17 @@ export default function Results() {
                 </div>
                 <div style={{ background:'#fafbfc', border:'1px solid #e8ecf4', borderRadius:'10px', padding:'0.8rem' }}>
                   <ChromatogramChart data={sel.parsed_data.chromatogram} />
+                </div>
+              </>
+            )}
+
+            {!editing && sel.note && (
+              <>
+                <div style={{ fontSize:'0.68rem', color:'#8892a4', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.07em', margin:'1.2rem 0 0.6rem' }}>
+                  Notes
+                </div>
+                <div style={{ background:'#fafbfc', border:'1px solid #e8ecf4', borderRadius:'10px', padding:'0.9rem 1rem', fontSize:'0.85rem', color:'#0f1218', whiteSpace:'pre-wrap', lineHeight:1.5 }}>
+                  {sel.note}
                 </div>
               </>
             )}
