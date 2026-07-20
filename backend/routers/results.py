@@ -1,13 +1,14 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from database import get_db
 from models.models import LabResult, Patient, Device
 from auth.deps import get_scope, apply_scope, Scope, get_current_user
+from auth.audit import write_audit
 from models.org import User, Role, Franchise
 from services.credit import is_franchise_locked
 from parsers.astm_parser import auto_parse
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 from sqlalchemy import or_
 
 router = APIRouter()
@@ -21,7 +22,8 @@ class RawDataSubmit(BaseModel):
 @router.get("/")
 def get_all_results(db: Session = Depends(get_db), scope: Scope = Depends(get_scope),
                     user: User = Depends(get_current_user),
-                    barcode: Optional[str] = None, patient_id: Optional[str] = None):
+                    barcode: Optional[str] = None, patient_id: Optional[str] = None,
+                    accession_number: Optional[str] = None):
     q = apply_scope(db.query(LabResult), LabResult, scope)
 
     # LabResult has no franchise column, so a franchise login must be scoped to
@@ -71,6 +73,8 @@ def get_all_results(db: Session = Depends(get_db), scope: Scope = Depends(get_sc
                 or_(Patient.barcode.ilike(f"%{pid}%"),
                     Patient.patient_name.ilike(f"%{pid}%"))).all()]
             q = q.filter(LabResult.patient_id.in_(match or [-1]))
+    if accession_number:
+        q = q.filter(LabResult.accession_number.ilike(f"%{accession_number}%"))
     results = q.order_by(LabResult.created_at.desc()).limit(200).all()
 
     # Also include manually reported patients who have no LabResult rows.
@@ -111,6 +115,7 @@ def get_all_results(db: Session = Depends(get_db), scope: Scope = Depends(get_sc
         row = {
             "id":           r.id,
             "barcode":      r.barcode,
+            "accession_number": r.accession_number,
             "test_name":    r.test_name,
             "status":       r.status,
             "lifecycle_status": r.patient.status if r.patient else None,
@@ -201,6 +206,44 @@ def parse_raw_data(payload: RawDataSubmit, db: Session = Depends(get_db)):
         "parameters": len(params),
         "parsed":     parsed
     }
+
+class ParameterEdit(BaseModel):
+    name: str
+    value: str
+    unit: Optional[str] = None
+    ref_min: Optional[str] = None
+    ref_max: Optional[str] = None
+    flag: Optional[str] = None   # 'H' | 'L' | None/'N'
+
+
+class ResultEdit(BaseModel):
+    parameters: List[ParameterEdit]
+
+
+@router.put("/{result_id}")
+def update_result(result_id: int, payload: ResultEdit, request: Request,
+                  db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Edit a result's parameter values — used by both the admin Results page
+    and the doctor's Report Validate screen (a doctor can correct a value
+    before validating; validation itself is unaffected by this endpoint)."""
+    if user.role in (Role.FRANCHISE, Role.PATIENT):
+        raise HTTPException(status_code=403, detail="not allowed to edit results")
+    result = db.query(LabResult).filter(LabResult.id == result_id).first()
+    if not result:
+        raise HTTPException(status_code=404, detail="Result not found")
+
+    parsed = dict(result.parsed_data or {})
+    before_params = parsed.get("parameters")
+    parsed["parameters"] = [p.model_dump() for p in payload.parameters]
+    result.parsed_data = parsed
+    db.commit()
+    db.refresh(result)
+
+    write_audit(db, action="update", user=user, entity="lab_result", entity_id=result.id,
+                before={"parameters": before_params}, after={"parameters": parsed["parameters"]},
+                ip=request.client.host if request.client else None)
+    return {"id": result.id, "parsed_data": result.parsed_data}
+
 
 @router.get("/{result_id}")
 def get_result(result_id: int, db: Session = Depends(get_db),

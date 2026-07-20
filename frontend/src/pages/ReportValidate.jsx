@@ -23,6 +23,9 @@ export default function ReportValidate() {
   const [mode, setMode]       = useState('view');   // view | need-history
   const [checks, setChecks]   = useState({});
   const [note, setNote]       = useState('');
+  const [editingResultId, setEditingResultId] = useState(null);
+  const [editParams, setEditParams] = useState([]);
+  const [savingResult, setSavingResult] = useState(false);
 
   const showToast = (kind, msg) => { setToast({ kind, msg }); setTimeout(()=>setToast(null), 3200); };
 
@@ -33,8 +36,26 @@ export default function ReportValidate() {
   useEffect(() => { load(); const t = setInterval(load, 12000); return () => clearInterval(t); }, []);
 
   const open = (p) => {
-    setMode('view'); setChecks({}); setNote('');
+    setMode('view'); setChecks({}); setNote(''); setEditingResultId(null);
     authedFetch(`/reports/${p.id}`).then(r=>r.ok?r.json():null).then(setDetail).catch(()=>{});
+  };
+
+  const startEditResult = (r) => { setEditingResultId(r.id); setEditParams((r.parsed_data?.parameters||[]).map(p=>({...p}))); };
+  const cancelEditResult = () => setEditingResultId(null);
+  const changeEditParam = (i, field, val) => setEditParams(prev => prev.map((p,idx)=> idx===i ? {...p, [field]: val} : p));
+
+  const saveEditResult = async (resultId) => {
+    setSavingResult(true);
+    try {
+      const res = await authedFetch(`/results/${resultId}`, { method:'PUT',
+        headers:{'Content-Type':'application/json'}, body: JSON.stringify({ parameters: editParams }) });
+      if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.detail || 'Save failed'); }
+      const updated = await res.json();
+      setDetail(prev => prev ? { ...prev, results: prev.results.map(r => r.id === resultId ? { ...r, parsed_data: updated.parsed_data } : r) } : prev);
+      setEditingResultId(null);
+      showToast('success', 'Result updated');
+    } catch (e) { showToast('error', String(e.message||'Save failed')); }
+    setSavingResult(false);
   };
 
   // open the same clinical PDF the Results screen uses (/api/results/{result_id}/pdf)
@@ -149,9 +170,19 @@ export default function ReportValidate() {
                 <div key={i} style={{ padding:'0.8rem 1rem', borderBottom:'1px solid #f7f8fb' }}>
                   <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'0.5rem' }}>
                     <div style={{ fontWeight:700, color:'#0f1218', fontSize:'0.88rem' }}>{r.test_name}</div>
-                    <button onClick={()=>openReportPdf(r.id)} style={{ background:'rgba(249,115,22,0.1)', color:'#f97316', border:'1px solid rgba(249,115,22,0.3)', borderRadius:'7px', padding:'0.35rem 0.8rem', fontWeight:700, cursor:'pointer', fontSize:'0.74rem', fontFamily:'Manrope,sans-serif', whiteSpace:'nowrap' }}>📄 View Full Report (PDF)</button>
+                    <div style={{ display:'flex', gap:'0.4rem' }}>
+                      {editingResultId !== r.id && r.id != null && (
+                        <button onClick={()=>startEditResult(r)} style={{ background:'#fafbfc', color:'#475569', border:'1px solid #e8ecf4', borderRadius:'7px', padding:'0.35rem 0.7rem', fontWeight:700, cursor:'pointer', fontSize:'0.74rem', fontFamily:'Manrope,sans-serif', whiteSpace:'nowrap' }}>✎ Edit</button>
+                      )}
+                      <button onClick={()=>openReportPdf(r.id)} style={{ background:'rgba(249,115,22,0.1)', color:'#f97316', border:'1px solid rgba(249,115,22,0.3)', borderRadius:'7px', padding:'0.35rem 0.8rem', fontWeight:700, cursor:'pointer', fontSize:'0.74rem', fontFamily:'Manrope,sans-serif', whiteSpace:'nowrap' }}>📄 View Full Report (PDF)</button>
+                    </div>
                   </div>
-                  <ResultPreview data={r.parsed_data} />
+                  {editingResultId === r.id ? (
+                    <EditableResult params={editParams} onChange={changeEditParam}
+                      onSave={()=>saveEditResult(r.id)} onCancel={cancelEditResult} saving={savingResult} />
+                  ) : (
+                    <ResultPreview data={r.parsed_data} />
+                  )}
                 </div>
               ))}
             </div>
@@ -189,6 +220,49 @@ export default function ReportValidate() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// Editable version of ResultPreview — used while a doctor is correcting a value pre-validation
+function EditableResult({ params, onChange, onSave, onCancel, saving }) {
+  const cell = { padding:'0.3rem 0.6rem', fontSize:'0.78rem', borderBottom:'1px solid #f4f6fa' };
+  if (!params || params.length === 0) return <div style={{ fontSize:'0.78rem', color:'#8892a4' }}>No parsed values to edit.</div>;
+  return (
+    <div style={{ border:'1px solid #f97316', borderRadius:'8px', overflow:'hidden' }}>
+      <table style={{ width:'100%', borderCollapse:'collapse' }}>
+        <thead>
+          <tr style={{ background:'#fafbfc' }}>
+            {['Parameter','Result','Unit','Flag'].map(h => (
+              <th key={h} style={{ ...cell, textAlign:'left', color:'#8892a4', fontWeight:700, fontSize:'0.66rem', textTransform:'uppercase', letterSpacing:'0.04em' }}>{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {params.map((p, i) => (
+            <tr key={i}>
+              <td style={{ ...cell, color:'#0f1218', fontWeight:600 }}>{p.name}</td>
+              <td style={cell}>
+                <input value={p.value} onChange={e=>onChange(i,'value',e.target.value)}
+                  style={{ width:'80px', padding:'0.3rem 0.4rem', borderRadius:5, border:'1.5px solid #f97316', fontSize:'0.78rem', fontWeight:700 }} />
+              </td>
+              <td style={{ ...cell, color:'#8892a4' }}>{p.unit}</td>
+              <td style={cell}>
+                <select value={p.flag||'N'} onChange={e=>onChange(i,'flag',e.target.value)}
+                  style={{ padding:'0.25rem', borderRadius:5, border:'1px solid #e8ecf4', fontSize:'0.72rem' }}>
+                  <option value="N">Normal</option>
+                  <option value="H">High</option>
+                  <option value="L">Low</option>
+                </select>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div style={{ display:'flex', gap:'0.4rem', padding:'0.6rem' }}>
+        <button onClick={onSave} disabled={saving} style={{ background:'#16a34a', color:'#fff', border:'none', borderRadius:'7px', padding:'0.4rem 0.9rem', fontWeight:700, cursor:'pointer', fontSize:'0.76rem', fontFamily:'Manrope,sans-serif' }}>{saving?'Saving…':'✓ Save'}</button>
+        <button onClick={onCancel} disabled={saving} style={{ background:'transparent', border:'1px solid #e8ecf4', color:'#8892a4', borderRadius:'7px', padding:'0.4rem 0.9rem', cursor:'pointer', fontSize:'0.76rem', fontFamily:'Manrope,sans-serif' }}>Cancel</button>
+      </div>
     </div>
   );
 }

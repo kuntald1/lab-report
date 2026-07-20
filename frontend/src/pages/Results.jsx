@@ -54,15 +54,16 @@ export default function Results() {
   const [results, setResults] = useState([]);
   const [sel,     setSel]     = useState(null);
   const [loading, setLoading] = useState(false);
-  const [q, setQ] = useState({ barcode:'', patient_id:'' });
+  const [q, setQ] = useState({ barcode:'', accession_number:'' });
 
   const load = () => {
     const qs = new URLSearchParams();
     if (q.barcode) qs.set('barcode', q.barcode);
-    if (q.patient_id) qs.set('patient_id', q.patient_id);
+    if (q.accession_number) qs.set('accession_number', q.accession_number);
     authedFetch('/results/?' + qs.toString()).then(r=>r.ok?r.json():[]).then(d=>setResults(Array.isArray(d)?d:[])).catch(()=>setResults([]));
   };
   useEffect(() => { load(); }, []);
+  useEffect(() => { setEditing(false); }, [sel?.id]);
 
   const downloadPDF = async (id) => {
     setLoading(true);
@@ -81,6 +82,48 @@ export default function Results() {
     setLoading(false);
   };
 
+  // every OTHER result (excluding the selected one) that shares the same barcode — for "combine" downloads
+  const siblingResults = sel ? results.filter(r => r.id != null && r.barcode === sel.barcode) : [];
+
+  const downloadCombinedPDF = async () => {
+    if (siblingResults.length < 2) return;
+    setLoading(true);
+    try {
+      const ids = siblingResults.map(r=>r.id).join(',');
+      const r = await authedFetch(`/results/combined-pdf?ids=${ids}`);
+      if (!r.ok) { const e = await r.json().catch(()=>({})); throw new Error(e.detail || 'PDF not available'); }
+      const blob = await r.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `MediCloud_Combined_${sel.barcode}.pdf`; a.click();
+      window.URL.revokeObjectURL(url);
+    } catch (err) { alert(String(err.message || 'Combined PDF failed')); }
+    setLoading(false);
+  };
+
+  // ---- inline edit of parameter values ----
+  const [editing, setEditing]     = useState(false);
+  const [editParams, setEditParams] = useState([]);
+  const [saving, setSaving]       = useState(false);
+
+  const startEdit = () => { setEditParams((sel.parsed_data?.parameters||[]).map(p=>({...p}))); setEditing(true); };
+  const cancelEdit = () => setEditing(false);
+  const changeParam = (i, field, val) => setEditParams(prev => prev.map((p,idx)=> idx===i ? {...p, [field]: val} : p));
+
+  const saveEdit = async () => {
+    setSaving(true);
+    try {
+      const res = await authedFetch(`/results/${sel.id}`, { method:'PUT',
+        headers:{'Content-Type':'application/json'}, body: JSON.stringify({ parameters: editParams }) });
+      if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.detail || 'Save failed'); }
+      const updated = await res.json();
+      setSel(prev => ({ ...prev, parsed_data: updated.parsed_data }));
+      setResults(prev => prev.map(r => r.id === sel.id ? { ...r, parsed_data: updated.parsed_data } : r));
+      setEditing(false);
+    } catch (err) { alert(String(err.message || 'Save failed')); }
+    setSaving(false);
+  };
+
   return (
     <div>
       <div style={{ marginBottom:'2rem' }}>
@@ -93,8 +136,8 @@ export default function Results() {
         <div><div style={{ fontSize:'0.68rem', fontWeight:700, color:'#8892a4', marginBottom:'0.25rem' }}>Barcode</div>
           <input value={q.barcode} onChange={e=>setQ({...q,barcode:e.target.value})} onKeyDown={e=>e.key==='Enter'&&load()}
             style={{ padding:'0.5rem 0.7rem', borderRadius:8, border:'1px solid #e8ecf4', fontSize:'0.84rem' }} /></div>
-        <div><div style={{ fontSize:'0.68rem', fontWeight:700, color:'#8892a4', marginBottom:'0.25rem' }}>Patient ID</div>
-          <input value={q.patient_id} onChange={e=>setQ({...q,patient_id:e.target.value})} onKeyDown={e=>e.key==='Enter'&&load()}
+        <div><div style={{ fontSize:'0.68rem', fontWeight:700, color:'#8892a4', marginBottom:'0.25rem' }}>Accession No.</div>
+          <input value={q.accession_number} onChange={e=>setQ({...q,accession_number:e.target.value})} onKeyDown={e=>e.key==='Enter'&&load()}
             style={{ padding:'0.5rem 0.7rem', borderRadius:8, border:'1px solid #e8ecf4', fontSize:'0.84rem' }} /></div>
         <button onClick={load} style={{ padding:'0.5rem 1.1rem', borderRadius:9, border:'none', cursor:'pointer', fontWeight:700, fontSize:'0.82rem', color:'#fff', background:'linear-gradient(135deg,#f97316,#fbbf24)' }}>Search</button>
       </div>
@@ -148,13 +191,21 @@ export default function Results() {
                 <div style={{ fontFamily:'Manrope,sans-serif', fontWeight:800, fontSize:'1rem', color:'#0f1218' }}>Lab Report</div>
                 <div style={{ fontSize:'0.72rem', color:'#8892a4', marginTop:'0.15rem' }}>Result #{sel.id}</div>
               </div>
-              <div style={{ display:'flex', gap:'0.5rem' }}>
+              <div style={{ display:'flex', gap:'0.5rem', flexWrap:'wrap', justifyContent:'flex-end' }}>
+                {!sel.locked && siblingResults.length > 1 && (
+                <button onClick={downloadCombinedPDF} disabled={loading} title={`Combine all ${siblingResults.length} results under ${sel.barcode} into one PDF`} style={{ background:'#eef2ff', color:'#4338ca', border:'1px solid #c7d2fe', borderRadius:'8px', padding:'0.5rem 0.9rem', cursor:'pointer', fontSize:'0.78rem', fontWeight:700, fontFamily:'Manrope,sans-serif', display:'flex', alignItems:'center', gap:'0.4rem' }}>
+                  📎 Combine ({siblingResults.length}) & Download
+                </button>
+                )}
+                {!sel.locked && !editing && (sel.parsed_data?.parameters?.length > 0) && (
+                <button onClick={startEdit} style={{ background:'#fafbfc', border:'1px solid #e8ecf4', color:'#475569', borderRadius:'8px', padding:'0.5rem 0.9rem', cursor:'pointer', fontSize:'0.78rem', fontWeight:700, fontFamily:'Manrope,sans-serif' }}>✎ Edit</button>
+                )}
                 {!sel.locked && (
                 <button onClick={() => downloadPDF(sel.id)} disabled={loading} style={{ background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', border:'none', borderRadius:'8px', padding:'0.5rem 1rem', cursor:'pointer', fontSize:'0.78rem', fontWeight:700, fontFamily:'Manrope,sans-serif', boxShadow:'0 4px 12px rgba(249,115,22,0.3)', display:'flex', alignItems:'center', gap:'0.4rem' }}>
                   {loading?'⏳':'📄'} {loading?'Generating...':'Download PDF'}
                 </button>
                 )}
-                <button onClick={()=>setSel(null)} style={{ background:'#fafbfc', border:'1px solid #e8ecf4', color:'#8892a4', borderRadius:'8px', padding:'0.5rem 0.7rem', cursor:'pointer' }}>✕</button>
+                <button onClick={()=>{ setSel(null); setEditing(false); }} style={{ background:'#fafbfc', border:'1px solid #e8ecf4', color:'#8892a4', borderRadius:'8px', padding:'0.5rem 0.7rem', cursor:'pointer' }}>✕</button>
               </div>
             </div>
 
@@ -187,6 +238,28 @@ export default function Results() {
               Parameters ({sel.parsed_data?.parameters?.length||0})
             </div>
             )}
+            {editing ? (
+              <div style={{ display:'flex', flexDirection:'column', gap:'0.5rem' }}>
+                {editParams.map((p,i) => (
+                  <div key={i} style={{ background:'#fafbfc', border:'1px solid #e8ecf4', borderRadius:'9px', padding:'0.6rem 0.8rem', display:'grid', gridTemplateColumns:'1.3fr 0.8fr 0.6fr 0.7fr', gap:'0.4rem', alignItems:'center' }}>
+                    <div style={{ fontSize:'0.8rem', fontWeight:700, color:'#0f1218' }}>{p.name}</div>
+                    <input value={p.value} onChange={e=>changeParam(i,'value',e.target.value)}
+                      style={{ padding:'0.4rem 0.5rem', borderRadius:6, border:'1.5px solid #f97316', fontSize:'0.82rem', fontWeight:700 }} />
+                    <select value={p.flag||'N'} onChange={e=>changeParam(i,'flag',e.target.value)}
+                      style={{ padding:'0.4rem 0.3rem', borderRadius:6, border:'1px solid #e8ecf4', fontSize:'0.76rem' }}>
+                      <option value="N">Normal</option>
+                      <option value="H">High</option>
+                      <option value="L">Low</option>
+                    </select>
+                    <div style={{ fontSize:'0.68rem', color:'#8892a4' }}>{p.unit} · {p.ref_min}–{p.ref_max}</div>
+                  </div>
+                ))}
+                <div style={{ display:'flex', gap:'0.5rem', marginTop:'0.4rem' }}>
+                  <button onClick={saveEdit} disabled={saving} style={{ flex:1, background:'linear-gradient(135deg,#16a34a,#22c55e)', color:'#fff', border:'none', borderRadius:'9px', padding:'0.6rem', cursor:'pointer', fontWeight:700, fontFamily:'Manrope,sans-serif' }}>{saving?'Saving…':'✓ Save Changes'}</button>
+                  <button onClick={cancelEdit} disabled={saving} style={{ background:'transparent', border:'1px solid #e8ecf4', color:'#8892a4', borderRadius:'9px', padding:'0.6rem 1rem', cursor:'pointer', fontFamily:'Manrope,sans-serif' }}>Cancel</button>
+                </div>
+              </div>
+            ) : (
             <div style={{ display:'flex', flexDirection:'column', gap:'0.4rem' }}>
               {(sel.parsed_data?.parameters||[]).map((p,i) => (
                 <div key={i} style={{ background:flagBg(p.flag), border:`1px solid ${flagBorder(p.flag)}`, borderRadius:'9px', padding:'0.7rem 0.9rem', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
@@ -206,6 +279,7 @@ export default function Results() {
                 </div>
               ))}
             </div>
+            )}
 
             {sel.parsed_data?.gh900_info && (
               <>
