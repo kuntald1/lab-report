@@ -155,12 +155,14 @@ def generate_pdf(result: LabResult) -> bytes:
         [
             Paragraph('PATIENT NAME', label_style),
             Paragraph('BARCODE',      label_style),
+            Paragraph('ACCESSION NO.', label_style),
             Paragraph('AGE / GENDER', label_style),
             Paragraph('DOCTOR',       label_style),
         ],
         [
             Paragraph(patient.patient_name if patient else 'Unknown', value_style),
             Paragraph(result.barcode or '—',                          value_style),
+            Paragraph(result.accession_number or '—',                 value_style),
             Paragraph(f"{patient.age or '—'} / {patient.gender or '—'}" if patient else '—', value_style),
             Paragraph(patient.doctor_name or '—' if patient else '—', value_style),
         ],
@@ -169,15 +171,17 @@ def generate_pdf(result: LabResult) -> bytes:
             Paragraph('DEVICE',      label_style),
             Paragraph('PROTOCOL',    label_style),
             Paragraph('REPORT DATE', label_style),
+            Paragraph('', label_style),
         ],
         [
             Paragraph(patient.sample_type if patient else '—', value_style),
             Paragraph(device.name if device else 'Manual',     value_style),
             Paragraph(parsed.get('protocol','ASTM'),           value_style),
             Paragraph(report_date,                             value_style),
+            Paragraph('',                                      value_style),
         ],
     ]
-    info_table = Table(info_data, colWidths=['25%','25%','25%','25%'])
+    info_table = Table(info_data, colWidths=['20%','20%','20%','20%','20%'])
     info_table.setStyle(TableStyle([
         ('BACKGROUND',    (0,0),(-1,-1), colors.white),
         ('BOX',           (0,0),(-1,-1), 1, colors.HexColor('#d4e6d6')),
@@ -384,6 +388,7 @@ def generate_combined_pdf(results: list) -> bytes:
 
     # ── PATIENT INFO (once) ─────────────────────────────────────
     report_date = datetime.now().strftime('%d %b %Y, %I:%M %p')
+    acc_list = ', '.join(r.accession_number for r in results if r.accession_number) or '—'
     info_data = [
         [Paragraph('PATIENT NAME', label_style), Paragraph('BARCODE', label_style),
          Paragraph('AGE / GENDER', label_style), Paragraph('DOCTOR', label_style)],
@@ -392,10 +397,10 @@ def generate_combined_pdf(results: list) -> bytes:
          Paragraph(f"{patient.age or '—'} / {patient.gender or '—'}" if patient else '—', value_style),
          Paragraph(patient.doctor_name or '—' if patient else '—', value_style)],
         [Paragraph('SAMPLE TYPE', label_style), Paragraph('TESTS INCLUDED', label_style),
-         Paragraph('', label_style), Paragraph('REPORT DATE', label_style)],
+         Paragraph('ACCESSION NUMBERS', label_style), Paragraph('REPORT DATE', label_style)],
         [Paragraph(patient.sample_type if patient else '—', value_style),
          Paragraph(str(len(results)), value_style),
-         Paragraph('', value_style),
+         Paragraph(acc_list, value_style),
          Paragraph(report_date, value_style)],
     ]
     info_table = Table(info_data, colWidths=['25%','25%','25%','25%'])
@@ -413,7 +418,8 @@ def generate_combined_pdf(results: list) -> bytes:
     # ── ONE SECTION PER RESULT ───────────────────────────────────
     for r in results:
         parsed = r.parsed_data or {}
-        story.append(Paragraph(f'TEST RESULTS — {r.test_name or "Result #"+str(r.id)}', section_style))
+        acc_suffix = f' · Accession: {r.accession_number}' if r.accession_number else ''
+        story.append(Paragraph(f'TEST RESULTS — {r.test_name or "Result #"+str(r.id)}{acc_suffix}', section_style))
         parameters = parsed.get('parameters', [])
         if parameters:
             col_headers = [

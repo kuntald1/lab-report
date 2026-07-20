@@ -150,21 +150,22 @@ export default function Results() {
               No results yet. Use the Simulator to generate test data.
             </div>
           )}
-          {results.map(r => (
-            <div key={r.id} onClick={() => { if (!r.locked) setSel(r); }} style={{
+          {results.map((r,i) => (
+            <div key={r.id != null ? `res-${r.id}` : `manual-${i}-${r.barcode}-${r.created_at}`} onClick={() => { if (!r.locked) setSel(r); }} style={{
               ...S.card, padding:'1rem 1.3rem', cursor:'pointer', display:'flex', justifyContent:'space-between', alignItems:'center', transition:'all 0.15s',
-              background: sel?.id===r.id ? '#fffbf7' : '#fff',
-              border: sel?.id===r.id ? '1.5px solid rgba(249,115,22,0.3)' : '1px solid #e8ecf4',
-              boxShadow: sel?.id===r.id ? '0 4px 20px rgba(249,115,22,0.12)' : '0 2px 8px rgba(15,18,24,0.05)',
+              background: sel===r ? '#fffbf7' : '#fff',
+              border: sel===r ? '1.5px solid rgba(249,115,22,0.3)' : '1px solid #e8ecf4',
+              boxShadow: sel===r ? '0 4px 20px rgba(249,115,22,0.12)' : '0 2px 8px rgba(15,18,24,0.05)',
             }}
-              onMouseEnter={e=>{ if(sel?.id!==r.id){ e.currentTarget.style.background='#fafbfc'; e.currentTarget.style.borderColor='#d1d5db'; }}}
-              onMouseLeave={e=>{ if(sel?.id!==r.id){ e.currentTarget.style.background='#fff'; e.currentTarget.style.borderColor='#e8ecf4'; }}}>
+              onMouseEnter={e=>{ if(sel!==r){ e.currentTarget.style.background='#fafbfc'; e.currentTarget.style.borderColor='#d1d5db'; }}}
+              onMouseLeave={e=>{ if(sel!==r){ e.currentTarget.style.background='#fff'; e.currentTarget.style.borderColor='#e8ecf4'; }}}>
               <div style={{ display:'flex', alignItems:'center', gap:'0.8rem' }}>
                 <div style={{ width:'40px', height:'40px', background:'rgba(249,115,22,0.08)', border:'1px solid rgba(249,115,22,0.15)', borderRadius:'10px', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'1.1rem' }}>🧪</div>
                 <div>
                   <div style={{ fontWeight:700, color:'#0f1218', fontSize:'0.88rem' }}>{r.patient_name}</div>
                   <div style={{ fontSize:'0.72rem', color:'#8892a4', marginTop:'0.1rem' }}>
                     {r.test_name} · <span style={{ color:'#f97316', fontWeight:700 }}>{r.barcode}</span>
+                    {r.accession_number && <> · <span style={{ color:'#c2410c', fontWeight:700, fontFamily:'monospace' }}>{r.accession_number}</span></>}
                   </div>
                 </div>
               </div>
@@ -210,10 +211,11 @@ export default function Results() {
             </div>
 
             <div style={{ background:'#fafbfc', border:'1px solid #e8ecf4', borderRadius:'10px', padding:'1rem', marginBottom:'1.2rem' }}>
-              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.5rem' }}>
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'0.5rem' }}>
                 {[
                   { label:'Patient', value:sel.patient_name },
                   { label:'Barcode', value:sel.barcode },
+                  { label:'Accession No.', value:sel.accession_number || '—' },
                   { label:'Device',  value:sel.device_name||'Manual' },
                   { label:'Protocol',value:sel.parsed_data?.protocol||'ASTM' },
                 ].map(x => (

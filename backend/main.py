@@ -38,10 +38,10 @@ app.add_middleware(
 )
 
 app.include_router(devices.router,  prefix="/api/devices",  tags=["Devices"])
+app.include_router(pdf.router,      prefix="/api/results",  tags=["PDF"])
 app.include_router(results.router,  prefix="/api/results",  tags=["Results"])
 app.include_router(patients.router, prefix="/api/patients", tags=["Patients"])
 app.include_router(simulate.router, prefix="/api/simulate", tags=["Simulate"])
-app.include_router(pdf.router,      prefix="/api/results",  tags=["PDF"])
 app.include_router(tcp.router,      prefix="/api/tcp",      tags=["TCP"])
 app.include_router(auth_router.router, prefix="/api/auth",  tags=["Auth"])
 app.include_router(admin.router,       prefix="/api/admin", tags=["Admin"])

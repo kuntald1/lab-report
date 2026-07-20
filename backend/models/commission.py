@@ -27,6 +27,7 @@ class DoctorCommission(Base):
     bill_no             = Column(String, nullable=True)
     test_name           = Column(String, nullable=True)
     package_name        = Column(String, nullable=True)
+    accession_number    = Column(String, nullable=True, index=True)  # frozen from the bill_item at commission time
     base_amount         = Column(Float, default=0.0)     # pre-discount item price the % was applied to
     commission_percent  = Column(Float, default=0.0)     # frozen at the moment of validation
     commission_amount   = Column(Float, default=0.0)

@@ -55,6 +55,20 @@ def _patient_brief(p: Patient) -> dict:
             "created_at": p.created_at}
 
 
+def _accessions_for_patients(db: Session, patient_ids: list) -> dict:
+    """{patient_id: [accession_number, ...]} across all of that patient's bills — batched, no N+1."""
+    if not patient_ids:
+        return {}
+    rows = (db.query(BillItem.accession_number, Bill.patient_id)
+              .join(Bill, Bill.id == BillItem.bill_id)
+              .filter(Bill.patient_id.in_(patient_ids), BillItem.accession_number.isnot(None))
+              .all())
+    out = {}
+    for acc, pid in rows:
+        out.setdefault(pid, []).append(acc)
+    return out
+
+
 # ------------------------------------------------------------------ doctor queue
 def _pending_query(db: Session, user: User):
     """Shared filter for a doctor's pending queue (tested + assigned to this doctor).
@@ -86,7 +100,13 @@ def pending_reports(db: Session = Depends(get_db), user: User = Depends(get_curr
     Admins see all tested patients.
     """
     rows = _pending_query(db, user).order_by(Patient.created_at.desc()).limit(500).all()
-    return [_patient_brief(p) for p in rows]
+    accmap = _accessions_for_patients(db, [p.id for p in rows])
+    out = []
+    for p in rows:
+        d = _patient_brief(p)
+        d["accession_numbers"] = accmap.get(p.id, [])
+        out.append(d)
+    return out
 
 
 @router.get("/notifications/pending")
@@ -113,10 +133,12 @@ def validated_reports(date_from: Optional[str] = None, date_to: Optional[str] = 
     if date_to:
         q = q.filter(Patient.validated_at <= date_to + " 23:59:59")
     rows = q.order_by(Patient.validated_at.desc()).limit(500).all()
+    accmap = _accessions_for_patients(db, [p.id for p in rows])
     out = []
     for p in rows:
         d = _patient_brief(p)
         d["validated_at"] = p.validated_at
+        d["accession_numbers"] = accmap.get(p.id, [])
         out.append(d)
     return out
 
@@ -172,6 +194,7 @@ def report_bundle(patient_id: int, db: Session = Depends(get_db),
         "history_checklist": p.history_checklist,
         "validated_by": p.validated_by, "validated_at": p.validated_at,
         "results": [{"id": r.id, "test_name": r.test_name, "parsed_data": r.parsed_data,
+                     "accession_number": r.accession_number,
                      "status": r.status, "created_at": r.created_at} for r in results],
         "open_history_request": ({"id": open_req.id, "note": open_req.note,
                                   "checklist": open_req.checklist} if open_req else None),
@@ -231,6 +254,7 @@ def validate_report(patient_id: int, request: Request,
                             patient_id=p.id, patient_name=p.patient_name, barcode=p.barcode,
                             bill_id=it.bill_id, bill_no=bill.bill_no if bill else None,
                             test_name=it.test_name, package_name=it.package_name,
+                            accession_number=it.accession_number,
                             base_amount=base, commission_percent=pct,
                             commission_amount=round(base * pct / 100.0, 2),
                             validated_at=p.validated_at,

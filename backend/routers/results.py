@@ -77,26 +77,28 @@ def get_all_results(db: Session = Depends(get_db), scope: Scope = Depends(get_sc
         q = q.filter(LabResult.accession_number.ilike(f"%{accession_number}%"))
     results = q.order_by(LabResult.created_at.desc()).limit(200).all()
 
-    # Also include manually reported patients who have no LabResult rows.
-    # Build set of patient_ids already covered by LabResults.
-    covered_pids = {r.patient_id for r in results}
-    # Query reported/validated patients in scope
-    pq = db.query(Patient).filter(
-        Patient.status.in_(["reported", "validated", "sample_rejected"]),
-        Patient.is_active.is_(True),
-    )
-    if scope.tenant_id is not None:
-        pq = pq.filter(Patient.tenant_id == scope.tenant_id)
-    if user.role == Role.FRANCHISE and user.franchise_id:
-        pq = pq.filter(
-            or_(Patient.organization_id == user.franchise_id,
-                Patient.registered_franchise_id == user.franchise_id),
-            or_(Patient.status == "reported", Patient.status == "sample_rejected")
+    # Also include manually reported patients who have no LabResult rows —
+    # but ONLY when not searching by accession number, since a bare Patient
+    # row has no accession_number of its own and can never legitimately match.
+    manual_patients = []
+    if not accession_number:
+        covered_pids = {r.patient_id for r in results}
+        pq = db.query(Patient).filter(
+            Patient.status.in_(["reported", "validated", "sample_rejected"]),
+            Patient.is_active.is_(True),
         )
-    if barcode:
-        pq = pq.filter(Patient.barcode.ilike(f"%{barcode}%"))
-    manual_patients = [p for p in pq.order_by(Patient.created_at.desc()).limit(200).all()
-                       if p.id not in covered_pids]
+        if scope.tenant_id is not None:
+            pq = pq.filter(Patient.tenant_id == scope.tenant_id)
+        if user.role == Role.FRANCHISE and user.franchise_id:
+            pq = pq.filter(
+                or_(Patient.organization_id == user.franchise_id,
+                    Patient.registered_franchise_id == user.franchise_id),
+                or_(Patient.status == "reported", Patient.status == "sample_rejected")
+            )
+        if barcode:
+            pq = pq.filter(Patient.barcode.ilike(f"%{barcode}%"))
+        manual_patients = [p for p in pq.order_by(Patient.created_at.desc()).limit(200).all()
+                           if p.id not in covered_pids]
 
     # map patient -> organization, and which organizations are over limit (for the
     # lab's informational "OVER LIMIT" chip; lab access itself is never blocked).

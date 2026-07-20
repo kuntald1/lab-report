@@ -64,6 +64,7 @@ def _row_dict(r: DoctorCommission) -> dict:
     return {
         "id": r.id, "patient_name": r.patient_name, "barcode": r.barcode,
         "bill_no": r.bill_no, "test_name": r.test_name, "package_name": r.package_name,
+        "accession_number": r.accession_number,
         "base_amount": r.base_amount, "commission_percent": r.commission_percent,
         "commission_amount": r.commission_amount, "is_paid": r.is_paid,
         "paid_at": r.paid_at, "validated_at": r.validated_at, "created_at": r.created_at,
