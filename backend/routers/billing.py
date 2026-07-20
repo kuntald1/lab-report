@@ -542,10 +542,15 @@ def money_receipt(bill_id: int, db: Session = Depends(get_db), scope: Scope = De
     import os
     from reportlab.platypus import Image as _RLImage
     logo_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'assets', 'healthycian_logo.jpg')
-    logo_w = 8*cm
+    logo_w = 6*cm
     logo_img = _RLImage(logo_path, width=logo_w, height=logo_w*(320/994))
-    logo_img.hAlign = 'LEFT'
-    el.append(logo_img)
+    logo_table = Table([[logo_img]], colWidths=[16*cm])
+    logo_table.setStyle(TableStyle([
+        ('ALIGN', (0,0), (0,0), 'LEFT'),
+        ('LEFTPADDING', (0,0), (0,0), 0), ('RIGHTPADDING', (0,0), (0,0), 0),
+        ('TOPPADDING', (0,0), (0,0), 0), ('BOTTOMPADDING', (0,0), (0,0), 0),
+    ]))
+    el.append(logo_table)
     el.append(Spacer(1, 6))
     el.append(Paragraph("MONEY RECEIPT", ParagraphStyle("sub", parent=styles["Normal"], alignment=TA_CENTER, fontSize=11, textColor=colors.HexColor("#17b9a1"))))
     el.append(Spacer(1, 10))
