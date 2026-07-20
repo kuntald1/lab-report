@@ -97,19 +97,26 @@ export default function Sidebar({ current, onChange, counts = {}, user = null, o
             <div style={s.navLabel}>Tools</div>
             {nav.filter(n=>n.section==='tools').map(item => <NavItem key={item.id} item={item} active={current===item.id} onClick={()=>onChange(item.id)} />)}
           </>
-        ) : (
-          <>
-            <div style={s.navLabel}>Main Menu</div>
-            {visible(nav.filter(n=>n.section==='main')).map(item => <NavItem key={item.id} item={item} active={current===item.id} onClick={()=>onChange(item.id)} count={counts[item.badge]} />)}
-            <div style={s.navLabel}>Master</div>
-            {visible(nav.filter(n=>n.section==='master')).map(item => <NavItem key={item.id} item={item} active={current===item.id} onClick={()=>onChange(item.id)} />)}
-            {isFranchise && !hidden.includes('credit') && <NavItem item={{ id:'credit', icon:'💳', label:'Manage Credit' }} active={current==='credit'} onClick={()=>onChange('credit')} />}
-            <div style={s.navLabel}>Reports</div>
-            {visible(nav.filter(n=>n.section==='reports')).map(item => <NavItem key={item.id} item={item} active={current===item.id} onClick={()=>onChange(item.id)} />)}
-            <div style={s.navLabel}>Tools</div>
-            {visible(nav.filter(n=>n.section==='tools')).map(item => <NavItem key={item.id} item={item} active={current===item.id} onClick={()=>onChange(item.id)} />)}
-          </>
-        )}
+        ) : (() => {
+          const mainItems   = visible(nav.filter(n=>n.section==='main'));
+          const masterItems = visible(nav.filter(n=>n.section==='master'));
+          const showCredit  = isFranchise && !hidden.includes('credit');
+          const reportItems = visible(nav.filter(n=>n.section==='reports'));
+          const toolItems   = visible(nav.filter(n=>n.section==='tools'));
+          return (
+            <>
+              {mainItems.length > 0 && <div style={s.navLabel}>Main Menu</div>}
+              {mainItems.map(item => <NavItem key={item.id} item={item} active={current===item.id} onClick={()=>onChange(item.id)} count={counts[item.badge]} />)}
+              {(masterItems.length > 0 || showCredit) && <div style={s.navLabel}>Master</div>}
+              {masterItems.map(item => <NavItem key={item.id} item={item} active={current===item.id} onClick={()=>onChange(item.id)} />)}
+              {showCredit && <NavItem item={{ id:'credit', icon:'💳', label:'Manage Credit' }} active={current==='credit'} onClick={()=>onChange('credit')} />}
+              {reportItems.length > 0 && <div style={s.navLabel}>Reports</div>}
+              {reportItems.map(item => <NavItem key={item.id} item={item} active={current===item.id} onClick={()=>onChange(item.id)} />)}
+              {toolItems.length > 0 && <div style={s.navLabel}>Tools</div>}
+              {toolItems.map(item => <NavItem key={item.id} item={item} active={current===item.id} onClick={()=>onChange(item.id)} />)}
+            </>
+          );
+        })()}
       </div>
 
       {/* Footer */}
