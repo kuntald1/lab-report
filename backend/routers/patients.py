@@ -49,7 +49,7 @@ class PatientUpdate(BaseModel):
 
 
 def generate_barcode():
-    return "MC" + ''.join(random.choices(string.digits, k=8))
+    return "HC" + ''.join(random.choices(string.digits, k=5))
 
 
 def _clean_abha(v: Optional[str]) -> Optional[str]:
@@ -115,7 +115,8 @@ def get_patients(db: Session = Depends(get_db), scope: Scope = Depends(get_scope
 @router.post("/")
 def create_patient(patient: PatientCreate, request: Request,
                    db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    barcode = patient.barcode or generate_barcode()
+    # barcode is always system-generated (HC + 5 digits) — never editable, even if a client sends one
+    barcode = generate_barcode()
     while db.query(Patient).filter(Patient.barcode == barcode).first():
         barcode = generate_barcode()
     db_patient = Patient(

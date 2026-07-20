@@ -55,6 +55,7 @@ class LabResult(Base):
     patient_id  = Column(Integer, ForeignKey("patients.id"))
     device_id   = Column(Integer, ForeignKey("devices.id"))
     barcode     = Column(String, index=True)
+    accession_number = Column(String, nullable=True, index=True)  # matches bill_items.accession_number so analyser results can be tied back to the specific sample tube
     test_name   = Column(String)
     raw_data    = Column(Text)
     parsed_data = Column(JSON)

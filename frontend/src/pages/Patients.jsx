@@ -193,8 +193,8 @@ export default function Patients({ onBill = () => {} }) {
                 {franchises.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
               </select></div>
             {!editingId && (
-              <div style={{ gridColumn:'1 / -1' }}><label style={lbl}>Barcode <span style={{ textTransform:'none', letterSpacing:0, fontWeight:400 }}>(leave blank to auto-generate)</span></label>
-                <input style={{ ...inp, fontFamily:'monospace', letterSpacing:'0.04em' }} placeholder="e.g. MC45265601" value={form.barcode} onChange={e=>setForm({...form,barcode:e.target.value})} /></div>
+              <div style={{ gridColumn:'1 / -1' }}><label style={lbl}>Barcode <span style={{ textTransform:'none', letterSpacing:0, fontWeight:400 }}>(auto-generated · HC + 5 digits)</span></label>
+                <input style={{ ...inp, fontFamily:'monospace', letterSpacing:'0.04em', background:'#f1f3f7', color:'#8892a4' }} placeholder="e.g. HC48213" value="Assigned automatically on save" disabled /></div>
             )}
             {editingId && (
               <div style={{ gridColumn:'1 / -1' }}><label style={lbl}>Barcode</label>

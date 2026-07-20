@@ -27,8 +27,19 @@ export default function TestsCatalog() {
     authedFetch('/b2b/doctors').then(r=>r.ok?r.json():[]).then(setDoctors).catch(()=>{});
   }, []);
 
-  const tubeName   = (id) => tubes.find(t=>t.id===id)?.name || '—';
+  const tube       = (id) => tubes.find(t=>t.id===id) || null;
   const doctorName = (id) => doctors.find(d=>d.id===id)?.name || '—';
+  const tubeSwatch = (id) => {
+    const t = tube(id);
+    if (!t) return <span style={{ color:'#8892a4' }}>—</span>;
+    return (
+      <span style={{ display:'inline-flex', alignItems:'center', gap:'0.45rem' }}>
+        <span style={{ width:'13px', height:'13px', borderRadius:'50%', background:t.color||'#e5e7eb',
+                       border:'1.5px solid rgba(0,0,0,0.12)', display:'inline-block', flexShrink:0 }} />
+        <span>{t.name}</span>
+      </span>
+    );
+  };
 
   const startEdit = (t) => {
     setEditingId(t.id);
@@ -159,7 +170,7 @@ export default function TestsCatalog() {
                 <td style={{ padding:'0.9rem 1.2rem', color:'#8892a4', fontSize:'0.83rem' }}>{inr(t.mrp)}</td>
                 <td style={{ padding:'0.9rem 1.2rem', color:'#16a34a', fontWeight:600, fontSize:'0.83rem' }}>{inr(t.price)}</td>
                 <td style={{ padding:'0.9rem 1.2rem', color:'#475569', fontSize:'0.82rem' }}>{t.normal_value || '—'}</td>
-                <td style={{ padding:'0.9rem 1.2rem', color:'#475569', fontSize:'0.82rem' }}>{tubeName(t.sample_tube_id)}</td>
+                <td style={{ padding:'0.9rem 1.2rem', color:'#475569', fontSize:'0.82rem' }}>{tubeSwatch(t.sample_tube_id)}</td>
                 <td style={{ padding:'0.9rem 1.2rem', color:'#475569', fontSize:'0.82rem' }}>{doctorName(t.assigned_doctor_id)}</td>
                 <td style={{ padding:'0.9rem 1.2rem' }}>
                   <div style={{ display:'flex', gap:'0.4rem' }}>

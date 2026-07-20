@@ -28,8 +28,59 @@ export default function Bills() {
   const [waiting, setWaiting]   = useState(false);
   const pollRef = useState({ current: null })[0];
   const [toast, setToast]       = useState(null);
+  const [accEdit, setAccEdit]   = useState({});   // {item_id: draft value} while editing accession no.
+  const [accBusy, setAccBusy]   = useState(null); // item_id currently saving
 
   const showToast = (kind, msg) => { setToast({ kind, msg }); setTimeout(()=>setToast(null), 3200); };
+
+  const saveAccession = async (itemId) => {
+    if (!detail || !(itemId in accEdit)) return;
+    const val = accEdit[itemId].trim();
+    if (!val) return showToast('error', 'Accession No. cannot be blank');
+    setAccBusy(itemId);
+    try {
+      const res = await authedFetch(`/billing/bills/${detail.id}/items/${itemId}/accession`, { method:'PUT',
+        headers:{'Content-Type':'application/json'}, body: JSON.stringify({ accession_number: val }) });
+      if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.detail||'failed'); }
+      const updated = await res.json();
+      setDetail(updated);
+      setAccEdit(prev => { const n = { ...prev }; delete n[itemId]; return n; });
+      load();
+    } catch (e) { showToast('error', String(e.message||'Save failed')); }
+    setAccBusy(null);
+  };
+
+  const printSamples = () => {
+    if (!detail) return;
+    const rows = (detail.items||[]).filter(it => it.accession_number);
+    if (rows.length === 0) return showToast('error', 'No accession numbers to print');
+    const w = window.open('', '_blank', 'width=480,height=640');
+    w.document.write(`<!doctype html><html><head><title>${detail.bill_no} · Sample Labels</title>
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
+      <style>
+        body{font-family:Arial,sans-serif;margin:0;padding:0.4rem;}
+        .label{width:100%;padding:0.5rem 0.3rem;border-bottom:1px dashed #999;page-break-inside:avoid;text-align:center;}
+        .pname{font-size:0.75rem;font-weight:700;margin:0 0 0.15rem;}
+        .tname{font-size:0.68rem;color:#333;margin:0 0 0.2rem;}
+        svg{max-width:100%;}
+        @media print{ .label{border-bottom:1px dashed #ccc;} }
+      </style></head><body>
+      ${rows.map(it => `<div class="label">
+          <div class="pname">${detail.patient_name || ''}</div>
+          <div class="tname">${it.package_name || it.test_name}</div>
+          <svg class="bc" data-code="${it.accession_number}"></svg>
+        </div>`).join('')}
+      <script>
+        window.onload = function(){
+          document.querySelectorAll('.bc').forEach(function(el){
+            JsBarcode(el, el.getAttribute('data-code'), { format:'CODE128', height:40, fontSize:12, margin:4 });
+          });
+          setTimeout(function(){ window.print(); }, 300);
+        };
+      </script>
+      </body></html>`);
+    w.document.close();
+  };
 
   // load the Razorpay checkout script once
   useEffect(() => {
@@ -288,7 +339,10 @@ export default function Bills() {
                 <div style={{ color:'#8892a4', fontSize:'0.82rem' }}>{detail.patient_name} · {detail.barcode}</div>
                 <div style={{ color: detail.organization_name?'#6366f1':'#8892a4', fontSize:'0.82rem', fontWeight:600 }}>{detail.organization_name || 'Direct / Walk-in'}</div>
               </div>
-              <button onClick={()=>setDetail(null)} style={{ border:'none', background:'transparent', fontSize:'1.4rem', color:'#c4cad6', cursor:'pointer' }}>×</button>
+              <div style={{ display:'flex', alignItems:'flex-start', gap:'0.5rem' }}>
+                <button title="Print sample labels" onClick={printSamples} style={{ background:'rgba(37,99,235,0.1)', color:'#2563eb', border:'1px solid rgba(37,99,235,0.25)', borderRadius:'8px', padding:'0.4rem 0.7rem', fontWeight:700, cursor:'pointer', fontSize:'0.72rem', fontFamily:'Manrope,sans-serif', whiteSpace:'nowrap' }}>🖨 Print Samples</button>
+                <button onClick={()=>setDetail(null)} style={{ border:'none', background:'transparent', fontSize:'1.4rem', color:'#c4cad6', cursor:'pointer' }}>×</button>
+              </div>
             </div>
 
             <div style={{ border:'1px solid #f4f6fa', borderRadius:'10px', overflow:'hidden', marginBottom:'1rem' }}>
@@ -309,14 +363,24 @@ export default function Bills() {
                         <span style={{ fontWeight:700 }}>{inr(g.price)}</span>
                       </div>
                       <div style={{ paddingLeft:'0.5rem', marginTop:'0.25rem' }}>
-                        {g.members.map((m,i)=>(<div key={i} style={{ fontSize:'0.74rem', color:'#8892a4' }}>• {m.test_name}</div>))}
+                        {g.members.map((m,i)=>(
+                          <div key={i} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', fontSize:'0.74rem', color:'#8892a4', padding:'0.1rem 0' }}>
+                            <span>• {m.test_name}</span>
+                            <AccessionField it={m} accEdit={accEdit} setAccEdit={setAccEdit} accBusy={accBusy} onSave={saveAccession} />
+                          </div>
+                        ))}
                       </div>
                     </div>
                   ))}
                   {standalone.map((it,i) => (
-                    <div key={i} style={{ display:'flex', justifyContent:'space-between', padding:'0.5rem 0.9rem', borderBottom:'1px solid #f7f8fb', fontSize:'0.83rem' }}>
-                      <span>{it.test_name} <span style={{ fontSize:'0.65rem', color:'#8892a4' }}>({it.price_source})</span></span>
-                      <span style={{ fontWeight:600 }}>{inr(it.price)}</span>
+                    <div key={i} style={{ padding:'0.5rem 0.9rem', borderBottom:'1px solid #f7f8fb', fontSize:'0.83rem' }}>
+                      <div style={{ display:'flex', justifyContent:'space-between' }}>
+                        <span>{it.test_name} <span style={{ fontSize:'0.65rem', color:'#8892a4' }}>({it.price_source})</span></span>
+                        <span style={{ fontWeight:600 }}>{inr(it.price)}</span>
+                      </div>
+                      <div style={{ display:'flex', justifyContent:'flex-end', marginTop:'0.2rem' }}>
+                        <AccessionField it={it} accEdit={accEdit} setAccEdit={setAccEdit} accBusy={accBusy} onSave={saveAccession} />
+                      </div>
                     </div>
                   ))}
                 </>);
@@ -405,6 +469,27 @@ export default function Bills() {
         </div>
       )}
     </div>
+  );
+}
+
+function AccessionField({ it, accEdit, setAccEdit, accBusy, onSave }) {
+  const editing = it.id in accEdit;
+  const val = editing ? accEdit[it.id] : (it.accession_number || '');
+  if (!editing) {
+    return (
+      <span onClick={()=>setAccEdit(prev=>({ ...prev, [it.id]: it.accession_number || '' }))}
+        title="Click to edit accession no." style={{ cursor:'pointer', fontFamily:'monospace', fontSize:'0.7rem', color:'#c2410c', background:'rgba(249,115,22,0.08)', border:'1px dashed rgba(249,115,22,0.3)', borderRadius:'5px', padding:'0.05rem 0.4rem' }}>
+        {it.accession_number || '— set accession no.'}
+      </span>
+    );
+  }
+  return (
+    <span style={{ display:'inline-flex', gap:'0.3rem', alignItems:'center' }}>
+      <input autoFocus value={val} onChange={e=>setAccEdit(prev=>({ ...prev, [it.id]: e.target.value }))}
+        onKeyDown={e=>{ if (e.key==='Enter') onSave(it.id); if (e.key==='Escape') setAccEdit(prev=>{ const n={...prev}; delete n[it.id]; return n; }); }}
+        style={{ fontFamily:'monospace', fontSize:'0.7rem', border:'1.5px solid #f97316', borderRadius:'5px', padding:'0.1rem 0.35rem', width:'90px' }} />
+      <button onClick={()=>onSave(it.id)} disabled={accBusy===it.id} style={{ border:'none', background:'#16a34a', color:'#fff', borderRadius:'4px', width:'20px', height:'20px', fontSize:'0.65rem', cursor:'pointer' }}>✓</button>
+    </span>
   );
 }
 

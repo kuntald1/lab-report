@@ -35,6 +35,16 @@ def _ip(request: Request) -> Optional[str]:
     return request.client.host if request.client else None
 
 
+def _suffix(idx: int) -> str:
+    """0->A, 1->B, ... 25->Z, 26->AA, 27->AB ... (Excel-column style, always uppercase letters)."""
+    s = ""
+    idx += 1
+    while idx > 0:
+        idx, rem = divmod(idx - 1, 26)
+        s = chr(65 + rem) + s
+    return s
+
+
 def _org_outstanding(db: Session, organization_id: int) -> float:
     """Latest running balance for an org from its ledger (0 if none)."""
     last = (db.query(OrgLedger)
@@ -149,8 +159,10 @@ def create_bill(payload: BillCreate, request: Request,
     )
     db.add(bill); db.flush()                # get bill.id
     bill.bill_no = f"B{bill.id:06d}"
-    for it in items:
+    base_barcode = patient.barcode or ""
+    for idx, it in enumerate(items):
         it.bill_id = bill.id
+        it.accession_number = f"{base_barcode}{_suffix(idx)}"   # e.g. FD-18A, FD-18B, ... — sticks on the sample tube
         db.add(it)
 
     # B2B credit -> add to the org ledger
@@ -182,9 +194,10 @@ def _bill_dict(db: Session, b: Bill) -> dict:
         "discount_value": b.discount_value, "discount_amount": b.discount_amount,
         "total": b.total, "paid": b.paid, "status": b.status,
         "created_at": b.created_at,
-        "items": [{"test_id": i.test_id, "test_name": i.test_name, "mrp": i.mrp,
+        "items": [{"id": i.id, "test_id": i.test_id, "test_name": i.test_name, "mrp": i.mrp,
                    "price": i.price, "price_source": i.price_source,
-                   "package_id": i.package_id, "package_name": i.package_name} for i in its],
+                   "package_id": i.package_id, "package_name": i.package_name,
+                   "accession_number": i.accession_number} for i in its],
         "payments": [{"id": p.id, "method": p.method, "amount": p.amount,
                       "status": p.status, "created_at": p.created_at} for p in pays],
     }
@@ -234,6 +247,25 @@ def get_bill(bill_id: int, db: Session = Depends(get_db), scope: Scope = Depends
 
 
 # ----------------------------------------------------------------- update discount
+class AccessionIn(BaseModel):
+    accession_number: str
+
+
+@router.put("/bills/{bill_id}/items/{item_id}/accession")
+def update_accession_number(bill_id: int, item_id: int, payload: AccessionIn, request: Request,
+                            db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    it = db.query(BillItem).filter(BillItem.id == item_id, BillItem.bill_id == bill_id).first()
+    if not it:
+        raise HTTPException(404, "bill item not found")
+    before = it.accession_number
+    it.accession_number = payload.accession_number.strip()
+    db.commit()
+    write_audit(db, action="update", user=user, entity="bill_item", entity_id=it.id,
+                before={"accession_number": before}, after={"accession_number": it.accession_number}, ip=_ip(request))
+    b = db.query(Bill).filter(Bill.id == bill_id).first()
+    return _bill_dict(db, b)
+
+
 class DiscountIn(BaseModel):
     discount_type: Optional[str] = None     # 'flat' | 'percent' | None
     discount_value: float = 0.0

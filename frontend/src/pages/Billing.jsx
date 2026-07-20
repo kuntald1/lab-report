@@ -6,8 +6,11 @@ const lbl = { fontSize:'0.7rem', color:'#8892a4', fontWeight:600, textTransform:
 const S   = { card: { background:'#fff', border:'1px solid #e8ecf4', borderRadius:'14px', padding:'1.5rem', boxShadow:'0 2px 16px rgba(15,18,24,0.07)' } };
 const inr = (n) => '₹' + (Number(n)||0).toLocaleString('en-IN', { maximumFractionDigits:2 });
 
+// Note: this badge describes how the TEST's PRICE was resolved (group-rate / org-rate / base-rate)
+// — it is unrelated to test *groups* (panels), which get their own orange "GROUP" tag elsewhere.
+// Labels are deliberately worded "… rate" so they're never mistaken for a panel/category tag.
 const sourceBadge = (src) => {
-  const map = { group:['#6366f1','Group'], org:['#f97316','Org'], base:['#64748b','Base'] };
+  const map = { group:['#6366f1','Group rate'], org:['#f97316','Org rate'], base:['#64748b','Base rate'] };
   const [c,label] = map[src] || ['#64748b', src||'—'];
   return <span style={{ background:c+'18', color:c, padding:'0.1rem 0.5rem', borderRadius:'20px', fontSize:'0.65rem', fontWeight:700 }}>{label}</span>;
 };
@@ -365,7 +368,7 @@ export default function Billing({ isAdmin = true, initialPatientId = '', onManag
             ))}
 
             {/* discount (admin only) */}
-            {allowDiscount && pickedIds.length > 0 && (
+            {allowDiscount && (pickedIds.length > 0 || pickedGroupIds.length > 0) && (
               <div style={{ marginTop:'1rem', paddingTop:'1rem', borderTop:'1px dashed #e8ecf4' }}>
                 <label style={lbl}>Discount (admin only)</label>
                 <div style={{ display:'flex', gap:'0.5rem' }}>
