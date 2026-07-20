@@ -21,7 +21,6 @@ const MENU_ITEMS = [
   { id:'pricing', label:'Group / Org Pricing', group:'Master' },
   { id:'testscatalog', label:'Tests Catalog', group:'Master' },
   { id:'users', label:'Users & Staff', group:'Master' },
-  { id:'roles', label:'Roles', group:'Master' },
   { id:'menupermissions', label:'Menu Permissions', group:'Master' },
   { id:'billing', label:'New Bill', group:'Master' },
   { id:'bills', label:'Bills', group:'Master' },

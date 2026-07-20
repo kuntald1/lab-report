@@ -31,7 +31,6 @@ import Doctors from './pages/Doctors';
 import MyCommission from './pages/MyCommission';
 import Departments from './pages/Departments';
 import MenuPermissions from './pages/MenuPermissions';
-import Roles from './pages/Roles';
 
 export default function App() {
   const [authed, setAuthed] = useState(auth.isAuthed());
@@ -44,7 +43,7 @@ export default function App() {
 
   if (!authed) return <Login onLogin={() => setAuthed(true)} />;
 
-  const pages = { dashboard:<Dashboard />, devices:<Devices />, patients:<Patients onBill={(id)=>{ setBillPatientId(String(id)); setPage('billing'); }} />, results:<Results />, simulator:<Simulator />, tcp:<TCPLive />, tat:<TAT />, status:<ChangeStatus />,tubes:<SampleTubes />, orggroups:<OrgGroups />, organizations:<Organizations />, pricing:<Pricing />, testscatalog:<TestsCatalog />, users:<Users />, billing:<Billing initialPatientId={billPatientId} onManageCredit={()=>setPage('credit')} />, bills:<Bills />, reportvalidate:<ReportValidate />, validatehistory:<ValidateHistory />, historyneeded:<HistoryNeeded />, samplereport:<SampleReport />, credit:<ManageCredit onManageCredit={()=>setPage('credit')} />, branches:<Branches />, doctors:<Doctors />, mycommission:<MyCommission />, departments:<Departments />, menupermissions:<MenuPermissions />, roles:<Roles />  };
+  const pages = { dashboard:<Dashboard />, devices:<Devices />, patients:<Patients onBill={(id)=>{ setBillPatientId(String(id)); setPage('billing'); }} />, results:<Results />, simulator:<Simulator />, tcp:<TCPLive />, tat:<TAT />, status:<ChangeStatus />,tubes:<SampleTubes />, orggroups:<OrgGroups />, organizations:<Organizations />, pricing:<Pricing />, testscatalog:<TestsCatalog />, users:<Users />, billing:<Billing initialPatientId={billPatientId} onManageCredit={()=>setPage('credit')} />, bills:<Bills />, reportvalidate:<ReportValidate />, validatehistory:<ValidateHistory />, historyneeded:<HistoryNeeded />, samplereport:<SampleReport />, credit:<ManageCredit onManageCredit={()=>setPage('credit')} />, branches:<Branches />, doctors:<Doctors />, mycommission:<MyCommission />, departments:<Departments />, menupermissions:<MenuPermissions />  };
   // sidebar/nav handler: opening "New Bill" from the menu starts fresh (no pre-filled patient)
   const handleNav = (p) => { if (p === 'billing') setBillPatientId(''); setPage(p); };
   const logout = () => { auth.logout(); setAuthed(false); setPage('dashboard'); };
@@ -57,7 +56,7 @@ export default function App() {
           <div style={{ display:'flex', alignItems:'center', gap:'0.5rem', fontSize:'0.78rem', color:'#8892a4' }}>
             <span>Home</span>
             <span style={{ color:'#d1d5db' }}>/</span>
-           <span style={{ color:'#0f1218', fontWeight:600, textTransform:'capitalize' }}>{page === 'tcp' ? 'Live Connect' : page === 'simulator' ? 'Simulator Test' : page === 'tat' ? 'Turnaround Time' : page === 'status' ? 'Change Report Status' : page === 'tubes' ? 'Sample Tubes' : page === 'orggroups' ? 'Organization Groups' : page === 'organizations' ? 'Organizations' : page === 'pricing' ? 'Group / Org Pricing' : page === 'testscatalog' ? 'Tests Catalog' : page === 'users' ? 'Users & Staff' : page === 'billing' ? 'New Bill' : page === 'bills' ? 'Bills' : page === 'historyneeded' ? 'History Needed' : page === 'samplereport' ? 'Sample Report' : page === 'doctors' ? 'Doctor Commission' : page === 'mycommission' ? 'My Commission' : page === 'departments' ? 'Departments' : page === 'menupermissions' ? 'Menu Permissions' : page === 'roles' ? 'Roles' : page}</span>
+           <span style={{ color:'#0f1218', fontWeight:600, textTransform:'capitalize' }}>{page === 'tcp' ? 'Live Connect' : page === 'simulator' ? 'Simulator Test' : page === 'tat' ? 'Turnaround Time' : page === 'status' ? 'Change Report Status' : page === 'tubes' ? 'Sample Tubes' : page === 'orggroups' ? 'Organization Groups' : page === 'organizations' ? 'Organizations' : page === 'pricing' ? 'Group / Org Pricing' : page === 'testscatalog' ? 'Tests Catalog' : page === 'users' ? 'Users & Staff' : page === 'billing' ? 'New Bill' : page === 'bills' ? 'Bills' : page === 'historyneeded' ? 'History Needed' : page === 'samplereport' ? 'Sample Report' : page === 'doctors' ? 'Doctor Commission' : page === 'mycommission' ? 'My Commission' : page === 'departments' ? 'Departments' : page === 'menupermissions' ? 'Menu Permissions' : page}</span>
           </div>
           <div style={{ display:'flex', alignItems:'center', gap:'0.6rem' }}>
             <div style={{ width:'8px', height:'8px', borderRadius:'50%', background:'#f97316', boxShadow:'0 0 8px rgba(249,115,22,0.6)', animation:'pulse 2s infinite' }}></div>

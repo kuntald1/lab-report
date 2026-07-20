@@ -21,25 +21,25 @@ export default function Login({ onLogin }) {
   }
 
   const input = {
-    width: '100%', padding: '0.7rem 0.9rem', borderRadius: '10px',
-    border: '1px solid #e8ecf4', fontSize: '0.9rem', outline: 'none',
-    background: '#f8fafc', marginTop: '0.35rem', boxSizing: 'border-box',
+    width: '100%', padding: '0.85rem 1rem', borderRadius: '10px',
+    border: '1px solid #e8ecf4', fontSize: '0.95rem', outline: 'none',
+    background: '#f8fafc', marginTop: '0.4rem', boxSizing: 'border-box',
   };
-  const label = { fontSize: '0.72rem', fontWeight: 700, color: '#8892a4', letterSpacing: '0.03em' };
+  const label = { fontSize: '0.76rem', fontWeight: 700, color: '#8892a4', letterSpacing: '0.03em' };
 
   return (
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
                   background: 'linear-gradient(135deg,#1a1f2e 0%,#0f1218 100%)' }}>
-      <div style={{ width: '370px', background: '#fff', borderRadius: '18px', padding: '2.2rem 2rem',
+      <div style={{ width: '460px', maxWidth: '92vw', background: '#fff', borderRadius: '20px', padding: '2.8rem 2.6rem',
                     boxShadow: '0 24px 60px rgba(0,0,0,0.35)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.7rem', marginBottom: '1.6rem' }}>
-          <div style={{ width: '44px', height: '44px', borderRadius: '12px', display: 'flex',
-                        alignItems: 'center', justifyContent: 'center', padding:'5px',
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.9rem', marginBottom: '2rem' }}>
+          <div style={{ width: '56px', height: '56px', borderRadius: '14px', display: 'flex',
+                        alignItems: 'center', justifyContent: 'center', padding:'6px',
                         background: '#fff', border:'1px solid #eef1f6' }}>
             <img src={healthycianIcon} alt="Healthycian" style={{ width:'100%', height:'100%', objectFit:'contain' }} /></div>
           <div>
-            <div style={{ fontFamily: 'Manrope,sans-serif', fontSize: '1.2rem', fontWeight: 800, color: '#0f1218' }}>Healthycian</div>
-            <div style={{ fontSize: '0.66rem', color: '#8892a4', letterSpacing: '0.04em' }}>Laboratory Information System</div>
+            <div style={{ fontFamily: 'Manrope,sans-serif', fontSize: '1.5rem', fontWeight: 800, color: '#0f1218' }}>Healthycian</div>
+            <div style={{ fontSize: '0.78rem', color: '#8892a4', letterSpacing: '0.04em' }}>Laboratory Information System</div>
           </div>
         </div>
 
@@ -66,8 +66,8 @@ export default function Login({ onLogin }) {
         )}
 
         <button onClick={submit} disabled={busy}
-          style={{ width: '100%', padding: '0.75rem', borderRadius: '10px', border: 'none',
-                   cursor: busy ? 'default' : 'pointer', fontSize: '0.9rem', fontWeight: 700, color: '#fff',
+          style={{ width: '100%', padding: '0.9rem', borderRadius: '11px', border: 'none',
+                   cursor: busy ? 'default' : 'pointer', fontSize: '0.98rem', fontWeight: 700, color: '#fff',
                    background: busy ? '#fcaa6b' : 'linear-gradient(135deg,#f97316,#fbbf24)',
                    boxShadow: '0 6px 18px rgba(249,115,22,0.35)' }}>
           {busy ? 'Signing in…' : 'Sign In'}
