@@ -30,6 +30,11 @@ router = APIRouter()
 REJECTION_VALID = STATUS_ORDER + ["sample_rejected"]
 
 
+def _test_label(it) -> str:
+    """'lipid profile (Total Cholesterol)' for a group member, plain 'Triglycerides' for a standalone test."""
+    return f"{it.package_name} ({it.test_name})" if it.package_name else it.test_name
+
+
 @router.get("/search")
 def search_samples(db: Session = Depends(get_db), scope: Scope = Depends(get_scope),
                    patient_id: Optional[str] = None, barcode: Optional[str] = None,
@@ -78,7 +83,7 @@ def search_samples(db: Session = Depends(get_db), scope: Scope = Depends(get_sco
         "id": it.id,                          # bill_item id — what advance/select operates on
         "bill_id": b.id, "bill_no": b.bill_no,
         "patient_id": p.id, "patient_name": p.patient_name, "barcode": p.barcode,
-        "test_name": it.package_name or it.test_name,
+        "test_name": _test_label(it),
         "accession_number": it.accession_number,
         "status": it.status or "collected",
         "branch_id": p.branch_id, "franchise_id": p.registered_franchise_id,
@@ -185,7 +190,7 @@ def scan_receive(p: ScanIn, request: Request,
     for it, b, patient in rows:
         cur = it.status or "collected"
         line = {"id": it.id, "accession_number": it.accession_number,
-                "test_name": it.package_name or it.test_name, "patient_name": patient.patient_name}
+                "test_name": _test_label(it), "patient_name": patient.patient_name}
         if cur == "collected":
             it.status = "received"
             updated.append({**line, "prev_status": cur, "new_status": "received"})
