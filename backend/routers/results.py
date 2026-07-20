@@ -8,7 +8,7 @@ from models.org import User, Role, Franchise
 from services.credit import is_franchise_locked
 from parsers.astm_parser import auto_parse
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional, List, Any
 from sqlalchemy import or_
 
 router = APIRouter()
@@ -210,11 +210,11 @@ def parse_raw_data(payload: RawDataSubmit, db: Session = Depends(get_db)):
     }
 
 class ParameterEdit(BaseModel):
-    name: str
-    value: str
+    name: Optional[str] = None
+    value: Any = None
     unit: Optional[str] = None
-    ref_min: Optional[str] = None
-    ref_max: Optional[str] = None
+    ref_min: Any = None
+    ref_max: Any = None
     flag: Optional[str] = None   # 'H' | 'L' | None/'N'
 
 

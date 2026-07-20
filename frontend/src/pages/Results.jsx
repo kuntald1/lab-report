@@ -2,6 +2,16 @@ import { useEffect, useState } from 'react';
 import { api } from '../services/api';
 import { authedFetch } from '../services/auth';
 
+// FastAPI 422s return `detail` as an array of {loc,msg,type} objects, not a plain string —
+// Error(arrayOfObjects) stringifies to "[object Object],[object Object]". Format it properly.
+const apiErrorText = (detail) => {
+  if (!detail) return '';
+  if (typeof detail === 'string') return detail;
+  if (Array.isArray(detail)) return detail.map(d => (d && d.msg) ? d.msg : JSON.stringify(d)).join('; ');
+  if (typeof detail === 'object') return detail.msg || JSON.stringify(detail);
+  return String(detail);
+};
+
 const lifeColor = { collected:'#0ea5e9', dispatched:'#6366f1', received:'#8b5cf6', tested:'#f59e0b', validated:'#16a34a', reported:'#0f766e', sample_rejected:'#dc2626' };
 
 const S = { card: { background:'#fff', border:'1px solid #e8ecf4', borderRadius:'14px', boxShadow:'0 2px 16px rgba(15,18,24,0.07)' } };
@@ -71,7 +81,7 @@ export default function Results() {
       const r = await authedFetch(`/results/${id}/pdf`);
       if (!r.ok) {
         const e = await r.json().catch(()=>({}));
-        throw new Error(e.detail || 'PDF not available');
+        throw new Error(apiErrorText(e.detail) || 'PDF not available');
       }
       const blob = await r.blob();
       const url = window.URL.createObjectURL(blob);
@@ -91,7 +101,7 @@ export default function Results() {
     try {
       const ids = siblingResults.map(r=>r.id).join(',');
       const r = await authedFetch(`/results/combined-pdf?ids=${ids}`);
-      if (!r.ok) { const e = await r.json().catch(()=>({})); throw new Error(e.detail || 'PDF not available'); }
+      if (!r.ok) { const e = await r.json().catch(()=>({})); throw new Error(apiErrorText(e.detail) || 'PDF not available'); }
       const blob = await r.blob();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -115,7 +125,7 @@ export default function Results() {
     try {
       const res = await authedFetch(`/results/${sel.id}`, { method:'PUT',
         headers:{'Content-Type':'application/json'}, body: JSON.stringify({ parameters: editParams }) });
-      if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.detail || 'Save failed'); }
+      if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(apiErrorText(e.detail) || 'Save failed'); }
       const updated = await res.json();
       setSel(prev => ({ ...prev, parsed_data: updated.parsed_data }));
       setResults(prev => prev.map(r => r.id === sel.id ? { ...r, parsed_data: updated.parsed_data } : r));

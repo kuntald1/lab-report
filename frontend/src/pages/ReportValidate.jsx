@@ -1,6 +1,16 @@
 import { useEffect, useState } from 'react';
 import { authedFetch } from '../services/auth';
 
+// FastAPI 422s return `detail` as an array of {loc,msg,type} objects, not a plain string —
+// Error(arrayOfObjects) stringifies to "[object Object],[object Object]". Format it properly.
+const apiErrorText = (detail) => {
+  if (!detail) return '';
+  if (typeof detail === 'string') return detail;
+  if (Array.isArray(detail)) return detail.map(d => (d && d.msg) ? d.msg : JSON.stringify(d)).join('; ');
+  if (typeof detail === 'object') return detail.msg || JSON.stringify(detail);
+  return String(detail);
+};
+
 const inp = { background:'#fafbfc', border:'1.5px solid #e8ecf4', borderRadius:'9px', padding:'0.6rem 0.85rem', color:'#0f1218', fontFamily:'Manrope,sans-serif', fontSize:'0.85rem', outline:'none', width:'100%' };
 const lbl = { fontSize:'0.7rem', color:'#8892a4', fontWeight:600, textTransform:'uppercase', letterSpacing:'0.06em', display:'block', marginBottom:'0.35rem' };
 const S   = { card: { background:'#fff', border:'1px solid #e8ecf4', borderRadius:'14px', padding:'1.5rem', boxShadow:'0 2px 16px rgba(15,18,24,0.07)' } };
@@ -49,7 +59,7 @@ export default function ReportValidate() {
     try {
       const res = await authedFetch(`/results/${resultId}`, { method:'PUT',
         headers:{'Content-Type':'application/json'}, body: JSON.stringify({ parameters: editParams }) });
-      if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.detail || 'Save failed'); }
+      if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(apiErrorText(e.detail) || 'Save failed'); }
       const updated = await res.json();
       setDetail(prev => prev ? { ...prev, results: prev.results.map(r => r.id === resultId ? { ...r, parsed_data: updated.parsed_data } : r) } : prev);
       setEditingResultId(null);
@@ -75,7 +85,7 @@ export default function ReportValidate() {
     setBusy(true);
     try {
       const res = await authedFetch(`/reports/${detail.id}/validate`, { method:'POST' });
-      if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.detail||'failed'); }
+      if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(apiErrorText(e.detail)||'failed'); }
       showToast('success', `Report validated — ${detail.barcode} is now reported`);
       setDetail(null); load();
     } catch (e) { showToast('error', String(e.message||'Validate failed')); }
@@ -91,7 +101,7 @@ export default function ReportValidate() {
       const res = await authedFetch(`/reports/${detail.id}/need-history`, { method:'POST',
         headers:{'Content-Type':'application/json'},
         body: JSON.stringify({ checklist: checks, note: note.trim() || null }) });
-      if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.detail||'failed'); }
+      if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(apiErrorText(e.detail)||'failed'); }
       const out = await res.json();
       showToast('success', out.org_notified ? 'History requested · organization notified on WhatsApp' : 'History requested');
       setDetail(null); load();
