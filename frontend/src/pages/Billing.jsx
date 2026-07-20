@@ -20,10 +20,12 @@ export default function Billing({ isAdmin = true, initialPatientId = '', onManag
   const isFranchise = (auth.user()?.role || '').toLowerCase() === 'franchise';
   const allowDiscount = isAdmin && !isFranchise;   // franchise logins never discount
   const [patients, setPatients] = useState([]);
-  const [branches, setBranches] = useState([]);
-  const [pf, setPf] = useState({ organization_id:'', branch_id:'', date_from:'', date_to:'', patient_id:'', barcode:'', accession:'' });
+  const [tubes, setTubes]       = useState([]);
+  const [pfDraft, setPfDraft]   = useState({ barcode:'', accession:'' });   // what's typed
+  const [pf, setPf]             = useState({ barcode:'', accession:'' });   // what's actually applied (via Search)
   const [accPatientIds, setAccPatientIds] = useState(null);   // null = accession filter inactive
   const [accessions, setAccessions] = useState({});           // {test_id: accession_number} preview, editable pre-save
+  const [manualAcc, setManualAcc]   = useState({});           // {test_id: true} once the user hand-edits it (protects it from auto-renumbering)
   const [tests, setTests]       = useState([]);
   const [groups, setGroups]     = useState([]);     // test groups / panels
   const [pickedGroups, setPickedGroups] = useState({});  // {gid: {id,name,price,test_ids,tests}}
@@ -50,32 +52,34 @@ export default function Billing({ isAdmin = true, initialPatientId = '', onManag
     authedFetch('/b2b/tests').then(r=>r.ok?r.json():[]).then(setTests).catch(()=>{});
     authedFetch('/b2b/test-groups').then(r=>r.ok?r.json():[]).then(setGroups).catch(()=>{});
     authedFetch('/b2b/organizations').then(r=>r.ok?r.json():[]).then(setOrgs).catch(()=>{});
-    authedFetch('/admin/branches').then(r=>r.ok?r.json():[]).then(setBranches).catch(()=>{});
+    authedFetch('/b2b/tubes').then(r=>r.ok?r.json():[]).then(setTubes).catch(()=>{});
   }, []);
 
-  // accession-number search (debounced) -> restricts the patient filter to matching patients
+  // accession-number search -> restricts the patient filter to matching patients; runs only on Search/Enter (pf), not on every keystroke
   useEffect(() => {
     const q = pf.accession.trim();
     if (!q) { setAccPatientIds(null); return; }
-    const t = setTimeout(() => {
-      authedFetch(`/billing/find-by-accession?q=${encodeURIComponent(q)}`)
-        .then(r=>r.ok?r.json():{patient_ids:[]})
-        .then(d=>setAccPatientIds(d.patient_ids||[]))
-        .catch(()=>setAccPatientIds([]));
-    }, 350);
-    return () => clearTimeout(t);
+    authedFetch(`/billing/find-by-accession?q=${encodeURIComponent(q)}`)
+      .then(r=>r.ok?r.json():{patient_ids:[]})
+      .then(d=>setAccPatientIds(d.patient_ids||[]))
+      .catch(()=>setAccPatientIds([]));
   }, [pf.accession]);   // eslint-disable-line
 
+  const runSearch = () => setPf(pfDraft);
+  const clearSearch = () => { setPfDraft({ barcode:'', accession:'' }); setPf({ barcode:'', accession:'' }); };
+
   const filteredPatients = useMemo(() => patients.filter(p => {
-    if (pf.organization_id && String(p.organization_id) !== pf.organization_id) return false;
-    if (pf.branch_id && String(p.branch_id) !== pf.branch_id) return false;
-    if (pf.patient_id && !String(p.id).includes(pf.patient_id.trim())) return false;
     if (pf.barcode && !(p.barcode||'').toLowerCase().includes(pf.barcode.trim().toLowerCase())) return false;
-    if (pf.date_from && new Date(p.created_at) < new Date(pf.date_from)) return false;
-    if (pf.date_to && new Date(p.created_at) > new Date(pf.date_to+'T23:59:59')) return false;
     if (accPatientIds !== null && !accPatientIds.includes(p.id)) return false;
     return true;
   }), [patients, pf, accPatientIds]);
+
+  // sample-tube lookup for a test id (works for both group members and standalone tests, via the full tests[] catalog)
+  const tubeForTest = (tid) => {
+    const t = tests.find(x => x.id === tid);
+    if (!t || !t.sample_tube_id) return null;
+    return tubes.find(tb => tb.id === t.sample_tube_id) || null;
+  };
 
   const patient = patients.find(p => String(p.id) === String(patientId));
   const orgId = patient?.organization_id || null;
@@ -137,17 +141,22 @@ export default function Billing({ isAdmin = true, initialPatientId = '', onManag
     return ids;
   }, [pickedGroups, picked]); // eslint-disable-line
 
-  // keep the accession-number preview in sync: assign a default to any new line, drop ones removed, keep manual edits
+  // keep the accession-number preview in sync: assign a default (by current position) to every line,
+  // but never overwrite a value the user hand-edited (tracked in manualAcc) — this is what was causing
+  // two lines to show the same suffix after a group got added/reordered.
   useEffect(() => {
     if (!patient) return;
     setAccessions(prev => {
       const next = {};
-      orderedLineIds.forEach((tid, idx) => { next[tid] = prev[tid] || `${patient.barcode}${suffixFor(idx)}`; });
+      orderedLineIds.forEach((tid, idx) => {
+        const def = `${patient.barcode}${suffixFor(idx)}`;
+        next[tid] = (manualAcc[tid] && prev[tid]) ? prev[tid] : def;
+      });
       return next;
     });
   }, [orderedLineIds.join(','), patient?.barcode]); // eslint-disable-line
 
-  const setAccession = (tid, val) => setAccessions(prev => ({ ...prev, [tid]: val }));
+  const setAccession = (tid, val) => { setAccessions(prev => ({ ...prev, [tid]: val })); setManualAcc(prev => ({ ...prev, [tid]: true })); };
   const discAmount = useMemo(() => {
     if (!allowDiscount || !discType || !discVal) return 0;
     const v = Number(discVal)||0;
@@ -351,7 +360,7 @@ export default function Billing({ isAdmin = true, initialPatientId = '', onManag
         headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
       if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.detail||'failed'); }
       const bill = await res.json();
-      setLastBill(bill); setPicked({}); setPickedGroups({}); setDiscType(''); setDiscVal(''); setOnCredit(isFranchise); setAccessions({});
+      setLastBill(bill); setPicked({}); setPickedGroups({}); setDiscType(''); setDiscVal(''); setOnCredit(isFranchise); setAccessions({}); setManualAcc({});
       setWaPhone(patient?.phone || '');
       showToast('success', `Bill ${bill.bill_no} created · ${inr(bill.total)}`);
       downloadReceipt(bill);
@@ -377,29 +386,22 @@ export default function Billing({ isAdmin = true, initialPatientId = '', onManag
 
       {/* patient filters */}
       <div style={{ ...S.card, marginBottom:'1.2rem' }}>
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(7, 1fr)', gap:'0.7rem', alignItems:'end' }}>
-          <div><label style={lbl}>Organization</label>
-            <select style={inp} value={pf.organization_id} onChange={e=>setPf({...pf,organization_id:e.target.value})}>
-              <option value="">All</option>
-              {orgs.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
-            </select></div>
-          <div><label style={lbl}>Branch</label>
-            <select style={inp} value={pf.branch_id} onChange={e=>setPf({...pf,branch_id:e.target.value})}>
-              <option value="">All</option>
-              {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-            </select></div>
-          <div><label style={lbl}>From</label><input style={inp} type="date" value={pf.date_from} onChange={e=>setPf({...pf,date_from:e.target.value})} /></div>
-          <div><label style={lbl}>To</label><input style={inp} type="date" value={pf.date_to} onChange={e=>setPf({...pf,date_to:e.target.value})} /></div>
-          <div><label style={lbl}>Patient ID</label><input style={inp} placeholder="id" value={pf.patient_id} onChange={e=>setPf({...pf,patient_id:e.target.value})} /></div>
-          <div><label style={lbl}>Barcode</label><input style={inp} placeholder="barcode" value={pf.barcode} onChange={e=>setPf({...pf,barcode:e.target.value})} /></div>
-          <div><label style={lbl}>Accession No.</label><input style={inp} placeholder="e.g. HC21889B" value={pf.accession} onChange={e=>setPf({...pf,accession:e.target.value})} /></div>
+        <div style={{ display:'flex', gap:'0.7rem', alignItems:'end', flexWrap:'wrap' }}>
+          <div style={{ minWidth:'220px' }}><label style={lbl}>Patient Id</label>
+            <input style={inp} placeholder="e.g. HC21889" value={pfDraft.barcode}
+              onChange={e=>setPfDraft({...pfDraft,barcode:e.target.value})}
+              onKeyDown={e=>{ if (e.key==='Enter') runSearch(); }} /></div>
+          <div style={{ minWidth:'220px' }}><label style={lbl}>Accession No.</label>
+            <input style={inp} placeholder="e.g. HC21889B" value={pfDraft.accession}
+              onChange={e=>setPfDraft({...pfDraft,accession:e.target.value})}
+              onKeyDown={e=>{ if (e.key==='Enter') runSearch(); }} /></div>
+          <button onClick={runSearch} style={{ background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', border:'none', borderRadius:'9px', padding:'0.62rem 1.4rem', fontWeight:700, cursor:'pointer', fontFamily:'Manrope,sans-serif', fontSize:'0.82rem' }}>🔍 Search</button>
+          {(pf.barcode||pf.accession) && (
+            <button onClick={clearSearch} style={{ background:'transparent', color:'#8892a4', border:'1px solid #e8ecf4', borderRadius:'9px', padding:'0.6rem 1.1rem', cursor:'pointer', fontFamily:'Manrope,sans-serif', fontSize:'0.78rem' }}>Clear</button>
+          )}
         </div>
-        {(pf.organization_id||pf.branch_id||pf.date_from||pf.date_to||pf.patient_id||pf.barcode||pf.accession) && (
-          <div style={{ marginTop:'0.8rem' }}>
-            <button onClick={()=>setPf({ organization_id:'', branch_id:'', date_from:'', date_to:'', patient_id:'', barcode:'', accession:'' })}
-              style={{ background:'transparent', color:'#8892a4', border:'1px solid #e8ecf4', borderRadius:'9px', padding:'0.45rem 1rem', cursor:'pointer', fontFamily:'Manrope,sans-serif', fontSize:'0.78rem' }}>Clear filters</button>
-            <span style={{ marginLeft:'0.8rem', fontSize:'0.75rem', color:'#8892a4' }}>{filteredPatients.length} of {patients.length} patients match</span>
-          </div>
+        {(pf.barcode||pf.accession) && (
+          <div style={{ marginTop:'0.7rem', fontSize:'0.75rem', color:'#8892a4' }}>{filteredPatients.length} of {patients.length} patients match</div>
         )}
       </div>
 
@@ -408,7 +410,7 @@ export default function Billing({ isAdmin = true, initialPatientId = '', onManag
         <div style={{ display:'flex', gap:'1rem', alignItems:'flex-end', flexWrap:'wrap' }}>
           <div style={{ minWidth:'320px', flex:1 }}>
             <label style={lbl}>Patient</label>
-            <select style={inp} value={patientId} onChange={e=>{ setPatientId(e.target.value); setPicked({}); setPickedGroups({}); setAccessions({}); }}>
+            <select style={inp} value={patientId} onChange={e=>{ setPatientId(e.target.value); setPicked({}); setPickedGroups({}); setAccessions({}); setManualAcc({}); }}>
               <option value="">— Select patient —</option>
               {filteredPatients.map(p => <option key={p.id} value={p.id}>{p.patient_name} · {p.barcode}</option>)}
             </select>
@@ -486,7 +488,9 @@ export default function Billing({ isAdmin = true, initialPatientId = '', onManag
                 <div style={{ paddingLeft:'1.9rem', marginTop:'0.3rem', display:'flex', flexDirection:'column', gap:'0.25rem' }}>
                   {(g.tests||[]).map(t => (
                     <div key={t.id} style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                      <span style={{ fontSize:'0.72rem', color:'#8892a4' }}>• {t.name}</span>
+                      <span style={{ fontSize:'0.72rem', color:'#8892a4', display:'inline-flex', alignItems:'center', gap:'0.35rem' }}>
+                        • {t.name} <TubeTag tube={tubeForTest(t.id)} />
+                      </span>
                       <AccessionCell tid={t.id} value={accessions[t.id]||''} onChange={setAccession} onPrint={()=>printOneSample(t.id, t.name)} />
                     </div>
                   ))}
@@ -500,6 +504,7 @@ export default function Billing({ isAdmin = true, initialPatientId = '', onManag
                     <button onClick={()=>removeTest(id)} style={{ border:'none', background:'rgba(220,38,38,0.1)', color:'#dc2626', borderRadius:'6px', width:'22px', height:'22px', cursor:'pointer', fontWeight:700 }}>×</button>
                     <span style={{ fontSize:'0.85rem', color:'#0f1218' }}>{picked[id].name}</span>
                     {sourceBadge(picked[id].source)}
+                    <TubeTag tube={tubeForTest(id)} />
                   </div>
                   <span style={{ fontSize:'0.85rem', fontWeight:600, color:'#0f1218' }}>{inr(picked[id].price)}</span>
                 </div>
@@ -624,6 +629,16 @@ export default function Billing({ isAdmin = true, initialPatientId = '', onManag
         );
       })()}
     </div>
+  );
+}
+
+function TubeTag({ tube }) {
+  if (!tube) return null;
+  return (
+    <span style={{ display:'inline-flex', alignItems:'center', gap:'0.3rem', fontSize:'0.66rem', color:'#64748b' }}>
+      <span style={{ width:'9px', height:'9px', borderRadius:'50%', background:tube.color||'#e5e7eb', border:'1px solid rgba(0,0,0,0.12)', display:'inline-block', flexShrink:0 }} />
+      {tube.name}
+    </span>
   );
 }
 
