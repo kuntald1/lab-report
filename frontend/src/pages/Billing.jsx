@@ -65,6 +65,8 @@ export default function Billing({ isAdmin = true, initialPatientId = '', onManag
       .catch(()=>setAccPatientIds([]));
   }, [pf.accession]);   // eslint-disable-line
 
+  const selectPatient = (id) => { setPatientId(id); setPicked({}); setPickedGroups({}); setAccessions({}); setManualAcc({}); };
+
   const runSearch = () => setPf(pfDraft);
   const clearSearch = () => { setPfDraft({ barcode:'', accession:'' }); setPf({ barcode:'', accession:'' }); };
 
@@ -73,6 +75,15 @@ export default function Billing({ isAdmin = true, initialPatientId = '', onManag
     if (accPatientIds !== null && !accPatientIds.includes(p.id)) return false;
     return true;
   }), [patients, pf, accPatientIds]);
+
+  // Search -> exactly one match -> select it immediately (same effect as picking it from the dropdown by hand),
+  // so you don't have to click Search and then separately reopen the dropdown.
+  useEffect(() => {
+    if (!pf.barcode && !pf.accession) return;
+    if (filteredPatients.length === 1 && String(filteredPatients[0].id) !== String(patientId)) {
+      selectPatient(String(filteredPatients[0].id));
+    }
+  }, [filteredPatients]); // eslint-disable-line
 
   // sample-tube lookup for a test id (works for both group members and standalone tests, via the full tests[] catalog)
   const tubeForTest = (tid) => {
@@ -387,7 +398,7 @@ export default function Billing({ isAdmin = true, initialPatientId = '', onManag
       {/* patient filters */}
       <div style={{ ...S.card, marginBottom:'1.2rem' }}>
         <div style={{ display:'flex', gap:'0.7rem', alignItems:'end', flexWrap:'wrap' }}>
-          <div style={{ minWidth:'220px' }}><label style={lbl}>Patient Id</label>
+          <div style={{ minWidth:'220px' }}><label style={lbl}>Patient Barcode</label>
             <input style={inp} placeholder="e.g. HC21889" value={pfDraft.barcode}
               onChange={e=>setPfDraft({...pfDraft,barcode:e.target.value})}
               onKeyDown={e=>{ if (e.key==='Enter') runSearch(); }} /></div>
@@ -410,7 +421,7 @@ export default function Billing({ isAdmin = true, initialPatientId = '', onManag
         <div style={{ display:'flex', gap:'1rem', alignItems:'flex-end', flexWrap:'wrap' }}>
           <div style={{ minWidth:'320px', flex:1 }}>
             <label style={lbl}>Patient</label>
-            <select style={inp} value={patientId} onChange={e=>{ setPatientId(e.target.value); setPicked({}); setPickedGroups({}); setAccessions({}); setManualAcc({}); }}>
+            <select style={inp} value={patientId} onChange={e=>selectPatient(e.target.value)}>
               <option value="">— Select patient —</option>
               {filteredPatients.map(p => <option key={p.id} value={p.id}>{p.patient_name} · {p.barcode}</option>)}
             </select>
@@ -488,7 +499,7 @@ export default function Billing({ isAdmin = true, initialPatientId = '', onManag
                 <div style={{ paddingLeft:'1.9rem', marginTop:'0.3rem', display:'flex', flexDirection:'column', gap:'0.25rem' }}>
                   {(g.tests||[]).map(t => (
                     <div key={t.id} style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                      <span style={{ fontSize:'0.72rem', color:'#8892a4', display:'inline-flex', alignItems:'center', gap:'0.35rem' }}>
+                      <span style={{ fontSize:'0.72rem', color:'#8892a4', display:'inline-flex', alignItems:'center', gap:'0.6rem' }}>
                         • {t.name} <TubeTag tube={tubeForTest(t.id)} />
                       </span>
                       <AccessionCell tid={t.id} value={accessions[t.id]||''} onChange={setAccession} onPrint={()=>printOneSample(t.id, t.name)} />
@@ -635,7 +646,7 @@ export default function Billing({ isAdmin = true, initialPatientId = '', onManag
 function TubeTag({ tube }) {
   if (!tube) return null;
   return (
-    <span style={{ display:'inline-flex', alignItems:'center', gap:'0.3rem', fontSize:'0.66rem', color:'#64748b' }}>
+    <span style={{ display:'inline-flex', alignItems:'center', gap:'0.3rem', fontSize:'0.66rem', color:'#64748b', marginLeft:'0.25rem' }}>
       <span style={{ width:'9px', height:'9px', borderRadius:'50%', background:tube.color||'#e5e7eb', border:'1px solid rgba(0,0,0,0.12)', display:'inline-block', flexShrink:0 }} />
       {tube.name}
     </span>
