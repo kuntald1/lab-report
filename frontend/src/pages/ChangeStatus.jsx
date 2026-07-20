@@ -18,7 +18,7 @@ async function j(path, method = 'GET', body) {
 }
 
 export default function ChangeStatus() {
-  const [f, setF] = useState({ patient_id: '', barcode: '', branch_id: '', franchise_id: '', status: '' });
+  const [f, setF] = useState({ patient_id: '', barcode: '', accession_number: '', branch_id: '', franchise_id: '', status: '' });
   const [rows, setRows] = useState(null);
   const [sel, setSel] = useState(new Set());
   const [err, setErr] = useState('');
@@ -32,6 +32,7 @@ export default function ChangeStatus() {
     const qs = new URLSearchParams();
     if (f.patient_id) qs.set('patient_id', f.patient_id);
     if (f.barcode) qs.set('barcode', f.barcode);
+    if (f.accession_number) qs.set('accession_number', f.accession_number);
     if (f.branch_id) qs.set('branch_id', f.branch_id);
     if (f.franchise_id) qs.set('franchise_id', f.franchise_id);
     if (f.status) qs.set('status', f.status);
@@ -50,11 +51,11 @@ export default function ChangeStatus() {
     if (sel.size === 0) { setErr('Select at least one sample first.'); return; }
     setErr(''); setBusy(true);
     try {
-      const res = await j('/sample-status/advance', 'POST', { patient_ids: [...sel], status });
+      const res = await j('/sample-status/advance', 'POST', { item_ids: [...sel], status });
       await search();
       const isReject = status === 'sample_rejected';
       showToast(
-        `${res.updated} sample(s) → ${isReject ? 'Rejected ⚠' : status}`,
+        `${res.updated} test(s) → ${isReject ? 'Rejected ⚠' : status}`,
         isReject ? 'warn' : 'success'
       );
     } catch (e) { setErr(e.message); }
@@ -71,7 +72,7 @@ export default function ChangeStatus() {
       )}
       <h1 style={{ fontFamily: 'Manrope,sans-serif', fontSize: '1.5rem', fontWeight: 800, color: '#0f1218', margin: 0 }}>Change Report Status</h1>
       <p style={{ fontSize: '0.82rem', color: '#8892a4', margin: '0.3rem 0 1.2rem' }}>
-        Search samples, tick the ones you want, then advance: collected → received → tested → validated → reported
+        Search per test/sample (by accession number, barcode, patient, branch, or franchise), tick the ones you want, then advance: collected → received → tested → validated → reported
       </p>
 
       {/* filters */}
@@ -79,6 +80,7 @@ export default function ChangeStatus() {
         <div style={{ display: 'flex', gap: '0.7rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
           <Field label="Patient ID" value={f.patient_id} onChange={v => setF({ ...f, patient_id: v })} />
           <Field label="Barcode" value={f.barcode} onChange={v => setF({ ...f, barcode: v })} />
+          <Field label="Accession No." value={f.accession_number} onChange={v => setF({ ...f, accession_number: v })} />
           <Field label="Branch ID" value={f.branch_id} onChange={v => setF({ ...f, branch_id: v })} />
           <Field label="Franchise ID" value={f.franchise_id} onChange={v => setF({ ...f, franchise_id: v })} />
           <div style={{ minWidth: 130 }}>
@@ -114,15 +116,18 @@ export default function ChangeStatus() {
               <thead>
                 <tr style={{ textAlign: 'left', color: '#8892a4', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                   <th style={{ padding: '0.4rem' }}><input type="checkbox" checked={rows.length > 0 && sel.size === rows.length} onChange={toggleAll} /></th>
-                  <th style={th}>Patient</th><th style={th}>Barcode</th><th style={th}>Status</th><th style={th}>Result?</th>
+                  <th style={th}>Patient</th><th style={th}>Barcode</th><th style={th}>Test</th><th style={th}>Accession No.</th><th style={th}>Bill No.</th><th style={th}>Status</th><th style={th}>Result?</th>
                 </tr>
               </thead>
               <tbody>
                 {rows.map(r => (
                   <tr key={r.id} style={{ borderTop: '1px solid #f1f5f9' }}>
                     <td style={{ padding: '0.5rem 0.4rem' }}><input type="checkbox" checked={sel.has(r.id)} onChange={() => toggle(r.id)} /></td>
-                    <td style={td}>{r.patient_name} <span style={{ color: '#94a3b8' }}>#{r.id}</span></td>
+                    <td style={td}>{r.patient_name} <span style={{ color: '#94a3b8' }}>#{r.patient_id}</span></td>
                     <td style={{ ...td, color: '#f97316', fontWeight: 700 }}>{r.barcode}</td>
+                    <td style={td}>{r.test_name}</td>
+                    <td style={{ ...td, fontFamily:'monospace', color:'#c2410c' }}>{r.accession_number || '—'}</td>
+                    <td style={{ ...td, color:'#8892a4' }}>{r.bill_no}</td>
                     <td style={td}><span style={{ ...pill, background: (STATUS_COLOR[r.status] || '#94a3b8') + '22', color: STATUS_COLOR[r.status] || '#94a3b8' }}>{r.status}</span></td>
                     <td style={td}>{r.has_result ? '✓' : '—'}</td>
                   </tr>

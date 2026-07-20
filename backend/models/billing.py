@@ -41,6 +41,7 @@ class BillItem(Base):
     package_id   = Column(Integer, nullable=True)  # set when this line belongs to a test group
     package_name = Column(String, nullable=True)
     accession_number = Column(String, nullable=True, index=True)  # patient.barcode + unique suffix (e.g. FD-18A); printed on the sample tube label
+    status       = Column(String, default="collected", index=True)  # collected|received|tested|validated|reported|sample_rejected — per TEST, not per patient
     created_at   = Column(DateTime(timezone=True), server_default=func.now())
 
 
