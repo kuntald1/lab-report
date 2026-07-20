@@ -304,7 +304,7 @@ def need_history(patient_id: int, payload: NeedHistoryIn, request: Request,
             items = [k for k, v in payload.checklist.items() if v]
         ask = (", ".join(items) if items else "additional clinical history")
         note = f" Note: {payload.note}" if payload.note else ""
-        body = (f"MediCloud: For patient {p.patient_name} ({p.barcode}), the doctor needs "
+        body = (f"Healthycian: For patient {p.patient_name} ({p.barcode}), the doctor needs "
                 f"more history: {ask}.{note} Please update it in the portal.")
         send_whatsapp(db, p.tenant_id, org_phone, body)
 
@@ -371,7 +371,7 @@ def fill_history(patient_id: int, payload: FillHistoryIn, request: Request,
         doc = db.query(User).filter(User.id == doctor_id).first()
         doc_phone = getattr(doc, "phone", None) if doc else None
         if doc_phone:
-            body = (f"MediCloud: History updated for patient {p.patient_name} ({p.barcode}). "
+            body = (f"Healthycian: History updated for patient {p.patient_name} ({p.barcode}). "
                     f"It is back in your validation queue.")
             send_whatsapp(db, p.tenant_id, doc_phone, body)
     return {"ok": True, "needs_history": False}

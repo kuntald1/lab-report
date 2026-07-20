@@ -86,7 +86,7 @@ export default function Results() {
       const blob = await r.blob();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href=url; a.download=`MediCloud_Report_${id}.pdf`; a.click();
+      a.href=url; a.download=`Healthycian_Report_${id}.pdf`; a.click();
       window.URL.revokeObjectURL(url);
     } catch (err) { alert(String(err.message || 'PDF failed')); }
     setLoading(false);
@@ -105,7 +105,7 @@ export default function Results() {
       const blob = await r.blob();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = url; a.download = `MediCloud_Combined_${sel.barcode}.pdf`; a.click();
+      a.href = url; a.download = `Healthycian_Combined_${sel.barcode}.pdf`; a.click();
       window.URL.revokeObjectURL(url);
     } catch (err) { alert(String(err.message || 'Combined PDF failed')); }
     setLoading(false);

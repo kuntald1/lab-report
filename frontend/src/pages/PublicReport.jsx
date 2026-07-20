@@ -107,7 +107,7 @@ export default function PublicReport() {
       <div style={wrap}>
         <div style={{ ...card, padding:'2.5rem' }}>
           <div style={{ textAlign:'center', marginBottom:'1.6rem' }}>
-            <div style={{ fontSize:'1.4rem', fontWeight:800, color:'#15803d' }}>🔬 MediCloud</div>
+            <div style={{ fontSize:'1.4rem', fontWeight:800, color:'#15803d' }}>🔬 Healthycian</div>
             <div style={{ fontSize:'0.8rem', color:'#8892a4', marginTop:'0.2rem' }}>Secure lab report access</div>
           </div>
           <div style={{ background:'rgba(22,163,74,0.06)', border:'1px solid rgba(22,163,74,0.18)', borderRadius:'12px', padding:'1rem 1.2rem', marginBottom:'1.4rem', fontSize:'0.85rem', color:'#15803d', textAlign:'center' }}>
@@ -134,7 +134,7 @@ export default function PublicReport() {
       return (
         <div style={wrap}>
           <div style={{ ...card, padding:'2.5rem', textAlign:'center' }}>
-            <div style={{ fontSize:'1.4rem', fontWeight:800, color:'#15803d', marginBottom:'0.6rem' }}>🔬 MediCloud</div>
+            <div style={{ fontSize:'1.4rem', fontWeight:800, color:'#15803d', marginBottom:'0.6rem' }}>🔬 Healthycian</div>
             <div style={{ fontSize:'2rem', marginBottom:'0.8rem' }}>⏳</div>
             <div style={{ fontSize:'0.95rem', color:'#0f1218', fontWeight:700, marginBottom:'0.4rem' }}>Your report isn't ready yet</div>
             <div style={{ fontSize:'0.84rem', color:'#8892a4' }}>Please check back shortly, or contact the lab for an update on {data.patient_name}.</div>
@@ -146,7 +146,7 @@ export default function PublicReport() {
       return (
         <div style={wrap}>
           <div style={{ ...card, padding:'2.5rem', textAlign:'center' }}>
-            <div style={{ fontSize:'1.4rem', fontWeight:800, color:'#15803d', marginBottom:'0.6rem' }}>🔬 MediCloud</div>
+            <div style={{ fontSize:'1.4rem', fontWeight:800, color:'#15803d', marginBottom:'0.6rem' }}>🔬 Healthycian</div>
             <div style={{ fontSize:'2rem', marginBottom:'0.8rem' }}>🧾</div>
             <div style={{ fontSize:'0.95rem', color:'#0f1218', fontWeight:700, marginBottom:'0.4rem' }}>Please complete payment first</div>
             <div style={{ fontSize:'0.84rem', color:'#8892a4', marginBottom:'1.2rem' }}>Your report is ready, but there's an outstanding balance for {data.patient_name}. Complete the payment below to view and download your report.</div>
@@ -169,7 +169,7 @@ export default function PublicReport() {
       <div style={wrap}>
         <div style={card}>
           <div style={{ background:'linear-gradient(135deg,#15803d,#16a34a)', color:'#fff', padding:'1.5rem 1.8rem' }}>
-            <div style={{ fontSize:'1.2rem', fontWeight:800 }}>🔬 MediCloud</div>
+            <div style={{ fontSize:'1.2rem', fontWeight:800 }}>🔬 Healthycian</div>
             <div style={{ fontSize:'0.78rem', opacity:0.9 }}>{data.patient_name}</div>
           </div>
           <div style={{ padding:'1.8rem' }}>
@@ -207,7 +207,7 @@ export default function PublicReport() {
             )}
 
             <div style={{ textAlign:'center', marginTop:'1.6rem', fontSize:'0.68rem', color:'#b0b7c3' }}>
-              Verified via MediCloud · This report is computer-generated.
+              Verified via Healthycian · This report is computer-generated.
             </div>
           </div>
         </div>
@@ -222,7 +222,7 @@ export default function PublicReport() {
       <div style={card}>
         <div style={{ background:'linear-gradient(135deg,#15803d,#16a34a)', color:'#fff', padding:'1.5rem 1.8rem', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
           <div>
-            <div style={{ fontSize:'1.2rem', fontWeight:800 }}>🔬 MediCloud</div>
+            <div style={{ fontSize:'1.2rem', fontWeight:800 }}>🔬 Healthycian</div>
             <div style={{ fontSize:'0.78rem', opacity:0.9 }}>Lab Report #{data.id}</div>
           </div>
           <button onClick={()=>downloadPdf()} style={{ background:'rgba(255,255,255,0.18)', color:'#fff', border:'1px solid rgba(255,255,255,0.4)', borderRadius:'9px', padding:'0.55rem 1.1rem', fontWeight:700, cursor:'pointer', fontSize:'0.82rem', fontFamily:'Manrope,sans-serif' }}>📄 Download PDF</button>
@@ -267,7 +267,7 @@ export default function PublicReport() {
           </div>
 
           <div style={{ textAlign:'center', marginTop:'1.6rem', fontSize:'0.68rem', color:'#b0b7c3' }}>
-            Verified via MediCloud · This report is computer-generated.
+            Verified via Healthycian · This report is computer-generated.
           </div>
         </div>
       </div>

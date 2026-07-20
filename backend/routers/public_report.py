@@ -107,7 +107,7 @@ def public_pdf(result_id: int, token: str = Query(...), password: str = Query(..
         raise HTTPException(500, f"PDF generation failed: {e}")
     return StreamingResponse(
         io.BytesIO(pdf_bytes), media_type="application/pdf",
-        headers={"Content-Disposition": f"inline; filename=MediCloud_Report_{result_id}.pdf"},
+        headers={"Content-Disposition": f"inline; filename=Healthycian_Report_{result_id}.pdf"},
     )
 
 
@@ -222,7 +222,7 @@ def public_pay_order(patient_id: int, payload: VerifyIn, db: Session = Depends(g
     order = resp.json()
     return {
         "key_id": RZP_KEY_ID, "order_id": order["id"], "amount": amount_paise,
-        "currency": "INR", "name": "MediCloud",
+        "currency": "INR", "name": "Healthycian",
         "description": f"Lab bill — {patient.patient_name}",
     }
 

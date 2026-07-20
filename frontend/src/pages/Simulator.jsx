@@ -225,7 +225,7 @@ export default function Simulator() {
             </div>
             <button onClick={parse} disabled={!isReady}
               style={{ width:'100%', background:isReady?'#0f1218':'#e8ecf4', color:isReady?'#fff':'#8892a4', border:'none', borderRadius:'10px', padding:'1rem', fontWeight:700, cursor:isReady?'pointer':'not-allowed', fontSize:'0.95rem', fontFamily:'Manrope,sans-serif', boxShadow:isReady?'0 4px 16px rgba(26,58,28,0.2)':'', transition:'all 0.2s' }}>
-              {loading ? '⏳ Processing...' : '⚡ Simulate Machine → Send to MediCloud'}
+              {loading ? '⏳ Processing...' : '⚡ Simulate Machine → Send to Healthycian'}
             </button>
             {!patient && <div style={{ fontSize:'0.75rem', color:'#8892a4', marginTop:'0.5rem', textAlign:'center' }}>Search for a patient first to enable</div>}
           </div>

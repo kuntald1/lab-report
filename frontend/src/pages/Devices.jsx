@@ -78,8 +78,8 @@ export default function Devices() {
             <div><label style={lbl}>Device Type</label><input style={inp} value={form.device_type} readOnly style={{...inp,background:'#f4f6fa'}} /></div>
             <div><label style={lbl}>Connection Mode</label>
               <select style={inp} value={form.is_client?'true':'false'} onChange={e=>setForm({...form,is_client:e.target.value==='true'})}>
-                <option value="false">IsClient: false — MediCloud → Machine</option>
-                <option value="true">IsClient: true — Machine → MediCloud</option>
+                <option value="false">IsClient: false — Healthycian → Machine</option>
+                <option value="true">IsClient: true — Machine → Healthycian</option>
               </select>
             </div>
           </div>

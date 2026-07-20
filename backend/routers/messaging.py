@@ -118,7 +118,7 @@ def send_bill_whatsapp(bill_id: int, payload: SendWhatsAppIn, request: Request,
 
     s = get_settings(db, bill.tenant_id)
     body = render_bill_message(
-        s, name=patient.patient_name if patient else "Patient", lab="MediCloud",
+        s, name=patient.patient_name if patient else "Patient", lab="Healthycian",
         amount=bill.total, bill_no=bill.bill_no,
         link=(f"Pay here: {link_url}" if link_url else "Thank you!"),
     )
@@ -151,7 +151,7 @@ def send_receipt_whatsapp(bill_id: int, payload: SendReceiptIn, request: Request
 
     paid = round(bill.paid or 0, 2)
     body = (f"Dear {patient.patient_name if patient else 'Patient'}, "
-            f"we have received ₹{paid:.0f} for Bill {bill.bill_no} at MediCloud. "
+            f"we have received ₹{paid:.0f} for Bill {bill.bill_no} at Healthycian. "
             f"Your money receipt is ready. Thank you!")
     res = send_whatsapp(db, bill.tenant_id, to_number, body)
     write_audit(db, action="whatsapp_receipt", user=user, entity="bill", entity_id=bill.id,
@@ -226,7 +226,7 @@ def payment_link_status(plink_id: str, db: Session = Depends(get_db),
         patient = db.query(Patient).filter(Patient.id == bill.patient_id).first()
         if patient and getattr(patient, "phone", None):
             body = (f"Dear {patient.patient_name}, we received \u20b9{amount:.0f} for "
-                    f"Bill {bill.bill_no} at MediCloud. Your money receipt is ready. Thank you!")
+                    f"Bill {bill.bill_no} at Healthycian. Your money receipt is ready. Thank you!")
             send_whatsapp(db, bill.tenant_id, patient.phone, body)
         return {"status": "paid", "paid": True, "bill_status": bill.status}
 

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { auth } from '../services/auth';
+import healthycianIcon from '../assets/healthycian_icon.png';
 
 export default function Login({ onLogin }) {
   const [email, setEmail] = useState('');
@@ -33,11 +34,11 @@ export default function Login({ onLogin }) {
                     boxShadow: '0 24px 60px rgba(0,0,0,0.35)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.7rem', marginBottom: '1.6rem' }}>
           <div style={{ width: '44px', height: '44px', borderRadius: '12px', display: 'flex',
-                        alignItems: 'center', justifyContent: 'center', fontSize: '1.3rem',
-                        background: 'linear-gradient(135deg,#f97316,#fbbf24)',
-                        boxShadow: '0 6px 18px rgba(249,115,22,0.4)' }}>🔬</div>
+                        alignItems: 'center', justifyContent: 'center', padding:'5px',
+                        background: '#fff', border:'1px solid #eef1f6' }}>
+            <img src={healthycianIcon} alt="Healthycian" style={{ width:'100%', height:'100%', objectFit:'contain' }} /></div>
           <div>
-            <div style={{ fontFamily: 'Manrope,sans-serif', fontSize: '1.2rem', fontWeight: 800, color: '#0f1218' }}>MediCloud</div>
+            <div style={{ fontFamily: 'Manrope,sans-serif', fontSize: '1.2rem', fontWeight: 800, color: '#0f1218' }}>Healthycian</div>
             <div style={{ fontSize: '0.66rem', color: '#8892a4', letterSpacing: '0.04em' }}>Laboratory Information System</div>
           </div>
         </div>

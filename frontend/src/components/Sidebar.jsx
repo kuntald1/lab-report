@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { authedFetch } from '../services/auth';
+import healthycianIcon from '../assets/healthycian_icon.png';
 
 const nav = [
   { id:'dashboard', icon:'⬡',  label:'Dashboard',    section:'main' },
@@ -71,9 +72,11 @@ export default function Sidebar({ current, onChange, counts = {}, user = null, o
       {/* Logo */}
       <div style={s.logoWrap}>
         <div style={s.logoRow}>
-          <div style={s.logoIcon}>🔬</div>
+          <div style={{ ...s.logoIcon, background:'#fff', padding:'4px', boxShadow:'none', border:'1px solid rgba(255,255,255,0.15)' }}>
+            <img src={healthycianIcon} alt="Healthycian" style={{ width:'100%', height:'100%', objectFit:'contain' }} />
+          </div>
           <div>
-            <div style={s.logoText}>MediCloud</div>
+            <div style={s.logoText}>Healthycian</div>
             <div style={s.logoSub}>Lab Middleware v3.0</div>
           </div>
         </div>

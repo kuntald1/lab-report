@@ -98,7 +98,7 @@ def create_rzp_order(bill_id: int, db: Session = Depends(get_db),
         "amount": amount_paise,
         "currency": "INR",
         "bill_no": bill.bill_no,
-        "name": "MediCloud",
+        "name": "Healthycian",
         "description": f"Bill {bill.bill_no}",
     }
 

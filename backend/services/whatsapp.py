@@ -58,7 +58,7 @@ def render_bill_message(s: Optional[MessagingSettings], *, name: str, lab: str,
     tmpl = (s.template_bill if s and s.template_bill else
             "Dear {name}, your bill at {lab} is ₹{amount}. Bill No: {bill_no}. {link}")
     try:
-        return tmpl.format(name=name or "Patient", lab=lab or "MediCloud",
+        return tmpl.format(name=name or "Patient", lab=lab or "Healthycian",
                            amount=amount, bill_no=bill_no, link=link or "").strip()
     except Exception:
         return f"Dear {name}, your bill {bill_no} is ₹{amount}. {link}".strip()

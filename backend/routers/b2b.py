@@ -478,7 +478,7 @@ def org_rzp_order(db: Session = Depends(get_db), user: User = Depends(get_curren
         "order_id": order["id"],
         "amount": amount_paise,
         "currency": "INR",
-        "name": "MediCloud",
+        "name": "Healthycian",
         "description": f"{org.name} - outstanding",
     }
 
