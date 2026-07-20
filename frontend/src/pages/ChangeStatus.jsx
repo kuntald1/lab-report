@@ -209,7 +209,12 @@ export default function ChangeStatus() {
                     <td style={{ padding: '0.5rem 0.4rem' }}><input type="checkbox" checked={sel.has(r.id)} onChange={() => toggle(r.id)} /></td>
                     <td style={td}>{r.patient_name} <span style={{ color: '#94a3b8' }}>#{r.patient_id}</span></td>
                     <td style={{ ...td, color: '#f97316', fontWeight: 700 }}>{r.barcode}</td>
-                    <td style={td}>{r.test_name}</td>
+                    <td style={td}>
+                      {r.package_name && (
+                        <div style={{ fontSize:'0.6rem', fontWeight:700, color:'#c2410c', background:'rgba(249,115,22,0.1)', display:'inline-block', padding:'0.08rem 0.4rem', borderRadius:20, marginBottom:'0.15rem' }}>{r.package_name}</div>
+                      )}
+                      <div>{r.test_name}</div>
+                    </td>
                     <td style={{ ...td, fontFamily:'monospace', color:'#c2410c' }}>{r.accession_number || '—'}</td>
                     <td style={{ ...td, color:'#8892a4' }}>{r.bill_no}</td>
                     <td style={td}><span style={{ ...pill, background: (STATUS_COLOR[r.status] || '#94a3b8') + '22', color: STATUS_COLOR[r.status] || '#94a3b8' }}>{r.status}</span></td>

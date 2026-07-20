@@ -83,7 +83,8 @@ def search_samples(db: Session = Depends(get_db), scope: Scope = Depends(get_sco
         "id": it.id,                          # bill_item id — what advance/select operates on
         "bill_id": b.id, "bill_no": b.bill_no,
         "patient_id": p.id, "patient_name": p.patient_name, "barcode": p.barcode,
-        "test_name": _test_label(it),
+        "test_name": it.test_name,
+        "package_name": it.package_name,
         "accession_number": it.accession_number,
         "status": it.status or "collected",
         "branch_id": p.branch_id, "franchise_id": p.registered_franchise_id,
