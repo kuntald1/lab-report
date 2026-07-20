@@ -5,6 +5,7 @@ const inp = { background:'#fafbfc', border:'1.5px solid #e8ecf4', borderRadius:'
 const lbl = { fontSize:'0.7rem', color:'#8892a4', fontWeight:600, textTransform:'uppercase', letterSpacing:'0.06em', display:'block', marginBottom:'0.35rem' };
 const S   = { card: { background:'#fff', border:'1px solid #e8ecf4', borderRadius:'14px', padding:'1.5rem', boxShadow:'0 2px 16px rgba(15,18,24,0.07)' } };
 const inr = (n) => '₹' + (Number(n)||0).toLocaleString('en-IN', { maximumFractionDigits:2 });
+const suffixFor = (idx) => { let n = idx + 1, s = ''; while (n > 0) { const rem = (n - 1) % 26; s = String.fromCharCode(65+rem) + s; n = Math.floor((n - 1) / 26); } return s; };
 
 // Note: this badge describes how the TEST's PRICE was resolved (group-rate / org-rate / base-rate)
 // — it is unrelated to test *groups* (panels), which get their own orange "GROUP" tag elsewhere.
@@ -19,6 +20,10 @@ export default function Billing({ isAdmin = true, initialPatientId = '', onManag
   const isFranchise = (auth.user()?.role || '').toLowerCase() === 'franchise';
   const allowDiscount = isAdmin && !isFranchise;   // franchise logins never discount
   const [patients, setPatients] = useState([]);
+  const [branches, setBranches] = useState([]);
+  const [pf, setPf] = useState({ organization_id:'', branch_id:'', date_from:'', date_to:'', patient_id:'', barcode:'', accession:'' });
+  const [accPatientIds, setAccPatientIds] = useState(null);   // null = accession filter inactive
+  const [accessions, setAccessions] = useState({});           // {test_id: accession_number} preview, editable pre-save
   const [tests, setTests]       = useState([]);
   const [groups, setGroups]     = useState([]);     // test groups / panels
   const [pickedGroups, setPickedGroups] = useState({});  // {gid: {id,name,price,test_ids,tests}}
@@ -45,7 +50,32 @@ export default function Billing({ isAdmin = true, initialPatientId = '', onManag
     authedFetch('/b2b/tests').then(r=>r.ok?r.json():[]).then(setTests).catch(()=>{});
     authedFetch('/b2b/test-groups').then(r=>r.ok?r.json():[]).then(setGroups).catch(()=>{});
     authedFetch('/b2b/organizations').then(r=>r.ok?r.json():[]).then(setOrgs).catch(()=>{});
+    authedFetch('/admin/branches').then(r=>r.ok?r.json():[]).then(setBranches).catch(()=>{});
   }, []);
+
+  // accession-number search (debounced) -> restricts the patient filter to matching patients
+  useEffect(() => {
+    const q = pf.accession.trim();
+    if (!q) { setAccPatientIds(null); return; }
+    const t = setTimeout(() => {
+      authedFetch(`/billing/find-by-accession?q=${encodeURIComponent(q)}`)
+        .then(r=>r.ok?r.json():{patient_ids:[]})
+        .then(d=>setAccPatientIds(d.patient_ids||[]))
+        .catch(()=>setAccPatientIds([]));
+    }, 350);
+    return () => clearTimeout(t);
+  }, [pf.accession]);   // eslint-disable-line
+
+  const filteredPatients = useMemo(() => patients.filter(p => {
+    if (pf.organization_id && String(p.organization_id) !== pf.organization_id) return false;
+    if (pf.branch_id && String(p.branch_id) !== pf.branch_id) return false;
+    if (pf.patient_id && !String(p.id).includes(pf.patient_id.trim())) return false;
+    if (pf.barcode && !(p.barcode||'').toLowerCase().includes(pf.barcode.trim().toLowerCase())) return false;
+    if (pf.date_from && new Date(p.created_at) < new Date(pf.date_from)) return false;
+    if (pf.date_to && new Date(p.created_at) > new Date(pf.date_to+'T23:59:59')) return false;
+    if (accPatientIds !== null && !accPatientIds.includes(p.id)) return false;
+    return true;
+  }), [patients, pf, accPatientIds]);
 
   const patient = patients.find(p => String(p.id) === String(patientId));
   const orgId = patient?.organization_id || null;
@@ -97,6 +127,27 @@ export default function Billing({ isAdmin = true, initialPatientId = '', onManag
 
   const pickedIds = Object.keys(picked).map(Number);
   const subtotal = useMemo(() => pickedIds.reduce((s,id)=>s+(Number(picked[id].price)||0),0) + groupSubtotal, [picked, pickedGroups]); // eslint-disable-line
+
+  // ordered flat list of every billable test line (group members first, then standalone) -
+  // same order the backend uses when auto-assigning accession suffixes, so the preview matches.
+  const orderedLineIds = useMemo(() => {
+    const ids = [];
+    pickedGroupIds.forEach(gid => { const g = pickedGroups[gid]; (g.tests||[]).forEach(t => ids.push(t.id)); });
+    pickedIds.forEach(id => ids.push(id));
+    return ids;
+  }, [pickedGroups, picked]); // eslint-disable-line
+
+  // keep the accession-number preview in sync: assign a default to any new line, drop ones removed, keep manual edits
+  useEffect(() => {
+    if (!patient) return;
+    setAccessions(prev => {
+      const next = {};
+      orderedLineIds.forEach((tid, idx) => { next[tid] = prev[tid] || `${patient.barcode}${suffixFor(idx)}`; });
+      return next;
+    });
+  }, [orderedLineIds.join(','), patient?.barcode]); // eslint-disable-line
+
+  const setAccession = (tid, val) => setAccessions(prev => ({ ...prev, [tid]: val }));
   const discAmount = useMemo(() => {
     if (!allowDiscount || !discType || !discVal) return 0;
     const v = Number(discVal)||0;
@@ -234,6 +285,53 @@ export default function Billing({ isAdmin = true, initialPatientId = '', onManag
     setPayingMethod(null);
   };
 
+  // prints 40mm x 25mm-ish labels sized for a typical thermal barcode printer
+  const printLabels = (lines) => {
+    if (!lines.length) return showToast('error', 'Nothing to print');
+    const w = window.open('', '_blank', 'width=420,height=560');
+    w.document.write(`<!doctype html><html><head><title>Sample Labels</title>
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
+      <style>
+        @page { size: 40mm 25mm; margin: 1mm; }
+        body{font-family:Arial,sans-serif;margin:0;padding:0;}
+        .label{width:40mm;height:25mm;box-sizing:border-box;padding:1mm 1.5mm;page-break-after:always;text-align:center;overflow:hidden;}
+        .pname{font-size:6.5pt;font-weight:700;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+        .tname{font-size:6pt;color:#333;margin:0 0 0.5mm;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+        svg{max-width:100%;height:9mm;}
+      </style></head><body>
+      ${lines.map(l => `<div class="label">
+          <div class="pname">${l.patientName}</div>
+          <div class="tname">${l.testName}</div>
+          <svg class="bc" data-code="${l.code}"></svg>
+        </div>`).join('')}
+      <script>
+        window.onload = function(){
+          document.querySelectorAll('.bc').forEach(function(el){
+            JsBarcode(el, el.getAttribute('data-code'), { format:'CODE128', height:26, width:1.3, fontSize:8, margin:0 });
+          });
+          setTimeout(function(){ window.print(); }, 300);
+        };
+      </script>
+      </body></html>`);
+    w.document.close();
+  };
+
+  const printAllSamples = () => {
+    if (!patient) return;
+    const lines = orderedLineIds.map(tid => {
+      const testName = picked[tid]?.name
+        || Object.values(pickedGroups).flatMap(g=>g.tests||[]).find(t=>t.id===tid)?.name
+        || `#${tid}`;
+      return { patientName: patient.patient_name, testName, code: accessions[tid] || '' };
+    }).filter(l => l.code);
+    printLabels(lines);
+  };
+
+  const printOneSample = (tid, testName) => {
+    if (!patient || !accessions[tid]) return;
+    printLabels([{ patientName: patient.patient_name, testName, code: accessions[tid] }]);
+  };
+
   const generate = async () => {
     if (!patientId) return showToast('error', 'Select a patient');
     if (pickedIds.length === 0 && pickedGroupIds.length === 0) return showToast('error', 'Add at least one test or group');
@@ -246,13 +344,14 @@ export default function Billing({ isAdmin = true, initialPatientId = '', onManag
       discount_type: allowDiscount ? (discType || null) : null,
       discount_value: allowDiscount ? (Number(discVal)||0) : 0,
       on_credit: isFranchise ? !!orgId : (onCredit && !!orgId),
+      accessions: accessions,
     };
     try {
       const res = await authedFetch('/billing/bills', { method:'POST',
         headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
       if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.detail||'failed'); }
       const bill = await res.json();
-      setLastBill(bill); setPicked({}); setPickedGroups({}); setDiscType(''); setDiscVal(''); setOnCredit(isFranchise);
+      setLastBill(bill); setPicked({}); setPickedGroups({}); setDiscType(''); setDiscVal(''); setOnCredit(isFranchise); setAccessions({});
       setWaPhone(patient?.phone || '');
       showToast('success', `Bill ${bill.bill_no} created · ${inr(bill.total)}`);
       downloadReceipt(bill);
@@ -276,14 +375,42 @@ export default function Billing({ isAdmin = true, initialPatientId = '', onManag
         <p style={{ color:'#8892a4', fontSize:'0.82rem', marginTop:'0.2rem' }}>Prices resolve automatically by the patient's organization (Group → Org → Base).</p>
       </div>
 
+      {/* patient filters */}
+      <div style={{ ...S.card, marginBottom:'1.2rem' }}>
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(7, 1fr)', gap:'0.7rem', alignItems:'end' }}>
+          <div><label style={lbl}>Organization</label>
+            <select style={inp} value={pf.organization_id} onChange={e=>setPf({...pf,organization_id:e.target.value})}>
+              <option value="">All</option>
+              {orgs.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
+            </select></div>
+          <div><label style={lbl}>Branch</label>
+            <select style={inp} value={pf.branch_id} onChange={e=>setPf({...pf,branch_id:e.target.value})}>
+              <option value="">All</option>
+              {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </select></div>
+          <div><label style={lbl}>From</label><input style={inp} type="date" value={pf.date_from} onChange={e=>setPf({...pf,date_from:e.target.value})} /></div>
+          <div><label style={lbl}>To</label><input style={inp} type="date" value={pf.date_to} onChange={e=>setPf({...pf,date_to:e.target.value})} /></div>
+          <div><label style={lbl}>Patient ID</label><input style={inp} placeholder="id" value={pf.patient_id} onChange={e=>setPf({...pf,patient_id:e.target.value})} /></div>
+          <div><label style={lbl}>Barcode</label><input style={inp} placeholder="barcode" value={pf.barcode} onChange={e=>setPf({...pf,barcode:e.target.value})} /></div>
+          <div><label style={lbl}>Accession No.</label><input style={inp} placeholder="e.g. HC21889B" value={pf.accession} onChange={e=>setPf({...pf,accession:e.target.value})} /></div>
+        </div>
+        {(pf.organization_id||pf.branch_id||pf.date_from||pf.date_to||pf.patient_id||pf.barcode||pf.accession) && (
+          <div style={{ marginTop:'0.8rem' }}>
+            <button onClick={()=>setPf({ organization_id:'', branch_id:'', date_from:'', date_to:'', patient_id:'', barcode:'', accession:'' })}
+              style={{ background:'transparent', color:'#8892a4', border:'1px solid #e8ecf4', borderRadius:'9px', padding:'0.45rem 1rem', cursor:'pointer', fontFamily:'Manrope,sans-serif', fontSize:'0.78rem' }}>Clear filters</button>
+            <span style={{ marginLeft:'0.8rem', fontSize:'0.75rem', color:'#8892a4' }}>{filteredPatients.length} of {patients.length} patients match</span>
+          </div>
+        )}
+      </div>
+
       {/* patient picker */}
       <div style={{ ...S.card, marginBottom:'1.2rem' }}>
         <div style={{ display:'flex', gap:'1rem', alignItems:'flex-end', flexWrap:'wrap' }}>
           <div style={{ minWidth:'320px', flex:1 }}>
             <label style={lbl}>Patient</label>
-            <select style={inp} value={patientId} onChange={e=>{ setPatientId(e.target.value); setPicked({}); }}>
+            <select style={inp} value={patientId} onChange={e=>{ setPatientId(e.target.value); setPicked({}); setPickedGroups({}); setAccessions({}); }}>
               <option value="">— Select patient —</option>
-              {patients.map(p => <option key={p.id} value={p.id}>{p.patient_name} · {p.barcode}</option>)}
+              {filteredPatients.map(p => <option key={p.id} value={p.id}>{p.patient_name} · {p.barcode}</option>)}
             </select>
           </div>
           {patientId && (
@@ -337,7 +464,12 @@ export default function Billing({ isAdmin = true, initialPatientId = '', onManag
 
           {/* right: selected + totals */}
           <div style={{ ...S.card }}>
-            <div style={{ fontWeight:800, color:'#0f1218', marginBottom:'0.8rem', fontFamily:'Manrope,sans-serif' }}>Bill items</div>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'0.8rem' }}>
+              <div style={{ fontWeight:800, color:'#0f1218', fontFamily:'Manrope,sans-serif' }}>Bill items</div>
+              {(pickedIds.length > 0 || pickedGroupIds.length > 0) && (
+                <button onClick={printAllSamples} title="Print sample labels for every line" style={{ background:'rgba(37,99,235,0.1)', color:'#2563eb', border:'1px solid rgba(37,99,235,0.25)', borderRadius:'8px', padding:'0.35rem 0.65rem', fontWeight:700, cursor:'pointer', fontSize:'0.7rem', fontFamily:'Manrope,sans-serif', whiteSpace:'nowrap' }}>🖨 Print all Samples</button>
+              )}
+            </div>
             {pickedIds.length === 0 && pickedGroupIds.length === 0 && <div style={{ color:'#8892a4', fontSize:'0.85rem', padding:'1rem 0' }}>Click tests or groups on the left to add them.</div>}
 
             {/* selected groups (panels) */}
@@ -351,21 +483,32 @@ export default function Billing({ isAdmin = true, initialPatientId = '', onManag
                   </div>
                   <span style={{ fontSize:'0.85rem', fontWeight:700, color:'#0f1218' }}>{inr(g.price)}</span>
                 </div>
-                <div style={{ paddingLeft:'1.9rem', marginTop:'0.2rem', display:'flex', flexWrap:'wrap', gap:'0.3rem' }}>
-                  {(g.tests||[]).map(t => <span key={t.id} style={{ fontSize:'0.72rem', color:'#8892a4' }}>• {t.name}</span>)}
+                <div style={{ paddingLeft:'1.9rem', marginTop:'0.3rem', display:'flex', flexDirection:'column', gap:'0.25rem' }}>
+                  {(g.tests||[]).map(t => (
+                    <div key={t.id} style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                      <span style={{ fontSize:'0.72rem', color:'#8892a4' }}>• {t.name}</span>
+                      <AccessionCell tid={t.id} value={accessions[t.id]||''} onChange={setAccession} onPrint={()=>printOneSample(t.id, t.name)} />
+                    </div>
+                  ))}
                 </div>
               </div>
             ); })}
             {pickedIds.map(id => (
-              <div key={id} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'0.5rem 0', borderBottom:'1px solid #f7f8fb' }}>
-                <div style={{ display:'flex', alignItems:'center', gap:'0.5rem' }}>
-                  <button onClick={()=>removeTest(id)} style={{ border:'none', background:'rgba(220,38,38,0.1)', color:'#dc2626', borderRadius:'6px', width:'22px', height:'22px', cursor:'pointer', fontWeight:700 }}>×</button>
-                  <span style={{ fontSize:'0.85rem', color:'#0f1218' }}>{picked[id].name}</span>
-                  {sourceBadge(picked[id].source)}
+              <div key={id} style={{ padding:'0.5rem 0', borderBottom:'1px solid #f7f8fb' }}>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:'0.5rem' }}>
+                    <button onClick={()=>removeTest(id)} style={{ border:'none', background:'rgba(220,38,38,0.1)', color:'#dc2626', borderRadius:'6px', width:'22px', height:'22px', cursor:'pointer', fontWeight:700 }}>×</button>
+                    <span style={{ fontSize:'0.85rem', color:'#0f1218' }}>{picked[id].name}</span>
+                    {sourceBadge(picked[id].source)}
+                  </div>
+                  <span style={{ fontSize:'0.85rem', fontWeight:600, color:'#0f1218' }}>{inr(picked[id].price)}</span>
                 </div>
-                <span style={{ fontSize:'0.85rem', fontWeight:600, color:'#0f1218' }}>{inr(picked[id].price)}</span>
+                <div style={{ display:'flex', justifyContent:'flex-end', marginTop:'0.2rem' }}>
+                  <AccessionCell tid={id} value={accessions[id]||''} onChange={setAccession} onPrint={()=>printOneSample(id, picked[id].name)} />
+                </div>
               </div>
             ))}
+
 
             {/* discount (admin only) */}
             {allowDiscount && (pickedIds.length > 0 || pickedGroupIds.length > 0) && (
@@ -481,6 +624,23 @@ export default function Billing({ isAdmin = true, initialPatientId = '', onManag
         );
       })()}
     </div>
+  );
+}
+
+function AccessionCell({ tid, value, onChange, onPrint }) {
+  const [editing, setEditing] = useState(false);
+  return (
+    <span style={{ display:'inline-flex', alignItems:'center', gap:'0.3rem' }}>
+      {editing ? (
+        <input autoFocus value={value} onChange={e=>onChange(tid, e.target.value)}
+          onBlur={()=>setEditing(false)} onKeyDown={e=>{ if (e.key==='Enter'||e.key==='Escape') setEditing(false); }}
+          style={{ fontFamily:'monospace', fontSize:'0.68rem', border:'1.5px solid #f97316', borderRadius:'5px', padding:'0.08rem 0.35rem', width:'92px' }} />
+      ) : (
+        <span style={{ fontFamily:'monospace', fontSize:'0.68rem', color:'#c2410c', background:'rgba(249,115,22,0.08)', border:'1px dashed rgba(249,115,22,0.3)', borderRadius:'5px', padding:'0.05rem 0.4rem' }}>{value || '—'}</span>
+      )}
+      <button title="Edit accession no." onClick={()=>setEditing(v=>!v)} style={{ border:'none', background:'transparent', color:'#8892a4', cursor:'pointer', fontSize:'0.75rem', padding:0, lineHeight:1 }}>✎</button>
+      <button title="Print this label" onClick={onPrint} style={{ border:'none', background:'transparent', color:'#2563eb', cursor:'pointer', fontSize:'0.75rem', padding:0, lineHeight:1 }}>🖨</button>
+    </span>
   );
 }
 

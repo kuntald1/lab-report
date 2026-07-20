@@ -71,6 +71,22 @@ def resolve_prices(organization_id: Optional[int] = None,
     return out
 
 
+@router.get("/find-by-accession")
+def find_by_accession(q: str = Query(..., min_length=1), db: Session = Depends(get_db),
+                      user: User = Depends(get_current_user)):
+    """Used by the New Bill patient filter: given a partial accession number,
+    return the ids of patients who have a bill item matching it."""
+    items = (db.query(BillItem)
+               .filter(BillItem.accession_number.ilike(f"%{q}%"))
+               .order_by(BillItem.id.desc()).limit(200).all())
+    bill_ids = list({it.bill_id for it in items})
+    if not bill_ids:
+        return {"patient_ids": []}
+    bills = db.query(Bill).filter(Bill.id.in_(bill_ids)).all()
+    patient_ids = sorted({b.patient_id for b in bills if b.patient_id})
+    return {"patient_ids": patient_ids}
+
+
 # ----------------------------------------------------------------- create bill
 class BillItemIn(BaseModel):
     test_id: int
@@ -83,6 +99,7 @@ class BillCreate(BaseModel):
     discount_type: Optional[str] = None     # 'flat' | 'percent' | None
     discount_value: float = 0.0
     on_credit: bool = False                 # B2B: bill to org ledger instead of immediate pay
+    accessions: dict = {}                   # {str(test_id): accession_number} — client-previewed/edited values from New Bill; falls back to auto-generated when absent
 
 
 @router.post("/bills")
@@ -162,7 +179,9 @@ def create_bill(payload: BillCreate, request: Request,
     base_barcode = patient.barcode or ""
     for idx, it in enumerate(items):
         it.bill_id = bill.id
-        it.accession_number = f"{base_barcode}{_suffix(idx)}"   # e.g. FD-18A, FD-18B, ... — sticks on the sample tube
+        override = (payload.accessions or {}).get(str(it.test_id))
+        it.accession_number = (override.strip() if override and override.strip()
+                                else f"{base_barcode}{_suffix(idx)}")   # e.g. FD-18A, FD-18B, ... — sticks on the sample tube
         db.add(it)
 
     # B2B credit -> add to the org ledger
