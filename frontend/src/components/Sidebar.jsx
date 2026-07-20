@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { authedFetch } from '../services/auth';
 
 const nav = [
   { id:'dashboard', icon:'⬡',  label:'Dashboard',    section:'main' },
@@ -8,12 +9,14 @@ const nav = [
   { id:'results',   icon:'🧪', label:'Results',       section:'main', badge:'results' },
   { id:'tat',       icon:'⏱',  label:'TAT Report',    section:'main', tag:'NEW' },
   { id:'tubes',     icon:'🧫', label:'Sample Tubes',  section:'master', tag:'NEW' },
+  { id:'departments', icon:'🏷️', label:'Departments', section:'master', tag:'NEW' },
   { id:'orggroups', icon:'🏢', label:'Org Groups',    section:'master', tag:'NEW' },
   { id:'organizations', icon:'🏥', label:'Organizations', section:'master' },
   { id:'branches', icon:'🏪', label:'Branches', section:'master', tag:'NEW' },
   { id:'pricing', icon:'💰', label:'Group / Org Pricing', section:'master', tag:'NEW' },
   { id:'testscatalog', icon:'🧾', label:'Tests Catalog', section:'master' },
   { id:'users', icon:'👥', label:'Users & Staff', section:'master' },
+  { id:'menupermissions', icon:'🔐', label:'Menu Permissions', section:'master', tag:'NEW' },
   { id:'billing', icon:'🧾', label:'New Bill', section:'master' },
   { id:'bills',   icon:'📑', label:'Bills',    section:'master' },
   { id:'doctors', icon:'💵', label:'Doctor Commission', section:'master' },
@@ -29,8 +32,19 @@ const nav = [
 export default function Sidebar({ current, onChange, counts = {}, user = null, onLogout = () => {} }) {
   const isDoctor = (user?.role || '').toLowerCase() === 'pathologist';
   const isFranchise = (user?.role || '').toLowerCase() === 'franchise';
+  const isAdmin = ['super_admin','lab_admin'].includes((user?.role || '').toLowerCase());
   // items a franchise/organization login is allowed to see
   const FRANCHISE_IDS = ['dashboard','patients','results','billing','bills','historyneeded','samplereport'];
+
+  // role-configured hidden items (set from the Menu Permissions page). Admin roles always get [] (full menu),
+  // enforced server-side too — this is a UX filter, not the security boundary.
+  const [hidden, setHidden] = useState([]);
+  useEffect(() => {
+    if (isAdmin) { setHidden([]); return; }
+    authedFetch('/admin/my-menu-hidden').then(r=>r.ok?r.json():{hidden_keys:[]}).then(d=>setHidden(d.hidden_keys||[])).catch(()=>setHidden([]));
+  }, [user?.role]);   // eslint-disable-line
+  const visible = (items) => items.filter(n => !hidden.includes(n.id));
+
   const s = {
     aside: { position:'fixed', top:0, left:0, bottom:0, width:'235px', background:'#1a1f2e', display:'flex', flexDirection:'column', zIndex:50, boxShadow:'4px 0 24px rgba(0,0,0,0.15)' },
     logoWrap: { padding:'1.4rem 1.3rem 1.2rem', borderBottom:'1px solid rgba(255,255,255,0.06)' },
@@ -75,28 +89,28 @@ export default function Sidebar({ current, onChange, counts = {}, user = null, o
         {isDoctor ? (
           <>
             <div style={s.navLabel}>Reports</div>
-            {nav.filter(n=>n.section==='reports' && n.who==='doctor').map(item => <NavItem key={item.id} item={item} active={current===item.id} onClick={()=>onChange(item.id)} />)}
+            {visible(nav.filter(n=>n.section==='reports' && n.who==='doctor')).map(item => <NavItem key={item.id} item={item} active={current===item.id} onClick={()=>onChange(item.id)} />)}
           </>
         ) : isFranchise ? (
           <>
             <div style={s.navLabel}>Main Menu</div>
-            {nav.filter(n=>['dashboard','patients','results'].includes(n.id)).map(item => <NavItem key={item.id} item={item} active={current===item.id} onClick={()=>onChange(item.id)} count={counts[item.badge]} />)}
+            {visible(nav.filter(n=>['dashboard','patients','results'].includes(n.id))).map(item => <NavItem key={item.id} item={item} active={current===item.id} onClick={()=>onChange(item.id)} count={counts[item.badge]} />)}
             <div style={s.navLabel}>Billing</div>
-            {nav.filter(n=>['billing','bills'].includes(n.id)).map(item => <NavItem key={item.id} item={item} active={current===item.id} onClick={()=>onChange(item.id)} />)}
-            <NavItem item={{ id:'credit', icon:'💳', label:'Manage Credit' }} active={current==='credit'} onClick={()=>onChange('credit')} />
+            {visible(nav.filter(n=>['billing','bills'].includes(n.id))).map(item => <NavItem key={item.id} item={item} active={current===item.id} onClick={()=>onChange(item.id)} />)}
+            {!hidden.includes('credit') && <NavItem item={{ id:'credit', icon:'💳', label:'Manage Credit' }} active={current==='credit'} onClick={()=>onChange('credit')} />}
             <div style={s.navLabel}>Reports</div>
-            {nav.filter(n=>['historyneeded','samplereport'].includes(n.id)).map(item => <NavItem key={item.id} item={item} active={current===item.id} onClick={()=>onChange(item.id)} />)}
+            {visible(nav.filter(n=>['historyneeded','samplereport'].includes(n.id))).map(item => <NavItem key={item.id} item={item} active={current===item.id} onClick={()=>onChange(item.id)} />)}
           </>
         ) : (
           <>
             <div style={s.navLabel}>Main Menu</div>
-            {nav.filter(n=>n.section==='main').map(item => <NavItem key={item.id} item={item} active={current===item.id} onClick={()=>onChange(item.id)} count={counts[item.badge]} />)}
+            {visible(nav.filter(n=>n.section==='main')).map(item => <NavItem key={item.id} item={item} active={current===item.id} onClick={()=>onChange(item.id)} count={counts[item.badge]} />)}
             <div style={s.navLabel}>Master</div>
-            {nav.filter(n=>n.section==='master').map(item => <NavItem key={item.id} item={item} active={current===item.id} onClick={()=>onChange(item.id)} />)}
+            {visible(nav.filter(n=>n.section==='master')).map(item => <NavItem key={item.id} item={item} active={current===item.id} onClick={()=>onChange(item.id)} />)}
             <div style={s.navLabel}>Reports</div>
-            {nav.filter(n=>n.section==='reports' && n.who!=='doctor').map(item => <NavItem key={item.id} item={item} active={current===item.id} onClick={()=>onChange(item.id)} />)}
+            {visible(nav.filter(n=>n.section==='reports' && n.who!=='doctor')).map(item => <NavItem key={item.id} item={item} active={current===item.id} onClick={()=>onChange(item.id)} />)}
             <div style={s.navLabel}>Tools</div>
-            {nav.filter(n=>n.section==='tools').map(item => <NavItem key={item.id} item={item} active={current===item.id} onClick={()=>onChange(item.id)} />)}
+            {visible(nav.filter(n=>n.section==='tools')).map(item => <NavItem key={item.id} item={item} active={current===item.id} onClick={()=>onChange(item.id)} />)}
           </>
         )}
       </div>

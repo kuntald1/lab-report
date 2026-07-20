@@ -6,10 +6,10 @@ never create rows in another tenant), and every list goes through apply_scope.
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 
 from database import get_db
-from models.org import Tenant, Branch, Franchise, User, AuditLog, Role, ROLES
+from models.org import Tenant, Branch, Franchise, User, AuditLog, Role, ROLES, RoleMenuConfig
 from auth.security import hash_password
 from auth.deps import get_current_user, get_scope, require_roles, apply_scope, Scope
 from auth.audit import write_audit
@@ -140,6 +140,7 @@ class UserCreate(BaseModel):
     branch_id: Optional[int] = None
     franchise_id: Optional[int] = None
     patient_id: Optional[int] = None
+    department_id: Optional[int] = None
 
 
 @router.post("/users", dependencies=[Depends(require_roles(Role.SUPER_ADMIN, Role.LAB_ADMIN))])
@@ -168,6 +169,7 @@ def create_user(payload: UserCreate, request: Request,
         branch_id=payload.branch_id,
         franchise_id=payload.franchise_id,
         patient_id=payload.patient_id,
+        department_id=payload.department_id,
     )
     db.add(new_user); db.commit(); db.refresh(new_user)
     write_audit(db, action="create", user=user, entity="user", entity_id=new_user.id,
@@ -186,7 +188,8 @@ def list_users(db: Session = Depends(get_db), scope: Scope = Depends(get_scope))
     return [{"id": u.id, "email": u.email, "role": u.role, "full_name": u.full_name,
              "phone": u.phone,
              "tenant_id": u.tenant_id, "branch_id": u.branch_id,
-             "franchise_id": u.franchise_id, "is_active": u.is_active} for u in rows]
+             "franchise_id": u.franchise_id, "department_id": u.department_id,
+             "is_active": u.is_active} for u in rows]
 
 
 class UserUpdate(BaseModel):
@@ -195,6 +198,7 @@ class UserUpdate(BaseModel):
     role: Optional[str] = None
     franchise_id: Optional[int] = None
     branch_id: Optional[int] = None
+    department_id: Optional[int] = None
     is_active: Optional[bool] = None
     password: Optional[str] = None        # if provided, resets the password
 
@@ -221,6 +225,7 @@ def update_user(user_id: int, payload: UserUpdate, request: Request,
     if payload.phone is not None:        target.phone = payload.phone
     if payload.franchise_id is not None: target.franchise_id = payload.franchise_id
     if payload.branch_id is not None:    target.branch_id = payload.branch_id
+    if payload.department_id is not None: target.department_id = payload.department_id
     if payload.is_active is not None:    target.is_active = payload.is_active
     if payload.password:                 target.hashed_password = hash_password(payload.password)
     db.commit(); db.refresh(target)
@@ -257,6 +262,52 @@ def list_audit(db: Session = Depends(get_db), scope: Scope = Depends(get_scope),
     if not scope.is_super_admin and scope.tenant_id is not None:
         q = q.filter(AuditLog.tenant_id == scope.tenant_id)
     return q.order_by(AuditLog.id.desc()).limit(min(limit, 500)).all()
+
+
+# --------------------------------------------------------------------------- menu visibility (per role)
+# Roles admin can restrict from here. super_admin and lab_admin ALWAYS see
+# everything — they're intentionally excluded, never editable, never queried.
+CONFIGURABLE_ROLES = [Role.PATHOLOGIST, Role.TECHNICIAN, Role.RECEPTIONIST, Role.PHLEBOTOMIST, Role.FRANCHISE]
+
+
+@router.get("/menu-config", dependencies=[Depends(require_roles(Role.SUPER_ADMIN, Role.LAB_ADMIN))])
+def get_menu_config(db: Session = Depends(get_db)):
+    """Full matrix for the Menu Permissions page: {role: [hidden_menu_key, ...]}."""
+    rows = db.query(RoleMenuConfig).filter(RoleMenuConfig.role.in_(CONFIGURABLE_ROLES)).all()
+    by_role = {r.role: (r.hidden_keys or []) for r in rows}
+    return {role: by_role.get(role, []) for role in CONFIGURABLE_ROLES}
+
+
+class MenuConfigIn(BaseModel):
+    hidden_keys: List[str] = []
+
+
+@router.put("/menu-config/{role}", dependencies=[Depends(require_roles(Role.SUPER_ADMIN, Role.LAB_ADMIN))])
+def set_menu_config(role: str, payload: MenuConfigIn, request: Request,
+                    db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    if role not in CONFIGURABLE_ROLES:
+        raise HTTPException(status_code=400, detail=f"role must be one of {CONFIGURABLE_ROLES}")
+    row = db.query(RoleMenuConfig).filter(RoleMenuConfig.role == role).first()
+    if not row:
+        row = RoleMenuConfig(role=role, hidden_keys=[])
+        db.add(row)
+    before = row.hidden_keys
+    row.hidden_keys = payload.hidden_keys
+    db.commit()
+    write_audit(db, action="update", user=user, entity="role_menu_config", entity_id=role,
+                before={"hidden_keys": before}, after={"hidden_keys": row.hidden_keys},
+                ip=_ip(request))
+    return {"role": role, "hidden_keys": row.hidden_keys}
+
+
+@router.get("/my-menu-hidden")
+def my_menu_hidden(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Used by the Sidebar: which menu keys should be hidden for the CURRENT
+    user's role. super_admin/lab_admin always get an empty list (full menu)."""
+    if user.role in (Role.SUPER_ADMIN, Role.LAB_ADMIN):
+        return {"hidden_keys": []}
+    row = db.query(RoleMenuConfig).filter(RoleMenuConfig.role == user.role).first()
+    return {"hidden_keys": (row.hidden_keys if row else []) or []}
 
 
 # --------------------------------------------------------------------------- helpers

@@ -57,11 +57,13 @@ def get_all_results(db: Session = Depends(get_db), scope: Scope = Depends(get_sc
                                   .filter(BillModel.bill_no.in_(over_refs)).all()}
 
     if barcode:
-        # match the result's own barcode OR the owning patient's barcode, so a
-        # result stored under a slightly different barcode is still found.
+        # match the result's own barcode OR accession number OR the owning patient's barcode —
+        # a barcode SCANNER doesn't know which of the two boxes it's aimed at, and a person
+        # scanning a tube's accession label into the "Barcode" field should still find it.
         bc_pids = [pid for (pid,) in
                    db.query(Patient.id).filter(Patient.barcode.ilike(f"%{barcode}%")).all()]
         q = q.filter(or_(LabResult.barcode.ilike(f"%{barcode}%"),
+                         LabResult.accession_number.ilike(f"%{barcode}%"),
                          LabResult.patient_id.in_(bc_pids or [-1])))
     if patient_id:
         pid = patient_id.strip()
@@ -74,7 +76,12 @@ def get_all_results(db: Session = Depends(get_db), scope: Scope = Depends(get_sc
                     Patient.patient_name.ilike(f"%{pid}%"))).all()]
             q = q.filter(LabResult.patient_id.in_(match or [-1]))
     if accession_number:
-        q = q.filter(LabResult.accession_number.ilike(f"%{accession_number}%"))
+        # symmetric with the barcode filter above — same scanned code, either box.
+        acc_pids = [pid for (pid,) in
+                    db.query(Patient.id).filter(Patient.barcode.ilike(f"%{accession_number}%")).all()]
+        q = q.filter(or_(LabResult.accession_number.ilike(f"%{accession_number}%"),
+                         LabResult.barcode.ilike(f"%{accession_number}%"),
+                         LabResult.patient_id.in_(acc_pids or [-1])))
     results = q.order_by(LabResult.created_at.desc()).limit(200).all()
 
     # Also include manually reported patients who have no LabResult rows —

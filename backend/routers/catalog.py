@@ -33,7 +33,28 @@ def create_department(p: DepartmentIn, db: Session = Depends(get_db), user: User
 
 @router.get("/departments")
 def list_departments(db: Session = Depends(get_db), scope: Scope = Depends(get_scope)):
-    return apply_scope(db.query(Department), Department, scope).order_by(Department.id).all()
+    return (apply_scope(db.query(Department), Department, scope)
+              .filter(Department.is_active.is_(True)).order_by(Department.name).all())
+
+
+@router.put("/departments/{department_id}", dependencies=[Depends(WRITE)])
+def update_department(department_id: int, p: DepartmentIn, db: Session = Depends(get_db)):
+    d = db.query(Department).filter(Department.id == department_id).first()
+    if not d:
+        raise HTTPException(404, "department not found")
+    d.name, d.code = p.name, p.code
+    db.commit(); db.refresh(d)
+    return d
+
+
+@router.delete("/departments/{department_id}", dependencies=[Depends(WRITE)])
+def delete_department(department_id: int, db: Session = Depends(get_db)):
+    d = db.query(Department).filter(Department.id == department_id).first()
+    if not d:
+        raise HTTPException(404, "department not found")
+    d.is_active = False
+    db.commit()
+    return {"id": department_id, "is_active": False}
 
 
 # --------------------------------------------------------------------------- tests

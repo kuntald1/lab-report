@@ -121,10 +121,22 @@ class User(Base):
     branch_id     = Column(Integer, ForeignKey("branches.id"),   nullable=True, index=True)
     franchise_id  = Column(Integer, ForeignKey("franchises.id"), nullable=True, index=True)
     patient_id    = Column(Integer, ForeignKey("patients.id"),   nullable=True, index=True)
+    department_id = Column(Integer, ForeignKey("departments.id"), nullable=True, index=True)  # which lab section this person works in — independent of role
     is_active     = Column(Boolean, default=True)
     created_at    = Column(DateTime(timezone=True), server_default=func.now())
 
     tenant        = relationship("Tenant", back_populates="users")
+
+
+class RoleMenuConfig(Base):
+    """Which sidebar menu items are hidden for a given role. Absence of a row
+    (or an empty hidden_keys list) means that role sees everything — this is
+    additive/restrictive only, so it can never accidentally grant access.
+    super_admin and lab_admin always bypass this (enforced server-side)."""
+    __tablename__ = "role_menu_config"
+    role         = Column(String, primary_key=True)
+    hidden_keys  = Column(JSON, nullable=True)   # list[str] of nav item ids hidden for this role
+    updated_at   = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
 class AuditLog(Base):
