@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { authedFetch } from '../services/auth';
 
 const STATUSES = ['collected', 'received', 'tested', 'validated', 'reported', 'sample_rejected'];
@@ -18,6 +18,7 @@ async function j(path, method = 'GET', body) {
 }
 
 export default function ChangeStatus() {
+  const [tab, setTab] = useState('search');   // 'search' | 'scan'
   const [f, setF] = useState({ patient_id: '', barcode: '', accession_number: '', branch_id: '', franchise_id: '', status: '' });
   const [rows, setRows] = useState(null);
   const [sel, setSel] = useState(new Set());
@@ -62,6 +63,30 @@ export default function ChangeStatus() {
     finally { setBusy(false); }
   };
 
+  // ---- Scan Mode ----
+  const [scanCode, setScanCode] = useState('');
+  const [scanLog, setScanLog] = useState([]);   // most-recent-first log of scan results
+  const [scanBusy, setScanBusy] = useState(false);
+  const scanInputRef = useRef(null);
+
+  useEffect(() => { if (tab === 'scan') scanInputRef.current?.focus(); }, [tab]);
+
+  const doScan = async () => {
+    const code = scanCode.trim();
+    if (!code || scanBusy) return;
+    setScanBusy(true);
+    try {
+      const res = await j('/sample-status/scan', 'POST', { code });
+      const entry = { code, time: new Date(), matched_by: res.matched_by, updated: res.updated, skipped: res.skipped };
+      setScanLog(l => [entry, ...l].slice(0, 50));
+    } catch (e) {
+      setScanLog(l => [{ code, time: new Date(), error: e.message }, ...l].slice(0, 50));
+    }
+    setScanCode('');
+    setScanBusy(false);
+    scanInputRef.current?.focus();
+  };
+
   return (
     <div>
       {toast && (
@@ -71,10 +96,69 @@ export default function ChangeStatus() {
         </div>
       )}
       <h1 style={{ fontFamily: 'Manrope,sans-serif', fontSize: '1.5rem', fontWeight: 800, color: '#0f1218', margin: 0 }}>Change Report Status</h1>
-      <p style={{ fontSize: '0.82rem', color: '#8892a4', margin: '0.3rem 0 1.2rem' }}>
+      <p style={{ fontSize: '0.82rem', color: '#8892a4', margin: '0.3rem 0 1rem' }}>
         Search per test/sample (by accession number, barcode, patient, branch, or franchise), tick the ones you want, then advance: collected → received → tested → validated → reported
       </p>
 
+      {/* tabs */}
+      <div style={{ display:'flex', gap:'0.4rem', marginBottom:'1.2rem', borderBottom:'1px solid #e8ecf4' }}>
+        {[['search','🔎 Search'], ['scan','📷 Scan Mode']].map(([k,label]) => (
+          <button key={k} onClick={()=>setTab(k)}
+            style={{ padding:'0.6rem 1.1rem', border:'none', background:'transparent', cursor:'pointer', fontFamily:'Manrope,sans-serif', fontWeight:700, fontSize:'0.84rem',
+                     color: tab===k?'#f97316':'#8892a4', borderBottom: tab===k?'2px solid #f97316':'2px solid transparent', marginBottom:'-1px' }}>{label}</button>
+        ))}
+      </div>
+
+      {tab === 'scan' ? (
+        <div>
+          <div style={{ ...card, marginBottom:'1rem' }}>
+            <div style={lbl}>Scan barcode / accession label</div>
+            <div style={{ display:'flex', gap:'0.6rem' }}>
+              <input ref={scanInputRef} autoFocus style={{ ...inp, fontFamily:'monospace', fontSize:'1.1rem', letterSpacing:'0.04em' }}
+                placeholder="Scan or type a code, then press Enter…" value={scanCode}
+                onChange={e=>setScanCode(e.target.value)}
+                onKeyDown={e=>{ if (e.key==='Enter') doScan(); }} disabled={scanBusy} />
+              <button onClick={doScan} disabled={scanBusy || !scanCode.trim()} style={btnPrimary}>{scanBusy?'…':'Receive'}</button>
+            </div>
+            <div style={{ fontSize:'0.74rem', color:'#8892a4', marginTop:'0.6rem' }}>
+              Every scan moves that sample straight to <b>Received</b> — but only if it's currently <b>Collected</b>. Anything already further along (tested, validated, reported, rejected) is left untouched and reported below instead of being changed.
+            </div>
+          </div>
+
+          {scanLog.length > 0 && (
+            <div style={card}>
+              <div style={{ fontSize:'0.68rem', fontWeight:700, color:'#8892a4', textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:'0.7rem' }}>Scan log</div>
+              <div style={{ display:'flex', flexDirection:'column', gap:'0.5rem' }}>
+                {scanLog.map((e, i) => (
+                  <div key={i} style={{ padding:'0.6rem 0.8rem', borderRadius:9, background:'#fafbfc', border:'1px solid #f1f5f9', fontSize:'0.82rem' }}>
+                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                      <span style={{ fontFamily:'monospace', fontWeight:700, color:'#0f1218' }}>{e.code}</span>
+                      <span style={{ fontSize:'0.7rem', color:'#94a3b8' }}>{e.time.toLocaleTimeString()}</span>
+                    </div>
+                    {e.error && <div style={{ color:'#dc2626', marginTop:'0.25rem' }}>✕ {e.error}</div>}
+                    {!e.error && e.updated?.map(u => (
+                      <div key={u.id} style={{ color:'#16a34a', marginTop:'0.25rem' }}>
+                        ✓ {u.test_name} ({u.accession_number}) — {u.patient_name}: {u.prev_status} → <b>{u.new_status}</b>
+                      </div>
+                    ))}
+                    {!e.error && e.skipped?.map(s => (
+                      <div key={s.id} style={{ color:'#c2410c', marginTop:'0.25rem' }}>
+                        — {s.test_name} ({s.accession_number}) — already <b>{s.status}</b>, not changed
+                      </div>
+                    ))}
+                    {!e.error && e.matched_by && (
+                      <div style={{ color:'#94a3b8', fontSize:'0.72rem', marginTop:'0.2rem' }}>
+                        matched by {e.matched_by === 'accession' ? 'accession number' : "patient's barcode (all collected tests received)"}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      ) : (
+      <>
       {/* filters */}
       <div style={card}>
         <div style={{ display: 'flex', gap: '0.7rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
@@ -136,6 +220,8 @@ export default function ChangeStatus() {
             </table>
           )}
         </div>
+      )}
+      </>
       )}
     </div>
   );

@@ -140,3 +140,63 @@ def advance_status(p: AdvanceIn, request: Request,
                 after={"status": p.status, "count": len(rows)},
                 ip=request.client.host if request.client else None)
     return {"updated": len(rows), "status": p.status, "ids": [it.id for it, b, p in rows]}
+
+
+class ScanIn(BaseModel):
+    code: str   # whatever the scanner fired — either a specific accession number, or the patient's plain barcode
+
+
+@router.post("/scan")
+def scan_receive(p: ScanIn, request: Request,
+                 db: Session = Depends(get_db), user: User = Depends(get_current_user),
+                 scope: Scope = Depends(get_scope)):
+    """Scan-mode receiving: scanning a code moves it collected -> received, and
+    ONLY collected -> received — any other current status is left untouched
+    (reported back, not silently changed). Matches a specific accession number
+    first; if nothing matches, falls back to the patient's plain barcode and
+    receives every 'collected' test on that patient in one scan."""
+    if user.role == "patient":
+        raise HTTPException(status_code=403, detail="patients cannot change status")
+    code = (p.code or "").strip()
+    if not code:
+        raise HTTPException(status_code=400, detail="no code scanned")
+
+    base_q = (db.query(BillItem, Bill, Patient)
+                .join(Bill, Bill.id == BillItem.bill_id)
+                .join(Patient, Patient.id == Bill.patient_id))
+    if scope.tenant_id is not None:
+        base_q = base_q.filter(Bill.tenant_id == scope.tenant_id)
+    if scope.role == "franchise" and scope.franchise_id is not None:
+        base_q = base_q.filter(Bill.organization_id == scope.franchise_id)
+
+    matched_by = None
+    rows = base_q.filter(BillItem.accession_number == code).all()
+    if rows:
+        matched_by = "accession"
+    else:
+        rows = base_q.filter(Patient.barcode == code, BillItem.accession_number.isnot(None)).all()
+        if rows:
+            matched_by = "barcode"
+
+    if not rows:
+        raise HTTPException(status_code=404, detail=f"No sample found for '{code}'")
+
+    updated, skipped = [], []
+    for it, b, patient in rows:
+        cur = it.status or "collected"
+        line = {"id": it.id, "accession_number": it.accession_number,
+                "test_name": it.package_name or it.test_name, "patient_name": patient.patient_name}
+        if cur == "collected":
+            it.status = "received"
+            updated.append({**line, "prev_status": cur, "new_status": "received"})
+        else:
+            skipped.append({**line, "status": cur})
+    db.commit()
+
+    if updated:
+        write_audit(db, action="status_change", user=user, entity="bill_item",
+                    entity_id=",".join(str(u["id"]) for u in updated),
+                    after={"status": "received", "count": len(updated), "via": "scan"},
+                    ip=request.client.host if request.client else None)
+
+    return {"matched_by": matched_by, "code": code, "updated": updated, "skipped": skipped}
