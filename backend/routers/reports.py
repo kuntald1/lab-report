@@ -158,15 +158,26 @@ def validated_reports(date_from: Optional[str] = None, date_to: Optional[str] = 
         q = q.filter(BillItem.validated_at <= date_to + " 23:59:59")
     rows = q.order_by(BillItem.validated_at.desc()).limit(1000).all()
 
+    all_accessions = {it.accession_number for it, b, p in rows if it.accession_number}
+    result_id_by_accession = {}
+    if all_accessions:
+        for r in db.query(LabResult).filter(LabResult.accession_number.in_(all_accessions)).all():
+            if r.accession_number not in result_id_by_accession:
+                result_id_by_accession[r.accession_number] = r.id
+
     grouped = {}
     for it, b, p in rows:
         g = grouped.get(p.id)
         if not g:
             g = _patient_brief(p)
             g["accession_numbers"] = []
+            g["result_ids"] = []
             g["validated_at"] = it.validated_at
             grouped[p.id] = g
         g["accession_numbers"].append(it.accession_number)
+        rid = result_id_by_accession.get(it.accession_number)
+        if rid:
+            g["result_ids"].append(rid)
         if it.validated_at and (not g["validated_at"] or it.validated_at > g["validated_at"]):
             g["validated_at"] = it.validated_at
     return sorted(grouped.values(), key=lambda d: d["validated_at"] or "", reverse=True)[:500]
