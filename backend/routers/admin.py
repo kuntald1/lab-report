@@ -264,6 +264,60 @@ def list_audit(db: Session = Depends(get_db), scope: Scope = Depends(get_scope),
     return q.order_by(AuditLog.id.desc()).limit(min(limit, 500)).all()
 
 
+# --------------------------------------------------------------------------- roles (master list backing dropdowns)
+_ROLE_SEED = [
+    ("super_admin",  "Super Admin", 0),
+    ("lab_admin",    "Lab Admin", 1),
+    ("pathologist",  "Doctor (Pathologist)", 2),
+    ("technician",   "Staff — Technician", 3),
+    ("receptionist", "Staff — Receptionist", 4),
+    ("phlebotomist", "Staff — Phlebotomist", 5),
+    ("franchise",    "Organization login", 6),
+    ("patient",      "Patient login", 7),
+]
+
+
+@router.get("/roles")
+def list_roles(db: Session = Depends(get_db), user: User = Depends(get_current_user), active_only: bool = True):
+    """Used by Users & Staff, Menu Permissions, etc. instead of each page hardcoding its own role list."""
+    from models.org import RoleDef
+    # self-heal: main.py's create_all() creates this table empty on any deploy even if the
+    # dedicated seed script was never run — seed it lazily here so the page never shows blank.
+    if db.query(RoleDef).count() == 0:
+        for key, label, order in _ROLE_SEED:
+            if not db.query(RoleDef).filter(RoleDef.role_key == key).first():
+                db.add(RoleDef(role_key=key, label=label, is_active=True, sort_order=order))
+        db.commit()
+    q = db.query(RoleDef)
+    if active_only:
+        q = q.filter(RoleDef.is_active.is_(True))
+    rows = q.order_by(RoleDef.sort_order, RoleDef.role_key).all()
+    return [{"role_key": r.role_key, "label": r.label, "is_active": r.is_active} for r in rows]
+
+
+class RoleDefUpdate(BaseModel):
+    label: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+@router.put("/roles/{role_key}", dependencies=[Depends(require_roles(Role.SUPER_ADMIN, Role.LAB_ADMIN))])
+def update_role_def(role_key: str, payload: RoleDefUpdate, db: Session = Depends(get_db)):
+    """Rename a role's display label, or hide it from pickers. Cannot create a new
+    role KEY here — see RoleDef's docstring for why that would be unsafe."""
+    from models.org import RoleDef
+    r = db.query(RoleDef).filter(RoleDef.role_key == role_key).first()
+    if not r:
+        raise HTTPException(status_code=404, detail="unknown role key")
+    if role_key in (Role.SUPER_ADMIN,) and payload.is_active is False:
+        raise HTTPException(status_code=400, detail="super_admin cannot be deactivated")
+    if payload.label is not None:
+        r.label = payload.label
+    if payload.is_active is not None:
+        r.is_active = payload.is_active
+    db.commit(); db.refresh(r)
+    return {"role_key": r.role_key, "label": r.label, "is_active": r.is_active}
+
+
 # --------------------------------------------------------------------------- menu visibility (per role)
 # Roles admin can restrict from here. super_admin and lab_admin ALWAYS see
 # everything — they're intentionally excluded, never editable, never queried.
