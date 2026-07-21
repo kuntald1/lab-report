@@ -29,7 +29,7 @@ export default function Login({ onLogin }) {
 
   return (
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  background: 'linear-gradient(135deg,#1a1f2e 0%,#0f1218 100%)' }}>
+                  background: 'linear-gradient(135deg, rgb(26, 31, 46) 0%, rgb(23, 182, 158) 100%)' }}>
       <div style={{ width: '460px', maxWidth: '92vw', background: '#fff', borderRadius: '20px', padding: '2.8rem 2.6rem',
                     boxShadow: '0 24px 60px rgba(0,0,0,0.35)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.9rem', marginBottom: '2rem' }}>

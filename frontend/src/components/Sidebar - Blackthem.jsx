@@ -44,7 +44,7 @@ export default function Sidebar({ current, onChange, counts = {}, user = null, o
   const visible = (items) => items.filter(n => !hidden.includes(n.id));
 
   const s = {
-    aside: { position:'fixed', top:0, left:0, bottom:0, width:'235px', background:'rgb(11, 77, 62)', display:'flex', flexDirection:'column', zIndex:50, boxShadow:'4px 0 24px rgba(0,0,0,0.15)' },
+    aside: { position:'fixed', top:0, left:0, bottom:0, width:'235px', background:'#1a1f2e', display:'flex', flexDirection:'column', zIndex:50, boxShadow:'4px 0 24px rgba(0,0,0,0.15)' },
     logoWrap: { padding:'1.4rem 1.3rem 1.2rem', borderBottom:'1px solid rgba(255,255,255,0.06)' },
     logoRow: { display:'flex', alignItems:'center', gap:'0.7rem' },
     logoIcon: { width:'38px', height:'38px', background:'linear-gradient(135deg,#f97316,#fbbf24)', borderRadius:'11px', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'1.15rem', boxShadow:'0 4px 16px rgba(249,115,22,0.4)', flexShrink:0 },
