@@ -55,25 +55,35 @@ def _patient_brief(p: Patient) -> dict:
             "created_at": p.created_at}
 
 
-def _accessions_for_patients(db: Session, patient_ids: list) -> dict:
-    """{patient_id: [accession_number, ...]} across all of that patient's bills — batched, no N+1."""
+def _accessions_for_patients(db: Session, patient_ids: list, statuses: list = None) -> dict:
+    """{patient_id: [accession_number, ...]} across that patient's bills — batched, no N+1.
+    Pass `statuses` to only include bill_items currently at those statuses (e.g. ['tested']
+    for "ready to validate") instead of every accession the patient has ever had, regardless
+    of whether that specific test has actually reached this stage yet."""
     if not patient_ids:
         return {}
-    rows = (db.query(BillItem.accession_number, Bill.patient_id)
-              .join(Bill, Bill.id == BillItem.bill_id)
-              .filter(Bill.patient_id.in_(patient_ids), BillItem.accession_number.isnot(None))
-              .all())
+    q = (db.query(BillItem.accession_number, Bill.patient_id)
+           .join(Bill, Bill.id == BillItem.bill_id)
+           .filter(Bill.patient_id.in_(patient_ids), BillItem.accession_number.isnot(None)))
+    if statuses:
+        q = q.filter(BillItem.status.in_(statuses))
     out = {}
-    for acc, pid in rows:
+    for acc, pid in q.all():
         out.setdefault(pid, []).append(acc)
     return out
 
 
 # ------------------------------------------------------------------ doctor queue
 def _pending_query(db: Session, user: User):
-    """Shared filter for a doctor's pending queue (tested + assigned to this doctor).
-    Admins get all tested patients."""
-    q = db.query(Patient).filter(Patient.status == "tested", Patient.is_active.is_(True))
+    """Shared filter for a doctor's pending queue. A patient qualifies if at least one of
+    their TESTS (bill_items) has actually reached 'tested' status — not the old patient-level
+    Patient.status field, which isn't kept in sync with the per-test status system anymore
+    (Change Report Status moved to per-accession status on bill_items a while back)."""
+    tested_patient_ids = (db.query(Bill.patient_id)
+                             .join(BillItem, BillItem.bill_id == Bill.id)
+                             .filter(BillItem.status == "tested")
+                             .distinct())
+    q = db.query(Patient).filter(Patient.id.in_(tested_patient_ids), Patient.is_active.is_(True))
     q = q.filter(Patient.needs_history.isnot(True))
     if user.role not in ADMIN_ROLES:
         by_bill = (db.query(Bill.patient_id)
@@ -100,7 +110,7 @@ def pending_reports(db: Session = Depends(get_db), user: User = Depends(get_curr
     Admins see all tested patients.
     """
     rows = _pending_query(db, user).order_by(Patient.created_at.desc()).limit(500).all()
-    accmap = _accessions_for_patients(db, [p.id for p in rows])
+    accmap = _accessions_for_patients(db, [p.id for p in rows], statuses=["tested"])
     out = []
     for p in rows:
         d = _patient_brief(p)
