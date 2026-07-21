@@ -250,40 +250,41 @@ def validate_report(patient_id: int, request: Request,
                 after={"status": "reported", "bill_items_advanced": [it.id for it in advanced_items]},
                 ip=_ip(request))
 
-    # Commission: fires once, the first time a report is validated, off whatever
-    # bill items exist for this patient at that moment. Wrapped so a commission
-    # issue can never block the doctor from validating the report.
-    if not was_reported and p.referral_doctor_id:
+    # Commission: fires per TEST, the moment that specific bill_item is actually advanced to
+    # 'reported' (not for the whole patient's bill collection regardless of each test's own
+    # status, and not gated to "only the first validation" — a lipid profile panel with 4
+    # component tests earns commission on each one as it individually completes, not all-
+    # or-nothing on the first click). The idempotent guard still stops any single test's
+    # commission from being created twice. Wrapped so a commission issue can never block
+    # the doctor from validating the report.
+    if p.referral_doctor_id and advanced_items:
         try:
             doctor = db.query(ReferralDoctor).filter(ReferralDoctor.id == p.referral_doctor_id,
                                                       ReferralDoctor.is_active.is_(True)).first()
             if doctor and (doctor.commission_percent or 0) > 0:
-                bill_ids = [b.id for b in db.query(Bill.id).filter(Bill.patient_id == p.id).all()]
-                if bill_ids:
-                    bills_by_id = {b.id: b for b in db.query(Bill).filter(Bill.id.in_(bill_ids)).all()}
-                    items = db.query(BillItem).filter(BillItem.bill_id.in_(bill_ids)).all()
-                    for it in items:
-                        already = db.query(DoctorCommission.id).filter(
-                            DoctorCommission.patient_id == p.id,
-                            DoctorCommission.bill_id == it.bill_id,
-                            DoctorCommission.test_name == it.test_name,
-                        ).first()
-                        if already:
-                            continue   # idempotent guard against double-firing
-                        base = it.price or 0.0   # pre-discount resolved price, per the agreed commission basis
-                        pct = doctor.commission_percent or 0.0
-                        bill = bills_by_id.get(it.bill_id)
-                        db.add(DoctorCommission(
-                            tenant_id=p.tenant_id, referral_doctor_id=doctor.id,
-                            patient_id=p.id, patient_name=p.patient_name, barcode=p.barcode,
-                            bill_id=it.bill_id, bill_no=bill.bill_no if bill else None,
-                            test_name=it.test_name, package_name=it.package_name,
-                            accession_number=it.accession_number,
-                            base_amount=base, commission_percent=pct,
-                            commission_amount=round(base * pct / 100.0, 2),
-                            validated_at=p.validated_at,
-                        ))
-                    db.commit()
+                bills_by_id = {b.id: b for b in db.query(Bill).filter(Bill.id.in_(bill_ids)).all()}
+                for it in advanced_items:
+                    already = db.query(DoctorCommission.id).filter(
+                        DoctorCommission.patient_id == p.id,
+                        DoctorCommission.bill_id == it.bill_id,
+                        DoctorCommission.test_name == it.test_name,
+                    ).first()
+                    if already:
+                        continue   # idempotent guard against double-firing
+                    base = it.price or 0.0   # pre-discount resolved price, per the agreed commission basis
+                    pct = doctor.commission_percent or 0.0
+                    bill = bills_by_id.get(it.bill_id)
+                    db.add(DoctorCommission(
+                        tenant_id=p.tenant_id, referral_doctor_id=doctor.id,
+                        patient_id=p.id, patient_name=p.patient_name, barcode=p.barcode,
+                        bill_id=it.bill_id, bill_no=bill.bill_no if bill else None,
+                        test_name=it.test_name, package_name=it.package_name,
+                        accession_number=it.accession_number,
+                        base_amount=base, commission_percent=pct,
+                        commission_amount=round(base * pct / 100.0, 2),
+                        validated_at=p.validated_at,
+                    ))
+                db.commit()
         except Exception:
             db.rollback()   # never let a commission glitch affect the validation that already succeeded
 
