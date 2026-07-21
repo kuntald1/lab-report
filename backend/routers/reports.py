@@ -143,7 +143,7 @@ def validated_reports(date_from: Optional[str] = None, date_to: Optional[str] = 
     if date_to:
         q = q.filter(Patient.validated_at <= date_to + " 23:59:59")
     rows = q.order_by(Patient.validated_at.desc()).limit(500).all()
-    accmap = _accessions_for_patients(db, [p.id for p in rows])
+    accmap = _accessions_for_patients(db, [p.id for p in rows], statuses=["reported"])
     out = []
     for p in rows:
         d = _patient_brief(p)
