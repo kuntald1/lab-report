@@ -165,13 +165,11 @@ export default function Users() {
                   {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
                 </select></div>
             )}
-            {(form.role === 'technician' || form.role === 'receptionist' || form.role === 'phlebotomist' || form.role === 'pathologist') && (
-              <div><label style={lbl}>Department <span style={{ textTransform:'none', letterSpacing:0, fontWeight:400 }}>(which lab section — optional)</span></label>
-                <select style={inp} value={form.department_id} onChange={e=>setForm({...form,department_id:e.target.value})}>
-                  <option value="">— Unassigned —</option>
-                  {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-                </select></div>
-            )}
+            <div><label style={lbl}>Department <span style={{ textTransform:'none', letterSpacing:0, fontWeight:400 }}>(optional)</span></label>
+              <select style={inp} value={form.department_id} onChange={e=>setForm({...form,department_id:e.target.value})}>
+                <option value="">— Unassigned —</option>
+                {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+              </select></div>
           </div>
           <div style={{ display:'flex', gap:'0.6rem' }}>
             <button onClick={submit} disabled={saving} style={{ background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', border:'none', borderRadius:'9px', padding:'0.65rem 1.5rem', fontWeight:700, cursor:'pointer', fontFamily:'Manrope,sans-serif' }}>
@@ -186,14 +184,14 @@ export default function Users() {
         <table style={{ width:'100%', borderCollapse:'collapse' }}>
           <thead>
             <tr style={{ background:'#fafbfc', borderBottom:'1.5px solid #e8ecf4' }}>
-              {['Name','Login (email)','Phone','Role','Organization','Status','Actions'].map(h => (
+              {['Name','Login (email)','Phone','Role','Department','Organization','Status','Actions'].map(h => (
                 <th key={h} style={{ textAlign:'left', padding:'0.8rem 1.3rem', fontSize:'0.65rem', color:'#8892a4', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.07em' }}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {users.length === 0 && (
-              <tr><td colSpan={7} style={{ textAlign:'center', padding:'3rem', color:'#8892a4' }}>No users yet.</td></tr>
+              <tr><td colSpan={8} style={{ textAlign:'center', padding:'3rem', color:'#8892a4' }}>No users yet.</td></tr>
             )}
             {users.map(u => (
               <tr key={u.id} style={{ borderBottom:'1px solid #f4f6fa' }}
@@ -205,6 +203,7 @@ export default function Users() {
                 <td style={{ padding:'0.9rem 1.3rem' }}>
                   <span style={{ background:(roleColor[u.role]||'#64748b')+'18', color:roleColor[u.role]||'#64748b', padding:'0.2rem 0.7rem', borderRadius:'20px', fontSize:'0.72rem', fontWeight:700 }}>{roleLabel(u.role)}</span>
                 </td>
+                <td style={{ padding:'0.9rem 1.3rem', color:'#475569', fontSize:'0.83rem' }}>{departments.find(d=>d.id===u.department_id)?.name || '—'}</td>
                 <td style={{ padding:'0.9rem 1.3rem', color:'#475569', fontSize:'0.83rem' }}>{u.franchise_id ? orgName(u.franchise_id) : '—'}</td>
                 <td style={{ padding:'0.9rem 1.3rem' }}>
                   <span style={{ color: u.is_active===false ? '#dc2626' : '#16a34a', fontSize:'0.78rem', fontWeight:700 }}>{u.is_active===false ? 'Inactive' : 'Active'}</span>
