@@ -13,7 +13,7 @@ export default function Dashboard() {
   const isFranchise = (auth.user()?.role || '').toLowerCase() === 'franchise';
   const myFranchiseId = isFranchise ? (auth.user()?.franchise_id || '') : '';
   const [f, setF] = useState({ franchise_id: myFranchiseId, branch_id:'', date_from: todayISO(-29), date_to: todayISO(0) });
-  const [d, setD] = useState({ kpis:{}, daily:[], methods:[], breakdown:[], recent:[] });
+  const [d, setD] = useState({ kpis:{}, daily:[], methods:[], breakdown:[] });
   const [loading, setLoading] = useState(true);
   const [franchises, setFranchises] = useState([]);
   const [detail, setDetail] = useState(null);
@@ -39,7 +39,7 @@ export default function Dashboard() {
   const load = () => {
     setLoading(true);
     const qs = Object.entries(f).filter(([,v])=>v!=='').map(([k,v])=>`${k}=${encodeURIComponent(v)}`).join('&');
-    authedFetch(`/reports2/dashboard${qs?`?${qs}`:''}`).then(r=>r.ok?r.json():{kpis:{},daily:[],methods:[],breakdown:[],recent:[]}).then(x=>{ setD(x); setLoading(false); }).catch(()=>setLoading(false));
+    authedFetch(`/reports2/dashboard${qs?`?${qs}`:''}`).then(r=>r.ok?r.json():{kpis:{},daily:[],methods:[],breakdown:[]}).then(x=>{ setD(x); setLoading(false); }).catch(()=>setLoading(false));
   };
   const set = (k,v) => setF(p=>({ ...p, [k]:v }));
   const quick = (days) => { const nf={ ...f, date_from: todayISO(-days+1), date_to: todayISO(0) }; setF(nf); setTimeout(load,0); };
@@ -155,39 +155,6 @@ export default function Dashboard() {
                 </td>
               </tr>
             ))}
-          </tbody>
-        </table>
-      </div>
-
-      {/* recent bills */}
-      <div style={{ ...S.card, padding:0, overflow:'hidden' }}>
-        <div style={{ fontWeight:800, color:'#0f1218', padding:'1.1rem 1.3rem 0.8rem', fontFamily:'Manrope,sans-serif' }}>Recent Bills</div>
-        <table style={{ width:'100%', borderCollapse:'collapse' }}>
-          <thead>
-            <tr style={{ background:'#fafbfc', borderTop:'1px solid #eef1f6', borderBottom:'1.5px solid #e8ecf4' }}>
-              {['Bill No','Patient ID','Barcode','Franchise','Status','Total','Paid','Date'].map((h,i)=>(
-                <th key={i} style={{ textAlign: i>4&&i<7?'right':'left', padding:'0.65rem 1.3rem', fontSize:'0.62rem', color:'#8892a4', fontWeight:700, textTransform:'uppercase' }}>{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {d.recent.length===0 && <tr><td colSpan={8} style={{ textAlign:'center', padding:'2rem', color:'#8892a4' }}>No bills.</td></tr>}
-            {d.recent.map((b,i)=>{
-              const click = ()=>openDetail(b.patient_id);
-              const link = { cursor:'pointer', textDecoration:'underline' };
-              return (
-                <tr key={i} style={{ borderBottom:'1px solid #f4f6fa' }}>
-                  <td onClick={click} style={{ padding:'0.6rem 1.3rem', fontFamily:'monospace', fontWeight:700, color:'#f97316', fontSize:'0.8rem', ...link }}>{b.bill_no}</td>
-                  <td onClick={click} style={{ padding:'0.6rem 1.3rem', fontWeight:700, color:'#6366f1', fontSize:'0.8rem', ...link }}>{b.patient_id?`#${b.patient_id}`:'—'}</td>
-                  <td onClick={click} style={{ padding:'0.6rem 1.3rem', fontFamily:'monospace', color:'#6366f1', fontSize:'0.8rem', ...(b.barcode?link:{}) }}>{b.barcode||'—'}</td>
-                  <td style={{ padding:'0.6rem 1.3rem', color:'#475569', fontSize:'0.82rem' }}>{b.company}</td>
-                  <td style={{ padding:'0.6rem 1.3rem' }}><span style={{ background:'rgba(249,115,22,0.1)', color:'#f97316', padding:'0.15rem 0.55rem', borderRadius:'20px', fontSize:'0.68rem', fontWeight:700, textTransform:'capitalize' }}>{b.status}</span></td>
-                  <td style={{ padding:'0.6rem 1.3rem', textAlign:'right', fontWeight:700, color:'#0f1218', fontSize:'0.82rem' }}>{money(b.total)}</td>
-                  <td style={{ padding:'0.6rem 1.3rem', textAlign:'right', fontWeight:700, color:'#16a34a', fontSize:'0.82rem' }}>{money(b.paid)}</td>
-                  <td style={{ padding:'0.6rem 1.3rem', color:'#8892a4', fontSize:'0.76rem' }}>{fmt(b.created_at)}</td>
-                </tr>
-              );
-            })}
           </tbody>
         </table>
       </div>
