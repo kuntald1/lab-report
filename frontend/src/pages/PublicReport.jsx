@@ -44,6 +44,11 @@ export default function PublicReport() {
     window.open(url, '_blank');
   };
 
+  const downloadCombinedPdf = () => {
+    const url = `${api.BASE}/public/patient/${pid}/combined-pdf?token=${encodeURIComponent(k)}&password=${encodeURIComponent(password.trim())}`;
+    window.open(url, '_blank');
+  };
+
   const ensureRzp = () => new Promise((resolve, reject) => {
     if (window.Razorpay) return resolve();
     const s = document.createElement('script');
@@ -189,6 +194,13 @@ export default function PublicReport() {
             <div style={{ fontSize:'0.68rem', color:'#8892a4', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:'0.8rem' }}>
               Reported Tests ({tests.length})
             </div>
+
+            {tests.length > 1 && (
+              <button onClick={downloadCombinedPdf}
+                style={{ width:'100%', background:'linear-gradient(135deg,#17b9a1,#3dc7f5)', color:'#fff', border:'none', borderRadius:'10px', padding:'0.75rem', fontWeight:700, cursor:'pointer', fontSize:'0.85rem', fontFamily:'Manrope,sans-serif', marginBottom:'1rem', boxShadow:'0 4px 14px rgba(23,185,161,0.3)' }}>
+                📋 View Full Report (All {tests.length} Tests)
+              </button>
+            )}
 
             {tests.length === 0 ? (
               <div style={{ textAlign:'center', padding:'2rem 1rem', color:'#8892a4', fontSize:'0.85rem' }}>

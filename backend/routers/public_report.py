@@ -22,10 +22,10 @@ from typing import Optional
 
 from database import get_db
 from models.models import LabResult, Patient
-from models.billing import Bill, Payment
+from models.billing import Bill, Payment, BillItem
 from models.messaging import PaymentTransaction
 from services.report_link import check_token, check_patient_token, report_token
-from routers.pdf import generate_pdf
+from routers.pdf import generate_pdf, generate_combined_pdf
 
 RZP_KEY_ID     = os.getenv("RAZORPAY_KEY_ID", "")
 RZP_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET", "")
@@ -164,13 +164,69 @@ def public_patient_view(patient_id: int, payload: VerifyIn, db: Session = Depend
     if balance_due > 0:
         return {**base, "ready": True, "payment_due": True, "balance_due": balance_due}
 
-    results = db.query(LabResult).filter(LabResult.patient_id == patient.id).order_by(LabResult.created_at.asc()).all()
+    # Only results that actually correspond to a REPORTED test on this patient's bill(s) —
+    # matched by accession number, not just "any LabResult ever created for this patient_id".
+    # Without this, stray/leftover results (e.g. test data from unrelated testing) could show
+    # up on a completely different bill's report just because they share a patient record.
+    reported_accessions = {a for (a,) in
+        db.query(BillItem.accession_number)
+          .join(Bill, Bill.id == BillItem.bill_id)
+          .filter(Bill.patient_id == patient.id, BillItem.status == "reported",
+                  BillItem.accession_number.isnot(None)).all()}
+    if reported_accessions:
+        results = (db.query(LabResult)
+                     .filter(LabResult.patient_id == patient.id,
+                             LabResult.accession_number.in_(reported_accessions))
+                     .order_by(LabResult.created_at.asc()).all())
+    else:
+        # legacy fallback: patients billed before the accession-number system existed
+        results = db.query(LabResult).filter(LabResult.patient_id == patient.id).order_by(LabResult.created_at.asc()).all()
     return {
         **base, "ready": True, "payment_due": False,
         "tests": [{"result_id": r.id, "test_name": r.test_name,
                    "created_at": r.created_at, "result_token": report_token(r.id)}
                   for r in results],
+        "combined_available": len(results) > 1,
     }
+
+
+@router.get("/patient/{patient_id}/combined-pdf")
+def public_patient_combined_pdf(patient_id: int, token: str = Query(...), password: str = Query(...),
+                                db: Session = Depends(get_db)):
+    """One PDF covering every reported test on this patient's bill(s) — the link placed on
+    the money receipt so the whole report can be seen/downloaded in a single click instead
+    of one PDF per test."""
+    patient = _verify_patient(db, patient_id, token, password)
+    if patient.status != "reported":
+        raise HTTPException(400, "report not ready yet")
+    bills = db.query(Bill).filter(Bill.patient_id == patient.id).all()
+    balance_due = round(sum((b.total or 0) - (b.paid or 0) for b in bills), 2)
+    if balance_due > 0:
+        raise HTTPException(402, "payment pending")
+
+    reported_accessions = {a for (a,) in
+        db.query(BillItem.accession_number)
+          .join(Bill, Bill.id == BillItem.bill_id)
+          .filter(Bill.patient_id == patient.id, BillItem.status == "reported",
+                  BillItem.accession_number.isnot(None)).all()}
+    if reported_accessions:
+        results = (db.query(LabResult)
+                     .filter(LabResult.patient_id == patient.id,
+                             LabResult.accession_number.in_(reported_accessions))
+                     .order_by(LabResult.created_at.asc()).all())
+    else:
+        results = db.query(LabResult).filter(LabResult.patient_id == patient.id).order_by(LabResult.created_at.asc()).all()
+    if not results:
+        raise HTTPException(404, "no reported results found")
+
+    try:
+        pdf_bytes = generate_combined_pdf(results)
+    except Exception as e:
+        raise HTTPException(500, f"PDF generation failed: {e}")
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes), media_type="application/pdf",
+        headers={"Content-Disposition": f"inline; filename=Healthycian_Combined_{patient.barcode}.pdf"},
+    )
 
 
 # ----------------------------------------------------------------------------
