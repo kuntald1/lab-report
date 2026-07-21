@@ -237,7 +237,7 @@ def update_result(result_id: int, payload: ResultEdit, request: Request,
     """Edit a result's parameter values — used by both the admin Results page
     and the doctor's Report Validate screen (a doctor can correct a value
     before validating; validation itself is unaffected by this endpoint)."""
-    if user.role in (Role.FRANCHISE, Role.PATIENT):
+    if user.role not in (Role.SUPER_ADMIN, Role.LAB_ADMIN, Role.PATHOLOGIST, Role.TECHNICIAN):
         raise HTTPException(status_code=403, detail="not allowed to edit results")
     result = db.query(LabResult).filter(LabResult.id == result_id).first()
     if not result:

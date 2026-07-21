@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react';
 import { api } from '../services/api';
-import { authedFetch } from '../services/auth';
+import { authedFetch, auth } from '../services/auth';
+
+// only these roles are allowed to edit a result's values — matches the backend guard exactly
+const CAN_EDIT_RESULTS = ['super_admin', 'lab_admin', 'pathologist', 'technician'];
 
 // FastAPI 422s return `detail` as an array of {loc,msg,type} objects, not a plain string —
 // Error(arrayOfObjects) stringifies to "[object Object],[object Object]". Format it properly.
@@ -209,7 +212,7 @@ export default function Results() {
                   📎 Combine ({siblingResults.length}) & Download
                 </button>
                 )}
-                {!sel.locked && !editing && (sel.parsed_data?.parameters?.length > 0) && (
+                {!sel.locked && !editing && (sel.parsed_data?.parameters?.length > 0) && CAN_EDIT_RESULTS.includes(auth.user()?.role) && (
                 <button onClick={startEdit} style={{ background:'#fafbfc', border:'1px solid #e8ecf4', color:'#475569', borderRadius:'8px', padding:'0.5rem 0.9rem', cursor:'pointer', fontSize:'0.78rem', fontWeight:700, fontFamily:'Manrope,sans-serif' }}>✎ Edit</button>
                 )}
                 {!sel.locked && (
