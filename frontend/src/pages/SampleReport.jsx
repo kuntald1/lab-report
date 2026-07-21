@@ -29,6 +29,18 @@ export default function SampleReport() {
     } catch { alert('Report PDF not available for this test'); }
   };
 
+  const downloadCombined = async (resultIds, barcode) => {
+    if (!resultIds || resultIds.length === 0) return;
+    try {
+      const url = resultIds.length > 1 ? `/results/combined-pdf?ids=${resultIds.join(',')}` : `/results/${resultIds[0]}/pdf`;
+      const res = await authedFetch(url);
+      if (!res.ok) throw new Error();
+      const blob = await res.blob(); const objUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = objUrl; a.download = `Healthycian_Report_${barcode}.pdf`; a.click();
+      URL.revokeObjectURL(objUrl);
+    } catch { alert('Combined report not available yet'); }
+  };
+
   useEffect(() => {
     authedFetch('/franchises').then(r=>r.ok?r.json():[]).then(d=>setFranchises(Array.isArray(d)?d:(d.items||[]))).catch(()=>{});
     load();
@@ -166,7 +178,18 @@ export default function SampleReport() {
                                         {g.name}
                                         <span style={{ fontSize:'0.6rem', background:'rgba(249,115,22,0.15)', color:'#c2410c', padding:'0.1rem 0.5rem', borderRadius:'20px', fontWeight:700 }}>GROUP</span>
                                       </span>
-                                      <span style={{ fontWeight:800, color:'#f97316', fontSize:'0.86rem' }}>{money(g.price)}</span>
+                                      <span style={{ display:'flex', alignItems:'center', gap:'0.6rem' }}>
+                                        {(() => {
+                                          const ids = g.members.map(m=>m.result_id).filter(Boolean);
+                                          return ids.length > 0 && (
+                                            <button onClick={()=>downloadCombined(ids, r.barcode)}
+                                              style={{ background:'rgba(23,185,161,0.1)', color:'#0f6b5c', border:'1px solid rgba(23,185,161,0.3)', borderRadius:'7px', padding:'0.3rem 0.7rem', fontWeight:700, cursor:'pointer', fontSize:'0.7rem', whiteSpace:'nowrap', fontFamily:'Manrope,sans-serif' }}>
+                                              📎 Download ({ids.length})
+                                            </button>
+                                          );
+                                        })()}
+                                        <span style={{ fontWeight:800, color:'#f97316', fontSize:'0.86rem' }}>{money(g.price)}</span>
+                                      </span>
                                     </div>
                                     {/* member tests */}
                                     {g.members.map((t,i) => (
