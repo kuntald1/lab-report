@@ -73,7 +73,7 @@ export default function Sidebar({ current, onChange, counts = {}, user = null, o
           </div>
           <div>
             <div style={s.logoText}>Healthycian</div>
-            <div style={s.logoSub}>Lab Middleware v3.0</div>
+            <div style={s.logoSub}>Lab Middleware v1.0</div>
           </div>
         </div>
       </div>
