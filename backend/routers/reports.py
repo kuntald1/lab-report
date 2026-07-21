@@ -134,23 +134,38 @@ def pending_notifications(db: Session = Depends(get_db), user: User = Depends(ge
 @router.get("/validated")
 def validated_reports(date_from: Optional[str] = None, date_to: Optional[str] = None,
                       db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    """Doctor's validated/reported history, optional date range on validated_at."""
-    q = db.query(Patient).filter(Patient.validated_by.isnot(None))
+    """Doctor's validated/reported history, optional date range on validated_at.
+
+    Grouped by patient for display, but each row only lists the accession numbers
+    THIS doctor actually validated — a patient with tests split across two doctors
+    (e.g. HC34210A validated by Dr A, HC34210D validated by Dr B) now correctly
+    shows up separately in each doctor's own history, not both under whoever
+    validated last (the old Patient.validated_by field could only hold one doctor
+    for the entire patient, so it got silently overwritten)."""
+    q = (db.query(BillItem, Bill, Patient)
+           .join(Bill, Bill.id == BillItem.bill_id)
+           .join(Patient, Patient.id == Bill.patient_id)
+           .filter(BillItem.validated_by.isnot(None)))
     if user.role not in ADMIN_ROLES:
-        q = q.filter(Patient.validated_by == user.id)
+        q = q.filter(BillItem.validated_by == user.id)
     if date_from:
-        q = q.filter(Patient.validated_at >= date_from)
+        q = q.filter(BillItem.validated_at >= date_from)
     if date_to:
-        q = q.filter(Patient.validated_at <= date_to + " 23:59:59")
-    rows = q.order_by(Patient.validated_at.desc()).limit(500).all()
-    accmap = _accessions_for_patients(db, [p.id for p in rows], statuses=["reported"])
-    out = []
-    for p in rows:
-        d = _patient_brief(p)
-        d["validated_at"] = p.validated_at
-        d["accession_numbers"] = accmap.get(p.id, [])
-        out.append(d)
-    return out
+        q = q.filter(BillItem.validated_at <= date_to + " 23:59:59")
+    rows = q.order_by(BillItem.validated_at.desc()).limit(1000).all()
+
+    grouped = {}
+    for it, b, p in rows:
+        g = grouped.get(p.id)
+        if not g:
+            g = _patient_brief(p)
+            g["accession_numbers"] = []
+            g["validated_at"] = it.validated_at
+            grouped[p.id] = g
+        g["accession_numbers"].append(it.accession_number)
+        if it.validated_at and (not g["validated_at"] or it.validated_at > g["validated_at"]):
+            g["validated_at"] = it.validated_at
+    return sorted(grouped.values(), key=lambda d: d["validated_at"] or "", reverse=True)[:500]
 
 
 @router.get("/{patient_id}")
@@ -241,8 +256,11 @@ def validate_report(patient_id: int, request: Request,
         advanced_items = (db.query(BillItem)
                             .filter(BillItem.bill_id.in_(bill_ids), BillItem.status == "tested")
                             .all())
+        now = datetime.utcnow()
         for it in advanced_items:
             it.status = "reported"
+            it.validated_by = user.id
+            it.validated_at = now
 
     db.commit()
     write_audit(db, action=("revalidate" if was_reported else "validate"),
