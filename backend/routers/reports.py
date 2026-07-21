@@ -231,10 +231,24 @@ def validate_report(patient_id: int, request: Request,
     p.status = "reported"
     p.validated_by = user.id
     p.validated_at = datetime.utcnow()
+
+    # Advance the actual per-test status too — this is what Change Report Status, Results,
+    # and receipts read from; only touch bill_items that were genuinely ready (status='tested'),
+    # never ones still sitting at collected/received so we don't silently skip stages on them.
+    bill_ids = [b.id for b in db.query(Bill.id).filter(Bill.patient_id == p.id).all()]
+    advanced_items = []
+    if bill_ids:
+        advanced_items = (db.query(BillItem)
+                            .filter(BillItem.bill_id.in_(bill_ids), BillItem.status == "tested")
+                            .all())
+        for it in advanced_items:
+            it.status = "reported"
+
     db.commit()
     write_audit(db, action=("revalidate" if was_reported else "validate"),
                 user=user, entity="patient", entity_id=p.id,
-                after={"status": "reported"}, ip=_ip(request))
+                after={"status": "reported", "bill_items_advanced": [it.id for it in advanced_items]},
+                ip=_ip(request))
 
     # Commission: fires once, the first time a report is validated, off whatever
     # bill items exist for this patient at that moment. Wrapped so a commission
