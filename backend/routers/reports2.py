@@ -133,10 +133,15 @@ def sample_details(
             "answer": h.answer, "answered_at": h.answered_at, "created_at": h.created_at,
         })
 
-    # --- lab results keyed by (patient_id, normalized test_name) -> latest result_id (for PDF link) ---
+    # --- lab results keyed primarily by accession_number (exact match — this is what the
+    # rest of the app now uses everywhere) with a text-match-by-test-name fallback for
+    # legacy results that predate the accession-number system and never got one ---
+    result_id_by_accession = {}
     result_id_by_key = {}
     for r in (db.query(LabResult).filter(LabResult.patient_id.in_(pids))
                 .order_by(LabResult.created_at.desc()).all()):
+        if r.accession_number and r.accession_number not in result_id_by_accession:
+            result_id_by_accession[r.accession_number] = r.id
         key = (r.patient_id, (r.test_name or "").strip().lower())
         if key not in result_id_by_key:        # keep latest (desc order)
             result_id_by_key[key] = r.id
@@ -153,13 +158,16 @@ def sample_details(
             billed += (b.total or 0.0)
             collected += (b.paid or 0.0)
             for it in items_by_bill.get(b.id, []):
-                rid = result_id_by_key.get((p.id, (it.test_name or "").strip().lower()))
+                rid = result_id_by_accession.get(it.accession_number) if it.accession_number else None
+                if rid is None:
+                    rid = result_id_by_key.get((p.id, (it.test_name or "").strip().lower()))
                 tests.append({
                     "test_name": it.test_name,
                     "doctor": doc_names.get(tc_doc.get(it.test_id), None),
                     "price": it.price, "mrp": it.mrp,
                     "bill_no": b.bill_no,
                     "package_id": it.package_id, "package_name": it.package_name,
+                    "accession_number": it.accession_number,
                     "result_id": rid,        # for the per-test Report PDF link
                 })
             # successful payments — one row per payment actually received, real method shown
