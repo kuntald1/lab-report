@@ -55,11 +55,13 @@ def _patient_brief(p: Patient) -> dict:
             "created_at": p.created_at}
 
 
-def _accessions_for_patients(db: Session, patient_ids: list, statuses: list = None) -> dict:
+def _accessions_for_patients(db: Session, patient_ids: list, statuses: list = None, doctor_id: int = None) -> dict:
     """{patient_id: [accession_number, ...]} across that patient's bills — batched, no N+1.
     Pass `statuses` to only include bill_items currently at those statuses (e.g. ['tested']
     for "ready to validate") instead of every accession the patient has ever had, regardless
-    of whether that specific test has actually reached this stage yet."""
+    of whether that specific test has actually reached this stage yet.
+    Pass `doctor_id` to further restrict to tests actually assigned to that doctor (or the
+    patient's overall assigned doctor) — so a doctor's queue doesn't show a colleague's test."""
     if not patient_ids:
         return {}
     q = (db.query(BillItem.accession_number, Bill.patient_id)
@@ -67,6 +69,11 @@ def _accessions_for_patients(db: Session, patient_ids: list, statuses: list = No
            .filter(Bill.patient_id.in_(patient_ids), BillItem.accession_number.isnot(None)))
     if statuses:
         q = q.filter(BillItem.status.in_(statuses))
+    if doctor_id is not None:
+        q = (q.join(Patient, Patient.id == Bill.patient_id)
+              .outerjoin(TestCatalog, TestCatalog.id == BillItem.test_id)
+              .filter(or_(TestCatalog.assigned_doctor_id == doctor_id,
+                         Patient.assigned_doctor_id == doctor_id)))
     out = {}
     for acc, pid in q.all():
         out.setdefault(pid, []).append(acc)
@@ -75,27 +82,23 @@ def _accessions_for_patients(db: Session, patient_ids: list, statuses: list = No
 
 # ------------------------------------------------------------------ doctor queue
 def _pending_query(db: Session, user: User):
-    """Shared filter for a doctor's pending queue. A patient qualifies if at least one of
-    their TESTS (bill_items) has actually reached 'tested' status — not the old patient-level
-    Patient.status field, which isn't kept in sync with the per-test status system anymore
-    (Change Report Status moved to per-accession status on bill_items a while back)."""
-    tested_patient_ids = (db.query(Bill.patient_id)
-                             .join(BillItem, BillItem.bill_id == Bill.id)
-                             .filter(BillItem.status == "tested")
-                             .distinct())
+    """Shared filter for a doctor's pending queue. A patient qualifies if they have a test
+    that's both (a) actually at 'tested' status and (b) assigned to THIS doctor specifically
+    (via Tests Catalog) — or this doctor is the patient's overall assigned doctor. Just having
+    *some* tested item on a shared bill isn't enough; a colleague's own assigned test being
+    ready shouldn't surface in a different doctor's queue."""
+    q_tested = (db.query(Bill.patient_id)
+                  .join(BillItem, BillItem.bill_id == Bill.id)
+                  .filter(BillItem.status == "tested"))
+    if user.role not in ADMIN_ROLES:
+        q_tested = (q_tested
+                      .join(Patient, Patient.id == Bill.patient_id)
+                      .outerjoin(TestCatalog, TestCatalog.id == BillItem.test_id)
+                      .filter(or_(TestCatalog.assigned_doctor_id == user.id,
+                                 Patient.assigned_doctor_id == user.id)))
+    tested_patient_ids = q_tested.distinct()
     q = db.query(Patient).filter(Patient.id.in_(tested_patient_ids), Patient.is_active.is_(True))
     q = q.filter(Patient.needs_history.isnot(True))
-    if user.role not in ADMIN_ROLES:
-        by_bill = (db.query(Bill.patient_id)
-                     .join(BillItem, BillItem.bill_id == Bill.id)
-                     .join(TestCatalog, TestCatalog.id == BillItem.test_id)
-                     .filter(TestCatalog.assigned_doctor_id == user.id))
-        by_result = (db.query(LabResult.patient_id)
-                       .join(TestCatalog, TestCatalog.name == LabResult.test_name)
-                       .filter(TestCatalog.assigned_doctor_id == user.id))
-        q = q.filter(or_(Patient.assigned_doctor_id == user.id,
-                         Patient.id.in_(by_bill),
-                         Patient.id.in_(by_result)))
     return q
 
 
@@ -110,7 +113,8 @@ def pending_reports(db: Session = Depends(get_db), user: User = Depends(get_curr
     Admins see all tested patients.
     """
     rows = _pending_query(db, user).order_by(Patient.created_at.desc()).limit(500).all()
-    accmap = _accessions_for_patients(db, [p.id for p in rows], statuses=["tested"])
+    doctor_id = None if user.role in ADMIN_ROLES else user.id
+    accmap = _accessions_for_patients(db, [p.id for p in rows], statuses=["tested"], doctor_id=doctor_id)
     out = []
     for p in rows:
         d = _patient_brief(p)
@@ -248,14 +252,19 @@ def validate_report(patient_id: int, request: Request,
     p.validated_at = datetime.utcnow()
 
     # Advance the actual per-test status too — this is what Change Report Status, Results,
-    # and receipts read from; only touch bill_items that were genuinely ready (status='tested'),
-    # never ones still sitting at collected/received so we don't silently skip stages on them.
+    # and receipts read from; only touch bill_items that were genuinely ready (status='tested').
+    # Scoped to tests actually assigned to THIS doctor (via Tests Catalog) — unless this doctor
+    # is the patient's overall assigned doctor, in which case they can validate everything on
+    # that patient. Without this, any doctor with even one test on a shared bill could
+    # accidentally advance and get credited for a colleague's own assigned tests.
     bill_ids = [b.id for b in db.query(Bill.id).filter(Bill.patient_id == p.id).all()]
     advanced_items = []
     if bill_ids:
-        advanced_items = (db.query(BillItem)
-                            .filter(BillItem.bill_id.in_(bill_ids), BillItem.status == "tested")
-                            .all())
+        q_adv = db.query(BillItem).filter(BillItem.bill_id.in_(bill_ids), BillItem.status == "tested")
+        if user.role not in ADMIN_ROLES and p.assigned_doctor_id != user.id:
+            q_adv = q_adv.join(TestCatalog, TestCatalog.id == BillItem.test_id) \
+                         .filter(TestCatalog.assigned_doctor_id == user.id)
+        advanced_items = q_adv.all()
         now = datetime.utcnow()
         for it in advanced_items:
             it.status = "reported"
@@ -268,20 +277,36 @@ def validate_report(patient_id: int, request: Request,
                 after={"status": "reported", "bill_items_advanced": [it.id for it in advanced_items]},
                 ip=_ip(request))
 
-    # Commission: fires per TEST, the moment that specific bill_item is actually advanced to
-    # 'reported' (not for the whole patient's bill collection regardless of each test's own
-    # status, and not gated to "only the first validation" — a lipid profile panel with 4
-    # component tests earns commission on each one as it individually completes, not all-
-    # or-nothing on the first click). The idempotent guard still stops any single test's
-    # commission from being created twice. Wrapped so a commission issue can never block
-    # the doctor from validating the report.
+    # Commission: a STANDALONE test earns commission the moment IT is reported. A test that's
+    # part of a GROUP (package_id set, e.g. a lipid profile panel) earns nothing on its own —
+    # the group's commission only fires once EVERY member of that group has been reported, at
+    # which point all of them are commissioned together in one pass. This mirrors the group's
+    # own pricing (the whole panel's price sits on one member line), so "done" means the whole
+    # panel, not one component of it. Wrapped so a commission issue can never block validation.
     if p.referral_doctor_id and advanced_items:
         try:
             doctor = db.query(ReferralDoctor).filter(ReferralDoctor.id == p.referral_doctor_id,
                                                       ReferralDoctor.is_active.is_(True)).first()
             if doctor and (doctor.commission_percent or 0) > 0:
                 bills_by_id = {b.id: b for b in db.query(Bill).filter(Bill.id.in_(bill_ids)).all()}
+
+                # figure out which items are actually ready to be commissioned right now:
+                # standalone items advanced this call, plus every member of any group that
+                # just became fully-reported because of this call.
+                to_commission = [it for it in advanced_items if not it.package_id]
+                checked_groups = set()
                 for it in advanced_items:
+                    if not it.package_id or it.package_id in checked_groups:
+                        continue
+                    checked_groups.add(it.package_id)
+                    siblings = db.query(BillItem).filter(
+                        BillItem.bill_id == it.bill_id, BillItem.package_id == it.package_id
+                    ).all()
+                    if siblings and all(s.status == "reported" for s in siblings):
+                        to_commission.extend(siblings)
+
+                pct = doctor.commission_percent or 0.0
+                for it in to_commission:
                     already = db.query(DoctorCommission.id).filter(
                         DoctorCommission.patient_id == p.id,
                         DoctorCommission.bill_id == it.bill_id,
@@ -290,7 +315,6 @@ def validate_report(patient_id: int, request: Request,
                     if already:
                         continue   # idempotent guard against double-firing
                     base = it.price or 0.0   # pre-discount resolved price, per the agreed commission basis
-                    pct = doctor.commission_percent or 0.0
                     bill = bills_by_id.get(it.bill_id)
                     db.add(DoctorCommission(
                         tenant_id=p.tenant_id, referral_doctor_id=doctor.id,
