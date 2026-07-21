@@ -311,7 +311,19 @@ def need_history(patient_id: int, payload: NeedHistoryIn, request: Request,
     p = db.query(Patient).filter(Patient.id == patient_id).first()
     if not p:
         raise HTTPException(404, "patient not found")
-    if p.status == "reported":
+    # A patient can have several tests at different stages — only block this if EVERY
+    # one of them is already reported (nothing left to request history for). Checking
+    # Patient.status alone was wrong: it flips to 'reported' the moment just ONE test
+    # completes, which incorrectly blocked history requests on that patient's other,
+    # still-outstanding tests.
+    bill_ids = [b.id for b in db.query(Bill.id).filter(Bill.patient_id == p.id).all()]
+    if bill_ids:
+        has_pending_item = db.query(BillItem.id).filter(
+            BillItem.bill_id.in_(bill_ids), BillItem.status != "reported"
+        ).first() is not None
+        if not has_pending_item:
+            raise HTTPException(400, "all tests for this patient are already reported — nothing left to request history for")
+    elif p.status == "reported":
         raise HTTPException(400, "report already validated — cannot reopen")
     p.needs_history = True
     req = HistoryRequest(tenant_id=p.tenant_id, patient_id=p.id, requested_by=user.id,

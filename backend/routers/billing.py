@@ -596,6 +596,28 @@ def money_receipt(bill_id: int, db: Session = Depends(get_db), scope: Scope = De
     el.append(mt)
     el.append(Spacer(1, 10))
 
+    # Test details — what was actually billed, one row per test, with its own accession number
+    items = data.get("items", [])
+    if items:
+        test_rows = [["Test", "Accession No.", "Amount"]]
+        for it in items:
+            label = f"{it['package_name']} — {it['test_name']}" if it.get("package_name") else it["test_name"]
+            test_rows.append([label, it.get("accession_number") or "-", f"INR {it.get('price', 0):.2f}"])
+        tt = Table(test_rows, colWidths=[9.5*cm, 4*cm, 2.7*cm])
+        tt.setStyle(TableStyle([
+            ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#17b9a1")),
+            ("TEXTCOLOR", (0,0), (-1,0), colors.white),
+            ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"),
+            ("FONTSIZE", (0,0), (-1,-1), 9),
+            ("ALIGN", (2,0), (2,-1), "RIGHT"),
+            ("ALIGN", (1,0), (1,-1), "CENTER"),
+            ("GRID", (0,0), (-1,-1), 0.5, colors.HexColor("#e8ecf4")),
+            ("ROWBACKGROUNDS", (0,1), (-1,-1), [colors.white, colors.HexColor("#fafbfc")]),
+            ("TOPPADDING", (0,0), (-1,-1), 5), ("BOTTOMPADDING", (0,0), (-1,-1), 5),
+        ]))
+        el.append(tt)
+        el.append(Spacer(1, 12))
+
     # Direct/Walk-in patients have no app login, so this is their only digital
     # access to the report — scan to open the same password-gated viewer used
     # for the lab report PDF, scoped to every reported test on this patient.
