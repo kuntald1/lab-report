@@ -581,7 +581,6 @@ def money_receipt(bill_id: int, db: Session = Depends(get_db), scope: Scope = De
         pass
     el.append(Spacer(1, 12))
 
-    acc_nos = ", ".join(it["accession_number"] for it in data.get("items", []) if it.get("accession_number")) or "-"
     meta = [
         [Paragraph(f"<b>Receipt No:</b> R{b.id:06d}", styles["Normal"]),
          Paragraph(f"<b>Bill No:</b> {data['bill_no']}", right)],
@@ -589,7 +588,6 @@ def money_receipt(bill_id: int, db: Session = Depends(get_db), scope: Scope = De
          Paragraph(f"<b>Barcode No:</b> {data.get('barcode') or '-'}", right)],
         [Paragraph(f"<b>Billed To:</b> {data.get('organization_name') or 'Direct / Walk-in'}", styles["Normal"]),
          Paragraph(f"<b>Date:</b> {str(b.created_at)[:16]}", right)],
-        [Paragraph(f"<b>Accession No(s):</b> {acc_nos}", styles["Normal"]), Paragraph("", right)],
     ]
     mt = Table(meta, colWidths=[9*cm, 7.2*cm])
     mt.setStyle(TableStyle([("BOTTOMPADDING", (0,0), (-1,-1), 6)]))

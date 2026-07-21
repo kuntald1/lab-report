@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import or_
 from pydantic import BaseModel
 from typing import Optional, List
+from datetime import datetime
 
 from database import get_db
 from models.org import User, Franchise
@@ -121,8 +122,15 @@ def advance_status(p: AdvanceIn, request: Request,
     if not rows:
         raise HTTPException(status_code=404, detail="no matching samples in your scope")
 
+    now = datetime.utcnow()
     for it, b, patient in rows:
         it.status = p.status
+        if p.status == "reported":
+            # manually advancing straight to reported here bypasses the doctor's own
+            # Validate Report screen — still record who actually did it, so it's never
+            # an orphaned 'reported' test with no validator on record.
+            it.validated_by = user.id
+            it.validated_at = now
     db.commit()
 
     # When a sample is rejected -> WhatsApp the franchise (if patient belongs to one)
