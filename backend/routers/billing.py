@@ -25,7 +25,7 @@ from models.models import Patient
 from models.clinical import TestCatalog, Package, PackageTest
 from models.billing import Bill, BillItem, Payment
 from models.b2b import OrgLedger
-from services.pricing import resolve_price
+from services.pricing import resolve_price, resolve_package_price
 
 router = APIRouter()
 ADMIN_ROLES = (Role.SUPER_ADMIN, Role.LAB_ADMIN)
@@ -85,6 +85,23 @@ def resolve_prices(organization_id: Optional[int] = None,
             rp = resolve_price(db, tid, organization_id)
             t = db.query(TestCatalog).filter(TestCatalog.id == tid).first()
             out.append({"test_id": tid, "name": t.name if t else f"#{tid}",
+                        "mrp": rp.mrp, "price": rp.price, "source": rp.source})
+        except ValueError:
+            continue
+    return out
+
+
+@router.get("/resolve-groups")
+def resolve_group_prices(organization_id: Optional[int] = None,
+                         group_ids: str = Query("", description="comma-separated package/group ids"),
+                         db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    ids = [int(x) for x in group_ids.split(",") if x.strip().isdigit()]
+    out = []
+    for gid in ids:
+        try:
+            rp = resolve_package_price(db, gid, organization_id)
+            g = db.query(Package).filter(Package.id == gid).first()
+            out.append({"group_id": gid, "name": g.name if g else f"#{gid}",
                         "mrp": rp.mrp, "price": rp.price, "source": rp.source})
         except ValueError:
             continue
@@ -154,7 +171,7 @@ def create_bill(payload: BillCreate, request: Request,
                       db.query(PackageTest).filter(PackageTest.package_id == gid).all()]
         if not member_ids:
             continue
-        gprice = pkg.price or 0.0
+        gprice = resolve_package_price(db, gid, org_id).price or 0.0
         for idx, tid in enumerate(member_ids):
             if tid in group_member_ids:
                 continue

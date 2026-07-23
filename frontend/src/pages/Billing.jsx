@@ -98,6 +98,19 @@ export default function Billing({ isAdmin = true, initialPatientId = '', onManag
     }).catch(()=>{});
   }, [patientId]);   // eslint-disable-line
 
+  useEffect(() => {
+    const ids = Object.keys(pickedGroups);
+    if (!patientId || ids.length === 0) return;
+    const qs = `${orgId ? 'organization_id='+orgId+'&' : ''}group_ids=${ids.join(',')}`;
+    authedFetch(`/billing/resolve-groups?${qs}`).then(r=>r.ok?r.json():[]).then(rows => {
+      setPickedGroups(prev => {
+        const next = { ...prev };
+        rows.forEach(r => { if (next[r.group_id]) next[r.group_id] = { ...next[r.group_id], price:r.price, mrp:r.mrp, source:r.source }; });
+        return next;
+      });
+    }).catch(()=>{});
+  }, [patientId]);   // eslint-disable-line
+
   const addTest = (t) => {
     if (picked[t.id]) return;
     if (groupMemberIds.has(t.id)) { showToast('error', `${t.name} is already included in a selected group`); return; }  // dedupe
@@ -112,13 +125,20 @@ export default function Billing({ isAdmin = true, initialPatientId = '', onManag
 
   const addGroup = (g) => {
     if (pickedGroups[g.id]) return;
-    setPickedGroups(prev => ({ ...prev, [g.id]: g }));
+    // optimistic base price; the resolve call below corrects to group/org pricing —
+    // previously this never happened at all, so a test GROUP always billed at its raw
+    // base price regardless of the patient's organization/org-group pricing.
+    setPickedGroups(prev => ({ ...prev, [g.id]: { ...g, source:'base' } }));
     // dedupe: drop any individually-picked tests that this group covers
     setPicked(prev => {
       const n = { ...prev };
       (g.test_ids || []).forEach(tid => { delete n[tid]; });
       return n;
     });
+    const qs = `${orgId ? 'organization_id='+orgId+'&' : ''}group_ids=${g.id}`;
+    authedFetch(`/billing/resolve-groups?${qs}`).then(r=>r.ok?r.json():[]).then(rows => {
+      if (rows[0]) setPickedGroups(prev => (prev[g.id] ? { ...prev, [g.id]: { ...prev[g.id], price:rows[0].price, mrp:rows[0].mrp, source:rows[0].source } } : prev));
+    }).catch(()=>{});
   };
   const removeGroup = (gid) => setPickedGroups(prev => { const n = { ...prev }; delete n[gid]; return n; });
 
