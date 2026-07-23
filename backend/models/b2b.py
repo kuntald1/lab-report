@@ -59,6 +59,30 @@ class OrgTest(Base):
     __table_args__ = (UniqueConstraint("organization_id", "test_id", name="uq_org_test"),)
 
 
+class OrgGroupPackage(Base):
+    """A Test Group (package) priced for an org GROUP, with its own mrp + price (frozen copy)."""
+    __tablename__ = "org_group_packages"
+    id           = Column(Integer, primary_key=True, index=True)
+    org_group_id = Column(Integer, ForeignKey("org_groups.id"), nullable=False, index=True)
+    package_id   = Column(Integer, ForeignKey("packages.id"), nullable=False, index=True)
+    mrp          = Column(Float, default=0.0)
+    price        = Column(Float, default=0.0)
+    created_at   = Column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (UniqueConstraint("org_group_id", "package_id", name="uq_group_package"),)
+
+
+class OrgPackage(Base):
+    """A Test Group (package) priced for a standalone organization, with its own mrp + price."""
+    __tablename__ = "org_packages"
+    id              = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("franchises.id"), nullable=False, index=True)
+    package_id      = Column(Integer, ForeignKey("packages.id"), nullable=False, index=True)
+    mrp             = Column(Float, default=0.0)
+    price           = Column(Float, default=0.0)
+    created_at      = Column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (UniqueConstraint("organization_id", "package_id", name="uq_org_package"),)
+
+
 class OrgLedger(Base):
     """Running statement per organization: bills add, payments subtract."""
     __tablename__ = "org_ledger"

@@ -25,7 +25,7 @@ from auth.deps import get_current_user, get_scope, Scope
 from auth.audit import write_audit
 from models.org import User, Franchise, Role, ReferralDoctor
 from models.clinical import TestCatalog, Department, Package, PackageTest
-from models.b2b import OrgGroup, SampleTube, OrgGroupTest, OrgTest, OrgLedger
+from models.b2b import OrgGroup, SampleTube, OrgGroupTest, OrgTest, OrgGroupPackage, OrgPackage, OrgLedger
 from models.billing import Bill
 from sqlalchemy import func as sqlfunc
 from services.whatsapp import send_whatsapp
@@ -244,6 +244,36 @@ def set_group_tests(group_id: int, items: List[PricedTestIn], request: Request,
         db.add(OrgGroupTest(org_group_id=group_id, test_id=it.test_id, mrp=it.mrp, price=it.price))
     db.commit()
     write_audit(db, action="update", user=user, entity="org_group_tests", entity_id=group_id,
+                after={"count": len(items)}, ip=_ip(request))
+    return {"group_id": group_id, "count": len(items)}
+
+
+# ---- priced test-GROUP (package) list for an org group ----
+class PricedPackageIn(BaseModel):
+    package_id: int
+    mrp: float = 0
+    price: float = 0
+
+
+@router.get("/org-groups/{group_id}/packages")
+def list_group_packages(group_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    rows = db.query(OrgGroupPackage).filter(OrgGroupPackage.org_group_id == group_id).all()
+    return [{"package_id": r.package_id, "mrp": r.mrp, "price": r.price} for r in rows]
+
+
+@router.put("/org-groups/{group_id}/packages")
+def set_group_packages(group_id: int, items: List[PricedPackageIn], request: Request,
+                       db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Replace the group's priced test-GROUP set. Each item carries its OWN mrp+price
+    (frozen copy) — editing here never touches the base package or any other context."""
+    _require_admin(user)
+    if not db.query(OrgGroup).filter(OrgGroup.id == group_id).first():
+        raise HTTPException(404, "group not found")
+    db.query(OrgGroupPackage).filter(OrgGroupPackage.org_group_id == group_id).delete()
+    for it in items:
+        db.add(OrgGroupPackage(org_group_id=group_id, package_id=it.package_id, mrp=it.mrp, price=it.price))
+    db.commit()
+    write_audit(db, action="update", user=user, entity="org_group_packages", entity_id=group_id,
                 after={"count": len(items)}, ip=_ip(request))
     return {"group_id": group_id, "count": len(items)}
 
@@ -601,6 +631,28 @@ def set_org_tests(org_id: int, items: List[PricedTestIn], request: Request,
         db.add(OrgTest(organization_id=org_id, test_id=it.test_id, mrp=it.mrp, price=it.price))
     db.commit()
     write_audit(db, action="update", user=user, entity="org_tests", entity_id=org_id,
+                after={"count": len(items)}, ip=_ip(request))
+    return {"organization_id": org_id, "count": len(items)}
+
+
+@router.get("/organizations/{org_id}/packages")
+def list_org_packages(org_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    rows = db.query(OrgPackage).filter(OrgPackage.organization_id == org_id).all()
+    return [{"package_id": r.package_id, "mrp": r.mrp, "price": r.price} for r in rows]
+
+
+@router.put("/organizations/{org_id}/packages")
+def set_org_packages(org_id: int, items: List[PricedPackageIn], request: Request,
+                     db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Replace a standalone org's priced test-GROUP set (own mrp+price, frozen)."""
+    _require_admin(user)
+    if not db.query(Franchise).filter(Franchise.id == org_id).first():
+        raise HTTPException(404, "organization not found")
+    db.query(OrgPackage).filter(OrgPackage.organization_id == org_id).delete()
+    for it in items:
+        db.add(OrgPackage(organization_id=org_id, package_id=it.package_id, mrp=it.mrp, price=it.price))
+    db.commit()
+    write_audit(db, action="update", user=user, entity="org_packages", entity_id=org_id,
                 after={"count": len(items)}, ip=_ip(request))
     return {"organization_id": org_id, "count": len(items)}
 
