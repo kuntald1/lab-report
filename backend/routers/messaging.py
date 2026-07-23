@@ -72,12 +72,22 @@ def create_payment_link(bill_id: int, request: Request,
     except requests.RequestException as e:
         raise HTTPException(502, f"Razorpay unreachable: {e}")
     if resp.status_code >= 400:
-        # log the failure
+        # log the failure (raw detail kept here for debugging, never shown to the user)
         db.add(PaymentTransaction(tenant_id=bill.tenant_id, bill_id=bill.id, bill_no=bill.bill_no,
                kind="payment_link", amount=due, status="failed",
                error_description=resp.text[:200], created_by=user.id))
         db.commit()
-        raise HTTPException(502, f"payment link failed: {resp.text[:200]}")
+        try:
+            err = resp.json().get("error", {})
+            code, desc = err.get("code", ""), err.get("description", "")
+        except Exception:
+            code, desc = "", ""
+        if code == "RATE_LIMIT_EXCEEDED":
+            # Razorpay test-mode accounts are capped at 30 payment links, lifetime — this
+            # only clears once KYC/activation is complete and live keys are in use. Not
+            # something the user can act on each time, so keep the reason short and calm.
+            raise HTTPException(502, "Online payment temporarily unavailable (test account limit reached)")
+        raise HTTPException(502, desc or "Payment link could not be created")
     link = resp.json()
     db.add(PaymentTransaction(tenant_id=bill.tenant_id, bill_id=bill.id, bill_no=bill.bill_no,
            kind="payment_link", amount=due, status="created",

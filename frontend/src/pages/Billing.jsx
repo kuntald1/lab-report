@@ -265,7 +265,7 @@ export default function Billing({ isAdmin = true, initialPatientId = '', onManag
       const out = await res.json();
       if (out.payment_link) {
         showToast('success', `Payment link sent to ${waPhone.trim()}`);
-      } else if (out.payment_link_skipped_reason) {
+      } else if (out.payment_link_skipped_reason && !out.payment_link_skipped_reason.includes('temporarily unavailable')) {
         showToast('error', `Bill sent, but payment link was skipped: ${out.payment_link_skipped_reason}`);
       } else {
         showToast('success', `Bill sent to ${waPhone.trim()}`);
