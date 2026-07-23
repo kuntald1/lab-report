@@ -9,11 +9,14 @@ const inr = (n) => '₹' + (Number(n)||0).toLocaleString('en-IN');
 
 export default function Pricing() {
   const [mode, setMode]       = useState('group');     // 'group' | 'org'
+  const [catalogTab, setCatalogTab] = useState('tests'); // 'tests' | 'testgroups'
   const [groups, setGroups]   = useState([]);
   const [orgs, setOrgs]       = useState([]);
   const [tests, setTests]     = useState([]);
+  const [testGroups, setTestGroups] = useState([]);   // Package catalog (lipid profile, etc.)
   const [contextId, setContextId] = useState('');
-  const [sel, setSel]         = useState({});          // { test_id: {checked, mrp, price} }
+  const [sel, setSel]         = useState({});          // tests:      { test_id: {checked, mrp, price} }
+  const [selPkg, setSelPkg]   = useState({});          // test groups:{ package_id: {checked, mrp, price} }
   const [search, setSearch]   = useState('');
   const [saving, setSaving]   = useState(false);
   const [loaded, setLoaded]   = useState(false);
@@ -26,6 +29,7 @@ export default function Pricing() {
     authedFetch('/b2b/org-groups').then(r=>r.ok?r.json():[]).then(setGroups).catch(()=>{});
     authedFetch('/b2b/organizations').then(r=>r.ok?r.json():[]).then(setOrgs).catch(()=>{});
     authedFetch('/b2b/tests').then(r=>r.ok?r.json():[]).then(setTests).catch(()=>{});
+    authedFetch('/b2b/test-groups').then(r=>r.ok?r.json():[]).then(setTestGroups).catch(()=>{});
   }, []);
 
   const baseOf = (id) => tests.find(t => t.id === id) || {};
@@ -37,17 +41,23 @@ export default function Pricing() {
     ? orgs.filter(o => String(o.org_group_id) === String(contextId))
     : [];
 
-  // when context changes, load its existing priced tests
+  // when context changes, load its existing priced tests AND priced test-groups
   useEffect(() => {
-    setLoaded(false); setSel({});
+    setLoaded(false); setSel({}); setSelPkg({});
     if (!contextId) return;
-    const url = mode === 'group'
-      ? `/b2b/org-groups/${contextId}/tests`
-      : `/b2b/organizations/${contextId}/tests`;
-    authedFetch(url).then(r=>r.ok?r.json():[]).then(rows => {
+    const testsUrl = mode === 'group' ? `/b2b/org-groups/${contextId}/tests` : `/b2b/organizations/${contextId}/tests`;
+    const pkgsUrl  = mode === 'group' ? `/b2b/org-groups/${contextId}/packages` : `/b2b/organizations/${contextId}/packages`;
+    Promise.all([
+      authedFetch(testsUrl).then(r=>r.ok?r.json():[]).catch(()=>[]),
+      authedFetch(pkgsUrl).then(r=>r.ok?r.json():[]).catch(()=>[]),
+    ]).then(([testRows, pkgRows]) => {
       const map = {};
-      rows.forEach(r => { map[r.test_id] = { checked:true, mrp:r.mrp ?? 0, price:r.price ?? 0 }; });
-      setSel(map); setLoaded(true);
+      testRows.forEach(r => { map[r.test_id] = { checked:true, mrp:r.mrp ?? 0, price:r.price ?? 0 }; });
+      setSel(map);
+      const pmap = {};
+      pkgRows.forEach(r => { pmap[r.package_id] = { checked:true, mrp:r.mrp ?? 0, price:r.price ?? 0 }; });
+      setSelPkg(pmap);
+      setLoaded(true);
     }).catch(()=>setLoaded(true));
   }, [mode, contextId]);   // eslint-disable-line
 
@@ -59,32 +69,58 @@ export default function Pricing() {
       mrp: cur?.mrp ?? (t.mrp ?? 0), price: cur?.price ?? (t.price ?? 0) } };
   });
 
+  const togglePkg = (g) => setSelPkg(prev => {
+    const cur = prev[g.id];
+    if (cur?.checked) return { ...prev, [g.id]: { ...cur, checked:false } };
+    // first tick → seed with the base group's own sum_mrp/price as a starting point
+    return { ...prev, [g.id]: { checked:true,
+      mrp: cur?.mrp ?? (g.sum_mrp ?? 0), price: cur?.price ?? (g.price ?? 0) } };
+  });
+
   const setField = (id, field, value) =>
     setSel(prev => ({ ...prev, [id]: { ...prev[id], [field]: value } }));
 
+  const setPkgField = (id, field, value) =>
+    setSelPkg(prev => ({ ...prev, [id]: { ...prev[id], [field]: value } }));
+
   const checkedIds = Object.keys(sel).filter(id => sel[id]?.checked).map(Number);
+  const checkedPkgIds = Object.keys(selPkg).filter(id => selPkg[id]?.checked).map(Number);
   const totals = useMemo(() => {
     let mrp = 0, price = 0;
     checkedIds.forEach(id => { mrp += Number(sel[id].mrp)||0; price += Number(sel[id].price)||0; });
     return { count: checkedIds.length, mrp, price };
   }, [sel]);   // eslint-disable-line
+  const pkgTotals = useMemo(() => {
+    let mrp = 0, price = 0;
+    checkedPkgIds.forEach(id => { mrp += Number(selPkg[id].mrp)||0; price += Number(selPkg[id].price)||0; });
+    return { count: checkedPkgIds.length, mrp, price };
+  }, [selPkg]);   // eslint-disable-line
 
   const filtered = tests.filter(t => !search || t.name.toLowerCase().includes(search.toLowerCase()));
+  const filteredGroups = testGroups.filter(g => !search || g.name.toLowerCase().includes(search.toLowerCase()));
 
   const save = async () => {
     if (!contextId) return showToast('info', 'Pick a group or organization first');
     setSaving(true);
-    const items = checkedIds.map(id => ({
-      test_id: id, mrp: Number(sel[id].mrp)||0, price: Number(sel[id].price)||0 }));
-    const url = mode === 'group'
-      ? `/b2b/org-groups/${contextId}/tests`
-      : `/b2b/organizations/${contextId}/tests`;
+    const label = (mode==='group' ? groups : orgs).find(c=>String(c.id)===String(contextId))?.name || '';
     try {
-      const res = await authedFetch(url, { method:'PUT',
-        headers:{'Content-Type':'application/json'}, body: JSON.stringify(items) });
-      if (!res.ok) throw new Error();
-      const label = (mode==='group' ? groups : orgs).find(c=>String(c.id)===String(contextId))?.name || '';
-      showToast('success', `Saved ${items.length} test${items.length===1?'':'s'} for ${label}`);
+      if (catalogTab === 'tests') {
+        const items = checkedIds.map(id => ({
+          test_id: id, mrp: Number(sel[id].mrp)||0, price: Number(sel[id].price)||0 }));
+        const url = mode === 'group' ? `/b2b/org-groups/${contextId}/tests` : `/b2b/organizations/${contextId}/tests`;
+        const res = await authedFetch(url, { method:'PUT',
+          headers:{'Content-Type':'application/json'}, body: JSON.stringify(items) });
+        if (!res.ok) throw new Error();
+        showToast('success', `Saved ${items.length} test${items.length===1?'':'s'} for ${label}`);
+      } else {
+        const items = checkedPkgIds.map(id => ({
+          package_id: id, mrp: Number(selPkg[id].mrp)||0, price: Number(selPkg[id].price)||0 }));
+        const url = mode === 'group' ? `/b2b/org-groups/${contextId}/packages` : `/b2b/organizations/${contextId}/packages`;
+        const res = await authedFetch(url, { method:'PUT',
+          headers:{'Content-Type':'application/json'}, body: JSON.stringify(items) });
+        if (!res.ok) throw new Error();
+        showToast('success', `Saved ${items.length} test group${items.length===1?'':'s'} for ${label}`);
+      }
     } catch { showToast('error', 'Save failed — please try again'); }
     setSaving(false);
   };
@@ -124,6 +160,15 @@ export default function Pricing() {
         <p style={{ color:'#8892a4', fontSize:'0.82rem', marginTop:'0.2rem' }}>Tick the tests a group or organization carries, and set each one's own MRP &amp; price. These are independent copies — editing here never changes the base test or any other group.</p>
       </div>
 
+      {/* Tests / Test Groups tab */}
+      <div style={{ display:'flex', gap:'0.4rem', marginBottom:'1.2rem', borderBottom:'1px solid #e8ecf4' }}>
+        {[['tests','Tests'], ['testgroups','Test Groups']].map(([k,label]) => (
+          <button key={k} onClick={()=>{ setCatalogTab(k); setSearch(''); }}
+            style={{ padding:'0.6rem 1.1rem', border:'none', background:'transparent', cursor:'pointer', fontFamily:'Manrope,sans-serif', fontWeight:700, fontSize:'0.84rem',
+                     color: catalogTab===k?'#f97316':'#8892a4', borderBottom: catalogTab===k?'2px solid #f97316':'2px solid transparent', marginBottom:'-1px' }}>{label}</button>
+        ))}
+      </div>
+
       {/* context picker */}
       <div style={{ ...S.card, marginBottom:'1.5rem' }}>
         <div style={{ display:'flex', gap:'1rem', alignItems:'flex-end', flexWrap:'wrap' }}>
@@ -149,7 +194,7 @@ export default function Pricing() {
             </select>
           </div>
           <div style={{ minWidth:'220px', flex:1 }}>
-            <label style={lbl}>Search tests</label>
+            <label style={lbl}>{catalogTab==='tests' ? 'Search tests' : 'Search test groups'}</label>
             <input style={inp} placeholder="Filter by name…" value={search} onChange={e=>setSearch(e.target.value)} />
           </div>
         </div>
@@ -176,7 +221,7 @@ export default function Pricing() {
 
       {!contextId && (
         <div style={{ ...S.card, textAlign:'center', color:'#8892a4', padding:'3rem' }}>
-          Pick a {mode==='group'?'group':'an organization'} above to set its test prices.
+          Pick a {mode==='group'?'group':'an organization'} above to set its {catalogTab==='tests'?'test':'test group'} prices.
         </div>
       )}
 
@@ -186,37 +231,72 @@ export default function Pricing() {
             <table style={{ width:'100%', borderCollapse:'collapse' }}>
               <thead>
                 <tr style={{ background:'#fafbfc', borderBottom:'1.5px solid #e8ecf4' }}>
-                  {['', 'Test', 'MRP', 'Price'].map((h,i) => (
+                  {['', catalogTab==='tests'?'Test':'Test Group', 'MRP', 'Price'].map((h,i) => (
                     <th key={i} style={{ textAlign: i>=2?'right':'left', padding:'0.7rem 1.2rem', fontSize:'0.65rem', color:'#8892a4', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.07em' }}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {filtered.length === 0 && (
-                  <tr><td colSpan={4} style={{ textAlign:'center', padding:'2rem', color:'#8892a4' }}>No tests match.</td></tr>
+                {catalogTab === 'tests' ? (
+                  <>
+                    {filtered.length === 0 && (
+                      <tr><td colSpan={4} style={{ textAlign:'center', padding:'2rem', color:'#8892a4' }}>No tests match.</td></tr>
+                    )}
+                    {filtered.map(t => {
+                      const row = sel[t.id]; const checked = !!row?.checked;
+                      return (
+                        <tr key={t.id} style={{ borderBottom:'1px solid #f4f6fa', background: checked ? 'rgba(249,115,22,0.03)' : 'transparent' }}>
+                          <td style={{ padding:'0.6rem 1.2rem', width:'40px' }}>
+                            <input type="checkbox" checked={checked} onChange={()=>toggle(t)}
+                                   style={{ width:'17px', height:'17px', accentColor:'#f97316', cursor:'pointer' }} />
+                          </td>
+                          <td style={{ padding:'0.6rem 1.2rem', fontWeight:600, color:'#0f1218', fontSize:'0.85rem' }}>{t.name}</td>
+                          <td style={{ padding:'0.6rem 1.2rem', textAlign:'right' }}>
+                            <input style={small} type="number" disabled={!checked}
+                              value={checked ? (row.mrp ?? '') : ''} placeholder="—"
+                              onChange={e=>setField(t.id,'mrp',e.target.value)} />
+                          </td>
+                          <td style={{ padding:'0.6rem 1.2rem', textAlign:'right' }}>
+                            <input style={small} type="number" disabled={!checked}
+                              value={checked ? (row.price ?? '') : ''} placeholder="—"
+                              onChange={e=>setField(t.id,'price',e.target.value)} />
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </>
+                ) : (
+                  <>
+                    {filteredGroups.length === 0 && (
+                      <tr><td colSpan={4} style={{ textAlign:'center', padding:'2rem', color:'#8892a4' }}>No test groups match.</td></tr>
+                    )}
+                    {filteredGroups.map(g => {
+                      const row = selPkg[g.id]; const checked = !!row?.checked;
+                      return (
+                        <tr key={g.id} style={{ borderBottom:'1px solid #f4f6fa', background: checked ? 'rgba(249,115,22,0.03)' : 'transparent' }}>
+                          <td style={{ padding:'0.6rem 1.2rem', width:'40px' }}>
+                            <input type="checkbox" checked={checked} onChange={()=>togglePkg(g)}
+                                   style={{ width:'17px', height:'17px', accentColor:'#f97316', cursor:'pointer' }} />
+                          </td>
+                          <td style={{ padding:'0.6rem 1.2rem' }}>
+                            <div style={{ fontWeight:600, color:'#0f1218', fontSize:'0.85rem' }}>{g.name}</div>
+                            <div style={{ fontSize:'0.7rem', color:'#8892a4', marginTop:'0.15rem' }}>{(g.tests||[]).map(t=>t.name).join(', ')}</div>
+                          </td>
+                          <td style={{ padding:'0.6rem 1.2rem', textAlign:'right' }}>
+                            <input style={small} type="number" disabled={!checked}
+                              value={checked ? (row.mrp ?? '') : ''} placeholder="—"
+                              onChange={e=>setPkgField(g.id,'mrp',e.target.value)} />
+                          </td>
+                          <td style={{ padding:'0.6rem 1.2rem', textAlign:'right' }}>
+                            <input style={small} type="number" disabled={!checked}
+                              value={checked ? (row.price ?? '') : ''} placeholder="—"
+                              onChange={e=>setPkgField(g.id,'price',e.target.value)} />
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </>
                 )}
-                {filtered.map(t => {
-                  const row = sel[t.id]; const checked = !!row?.checked;
-                  return (
-                    <tr key={t.id} style={{ borderBottom:'1px solid #f4f6fa', background: checked ? 'rgba(249,115,22,0.03)' : 'transparent' }}>
-                      <td style={{ padding:'0.6rem 1.2rem', width:'40px' }}>
-                        <input type="checkbox" checked={checked} onChange={()=>toggle(t)}
-                               style={{ width:'17px', height:'17px', accentColor:'#f97316', cursor:'pointer' }} />
-                      </td>
-                      <td style={{ padding:'0.6rem 1.2rem', fontWeight:600, color:'#0f1218', fontSize:'0.85rem' }}>{t.name}</td>
-                      <td style={{ padding:'0.6rem 1.2rem', textAlign:'right' }}>
-                        <input style={small} type="number" disabled={!checked}
-                          value={checked ? (row.mrp ?? '') : ''} placeholder="—"
-                          onChange={e=>setField(t.id,'mrp',e.target.value)} />
-                      </td>
-                      <td style={{ padding:'0.6rem 1.2rem', textAlign:'right' }}>
-                        <input style={small} type="number" disabled={!checked}
-                          value={checked ? (row.price ?? '') : ''} placeholder="—"
-                          onChange={e=>setField(t.id,'price',e.target.value)} />
-                      </td>
-                    </tr>
-                  );
-                })}
               </tbody>
             </table>
           </div>
@@ -224,9 +304,9 @@ export default function Pricing() {
           {/* sticky totals + save */}
           <div style={{ ...S.card, display:'flex', justifyContent:'space-between', alignItems:'center', position:'sticky', bottom:'1rem' }}>
             <div style={{ display:'flex', gap:'2rem' }}>
-              <div><div style={lbl}>Selected</div><div style={{ fontSize:'1.3rem', fontWeight:800, color:'#0f1218' }}>{totals.count}</div></div>
-              <div><div style={lbl}>Total MRP</div><div style={{ fontSize:'1.3rem', fontWeight:800, color:'#8892a4' }}>{inr(totals.mrp)}</div></div>
-              <div><div style={lbl}>Total Price</div><div style={{ fontSize:'1.3rem', fontWeight:800, color:'#16a34a' }}>{inr(totals.price)}</div></div>
+              <div><div style={lbl}>Selected</div><div style={{ fontSize:'1.3rem', fontWeight:800, color:'#0f1218' }}>{catalogTab==='tests'?totals.count:pkgTotals.count}</div></div>
+              <div><div style={lbl}>Total MRP</div><div style={{ fontSize:'1.3rem', fontWeight:800, color:'#8892a4' }}>{inr(catalogTab==='tests'?totals.mrp:pkgTotals.mrp)}</div></div>
+              <div><div style={lbl}>Total Price</div><div style={{ fontSize:'1.3rem', fontWeight:800, color:'#16a34a' }}>{inr(catalogTab==='tests'?totals.price:pkgTotals.price)}</div></div>
             </div>
             <button onClick={save} disabled={saving || !loaded} style={{ background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', border:'none', borderRadius:'10px', padding:'0.75rem 1.8rem', fontWeight:700, cursor:'pointer', fontSize:'0.9rem', fontFamily:'Manrope,sans-serif', boxShadow:'0 4px 16px rgba(249,115,22,0.3)' }}>
               {saving ? 'Saving…' : 'Save Pricing'}
