@@ -27,6 +27,8 @@ export default function Billing({ isAdmin = true, initialPatientId = '', onManag
   const [manualAcc, setManualAcc]   = useState({});           // {test_id: true} once the user hand-edits it (protects it from auto-renumbering)
   const [tests, setTests]       = useState([]);
   const [groups, setGroups]     = useState([]);     // test groups / panels
+  const [catalogPrices, setCatalogPrices] = useState({});      // test_id -> resolved {price,mrp,source} for the CURRENT patient's org, shown in the browsing list
+  const [catalogGroupPrices, setCatalogGroupPrices] = useState({});  // group_id -> same, for test groups
   const [pickedGroups, setPickedGroups] = useState({});  // {gid: {id,name,price,test_ids,tests}}
   const [orgs, setOrgs]         = useState([]);
   const [patientId, setPatientId] = useState(initialPatientId || '');
@@ -83,6 +85,28 @@ export default function Billing({ isAdmin = true, initialPatientId = '', onManag
   const patient = patients.find(p => String(p.id) === String(patientId));
   const orgId = patient?.organization_id || null;
   const orgName = orgId ? (orgs.find(o=>o.id===orgId)?.name || 'Organization') : 'Direct / Walk-in';
+
+  // bulk-resolve the WHOLE catalog's prices for this patient's org, so the browsing list
+  // itself shows the real group/org price up front — not just once something is clicked.
+  useEffect(() => {
+    if (!patientId || tests.length === 0) { setCatalogPrices({}); return; }
+    const ids = tests.map(t => t.id);
+    const qs = `${orgId ? 'organization_id='+orgId+'&' : ''}test_ids=${ids.join(',')}`;
+    authedFetch(`/billing/resolve?${qs}`).then(r=>r.ok?r.json():[]).then(rows => {
+      const map = {}; rows.forEach(r => { map[r.test_id] = { price:r.price, mrp:r.mrp, source:r.source }; });
+      setCatalogPrices(map);
+    }).catch(()=>setCatalogPrices({}));
+  }, [patientId, orgId, tests]);   // eslint-disable-line
+
+  useEffect(() => {
+    if (!patientId || groups.length === 0) { setCatalogGroupPrices({}); return; }
+    const ids = groups.map(g => g.id);
+    const qs = `${orgId ? 'organization_id='+orgId+'&' : ''}group_ids=${ids.join(',')}`;
+    authedFetch(`/billing/resolve-groups?${qs}`).then(r=>r.ok?r.json():[]).then(rows => {
+      const map = {}; rows.forEach(r => { map[r.group_id] = { price:r.price, mrp:r.mrp, source:r.source }; });
+      setCatalogGroupPrices(map);
+    }).catch(()=>setCatalogGroupPrices({}));
+  }, [patientId, orgId, groups]);   // eslint-disable-line
 
   // when patient or picked set changes, re-resolve prices for the picked tests against this org
   useEffect(() => {
@@ -476,7 +500,7 @@ export default function Billing({ isAdmin = true, initialPatientId = '', onManag
                     <span style={{ fontSize:'0.7rem', color:'#8892a4', marginLeft:'0.4rem' }}>({(g.tests||[]).length} tests)</span>
                   </span>
                   <span style={{ fontSize:'0.8rem', color:'#8892a4' }}>
-                    {pickedGroups[g.id] ? <span style={{ color:'#16a34a', fontWeight:700 }}>✓ added</span> : inr(g.price)}
+                    {pickedGroups[g.id] ? <span style={{ color:'#16a34a', fontWeight:700 }}>✓ added</span> : inr(catalogGroupPrices[g.id]?.price ?? g.price)}
                   </span>
                 </div>
               ))}
@@ -488,7 +512,7 @@ export default function Billing({ isAdmin = true, initialPatientId = '', onManag
                   style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'0.7rem 1.3rem', borderBottom:'1px solid #f7f8fb', cursor: (picked[t.id]||groupMemberIds.has(t.id))?'default':'pointer', background: picked[t.id]?'rgba(22,163,74,0.05)':(groupMemberIds.has(t.id)?'#fafbfc':'transparent'), opacity: groupMemberIds.has(t.id)?0.55:1 }}>
                   <span style={{ fontSize:'0.85rem', fontWeight:600, color:'#0f1218' }}>{t.name}</span>
                   <span style={{ fontSize:'0.8rem', color:'#8892a4' }}>
-                    {picked[t.id] ? <span style={{ color:'#16a34a', fontWeight:700 }}>✓ added</span> : groupMemberIds.has(t.id) ? <span style={{ color:'#c2410c', fontWeight:600, fontSize:'0.7rem' }}>in group</span> : inr(t.price)}
+                    {picked[t.id] ? <span style={{ color:'#16a34a', fontWeight:700 }}>✓ added</span> : groupMemberIds.has(t.id) ? <span style={{ color:'#c2410c', fontWeight:600, fontSize:'0.7rem' }}>in group</span> : inr(catalogPrices[t.id]?.price ?? t.price)}
                   </span>
                 </div>
               ))}
