@@ -473,6 +473,73 @@ class OrgPayVerifyIn(BaseModel):
     razorpay_signature: str
 
 
+def _org_payment_link(db: Session, org: Franchise) -> dict:
+    """Creates a Razorpay Payment Link (shareable URL) for this org's current
+    outstanding balance — distinct from /pay/razorpay/order, which is only for
+    the in-browser checkout popup and has no shareable URL of its own."""
+    if not RZP_KEY_ID or not RZP_KEY_SECRET:
+        raise HTTPException(500, "Razorpay keys not configured")
+    outstanding = _org_outstanding(db, org.id)
+    if outstanding <= 0:
+        raise HTTPException(400, "no outstanding balance to pay")
+    try:
+        resp = requests.post(
+            f"{RZP_API}/payment_links",
+            auth=(RZP_KEY_ID, RZP_KEY_SECRET),
+            json={
+                "amount": int(round(outstanding * 100)), "currency": "INR",
+                "description": f"{org.name} — outstanding balance",
+                "customer": {"name": org.name, "contact": getattr(org, "phone", None) or ""},
+                "notify": {"sms": False, "email": False},
+                "reference_id": f"ORG{org.id}-{int(outstanding*100)}",
+                "notes": {"organization_id": str(org.id), "kind": "org_outstanding"},
+            },
+            timeout=15,
+        )
+    except requests.RequestException as e:
+        raise HTTPException(502, f"Razorpay unreachable: {e}")
+    if resp.status_code >= 400:
+        raise HTTPException(502, f"payment link failed: {resp.text[:200]}")
+    link = resp.json()
+    return {"id": link.get("id"), "short_url": link.get("short_url"), "amount": outstanding}
+
+
+@router.post("/pay/razorpay/payment-link")
+def org_rzp_payment_link(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    if user.role != Role.FRANCHISE or not user.franchise_id:
+        raise HTTPException(403, "franchise login only")
+    org = db.query(Franchise).filter(Franchise.id == user.franchise_id).first()
+    if not org:
+        raise HTTPException(404, "organization not found")
+    return _org_payment_link(db, org)
+
+
+class OrgWhatsAppIn(BaseModel):
+    to_number: str
+
+
+@router.post("/pay/razorpay/send-whatsapp")
+def org_rzp_send_whatsapp(payload: OrgWhatsAppIn, request: Request,
+                          db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Creates a payment link for this org's outstanding balance and sends it
+    straight to WhatsApp — used by the 'Send via WhatsApp' button on Manage Credit."""
+    if user.role != Role.FRANCHISE or not user.franchise_id:
+        raise HTTPException(403, "franchise login only")
+    org = db.query(Franchise).filter(Franchise.id == user.franchise_id).first()
+    if not org:
+        raise HTTPException(404, "organization not found")
+    link = _org_payment_link(db, org)
+    body = (f"Dear {org.name}, your outstanding balance at Healthycian is "
+            f"₹{link['amount']:.2f}. 💳 Click to Pay (Razorpay): {link['short_url']}")
+    res = send_whatsapp(db, org.tenant_id, payload.to_number, body)
+    write_audit(db, action="whatsapp", user=user, entity="franchise", entity_id=org.id,
+                after={"to": payload.to_number, "ok": res.get("ok")},
+                ip=(request.client.host if request.client else None))
+    if not res.get("ok"):
+        raise HTTPException(502, res.get("error", "whatsapp failed"))
+    return {"ok": True, "payment_link": link["short_url"]}
+
+
 @router.post("/pay/razorpay/order")
 def org_rzp_order(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     """Franchise pays down its OUTSTANDING balance. Creates a Razorpay order for

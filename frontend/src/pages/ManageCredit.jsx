@@ -16,6 +16,8 @@ export default function ManageCredit() {
   const [loading, setLoading] = useState(true);
   const [paying, setPaying] = useState(false);
   const [notice, setNotice] = useState(null);   // { kind:'success'|'error', title, msg }
+  const [waNumber, setWaNumber] = useState('');
+  const [waSending, setWaSending] = useState(false);
 
   const load = () => { setLoading(true); authedFetch('/b2b/my-ledger').then(r=>r.ok?r.json():null).then(d=>{ setData(d); setLoading(false); }).catch(()=>setLoading(false)); };
   useEffect(() => { load(); }, []);
@@ -36,6 +38,19 @@ export default function ManageCredit() {
     s.onerror = () => reject(new Error('Could not load Razorpay'));
     document.body.appendChild(s);
   });
+
+  const sendWhatsApp = async () => {
+    if (!waNumber.trim()) return setNotice({ kind:'error', title:'Number required', msg:'Enter a WhatsApp number to send the payment link to.' });
+    setWaSending(true);
+    try {
+      const res = await authedFetch('/b2b/pay/razorpay/send-whatsapp', { method:'POST',
+        headers:{'Content-Type':'application/json'}, body: JSON.stringify({ to_number: waNumber.trim() }) });
+      const out = await res.json().catch(()=>({}));
+      if (!res.ok) throw new Error(out.detail || 'Could not send');
+      setNotice({ kind:'success', title:'Sent', msg:`Payment link sent to ${waNumber.trim()}.` });
+    } catch (e) { setNotice({ kind:'error', title:'Could not send', msg:String(e.message||'Please try again.') }); }
+    setWaSending(false);
+  };
 
   const payOutstanding = async () => {
     setPaying(true);
@@ -129,6 +144,18 @@ export default function ManageCredit() {
         </div>
         <button onClick={payOutstanding} disabled={paying} style={{ background: paying ? '#e8ecf4' : 'linear-gradient(135deg,#3b82f6,#2563eb)', color: paying ? '#94a3b8' : '#fff', border:'none', borderRadius:'10px', padding:'0.7rem 1.6rem', fontWeight:700, cursor: paying?'not-allowed':'pointer', fontFamily:'Manrope,sans-serif' }}>{paying ? 'Processing…' : `💳 Pay ${inr(outstanding)}`}</button>
       </div>
+
+      {outstanding > 0 && (
+        <div style={{ ...S.card, marginBottom:'1.5rem', display:'flex', alignItems:'center', gap:'0.8rem', flexWrap:'wrap' }}>
+          <div style={{ flex:'1 1 220px' }}>
+            <div style={{ fontWeight:800, color:'#0f1218', fontFamily:'Manrope,sans-serif' }}>Send Payment Link on WhatsApp</div>
+            <div style={{ fontSize:'0.78rem', color:'#8892a4', marginTop:'0.2rem' }}>Send the Razorpay payment link for {inr(outstanding)} directly to WhatsApp.</div>
+          </div>
+          <input value={waNumber} onChange={e=>setWaNumber(e.target.value)} placeholder="10-digit WhatsApp number"
+            style={{ padding:'0.6rem 0.9rem', borderRadius:'9px', border:'1.5px solid #e8ecf4', fontSize:'0.85rem', width:'200px', fontFamily:'Manrope,sans-serif' }} />
+          <button onClick={sendWhatsApp} disabled={waSending} style={{ background: waSending ? '#e8ecf4' : 'linear-gradient(135deg,#16a34a,#22c55e)', color: waSending ? '#94a3b8' : '#fff', border:'none', borderRadius:'10px', padding:'0.6rem 1.3rem', fontWeight:700, cursor: waSending?'not-allowed':'pointer', fontFamily:'Manrope,sans-serif', whiteSpace:'nowrap' }}>{waSending ? 'Sending…' : '📤 Send'}</button>
+        </div>
+      )}
 
       <div style={{ ...S.card, padding:0, overflow:'hidden' }}>
         <div style={{ fontWeight:800, color:'#0f1218', padding:'1.1rem 1.3rem 0.8rem', fontFamily:'Manrope,sans-serif' }}>Ledger · debit &amp; credit</div>
