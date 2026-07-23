@@ -108,26 +108,31 @@ def send_bill_whatsapp(bill_id: int, payload: SendWhatsAppIn, request: Request,
 
     link_url = ""
     plink_id = None
-    if payload.include_payment_link and _due(bill) > 0:
-        try:
-            pl = create_payment_link(bill_id, request, db, user)
-            link_url = pl.get("short_url") or ""
-            plink_id = pl.get("id")
-        except HTTPException:
-            link_url = ""   # non-blocking: still send the bill text
+    link_skip_reason = None
+    if payload.include_payment_link:
+        if _due(bill) <= 0:
+            link_skip_reason = "bill already fully paid — nothing due"
+        else:
+            try:
+                pl = create_payment_link(bill_id, request, db, user)
+                link_url = pl.get("short_url") or ""
+                plink_id = pl.get("id")
+            except HTTPException as e:
+                link_skip_reason = str(e.detail)   # e.g. "Razorpay keys not configured", or the Razorpay error text
 
     s = get_settings(db, bill.tenant_id)
     body = render_bill_message(
         s, name=patient.patient_name if patient else "Patient", lab="Healthycian",
         amount=bill.total, bill_no=bill.bill_no,
-        link=(f"Pay here: {link_url}" if link_url else "Thank you!"),
+        link=(f"💳 Click to Pay (Razorpay): {link_url}" if link_url else "Thank you!"),
     )
     res = send_whatsapp(db, bill.tenant_id, payload.to_number, body)
     write_audit(db, action="whatsapp", user=user, entity="bill", entity_id=bill.id,
-                after={"to": payload.to_number, "ok": res.get("ok")}, ip=_ip(request))
+                after={"to": payload.to_number, "ok": res.get("ok"), "payment_link_skipped": link_skip_reason}, ip=_ip(request))
     if not res.get("ok"):
         raise HTTPException(502, res.get("error", "whatsapp failed"))
-    return {"ok": True, "sid": res.get("sid"), "payment_link": link_url or None, "plink_id": plink_id}
+    return {"ok": True, "sid": res.get("sid"), "payment_link": link_url or None, "plink_id": plink_id,
+            "payment_link_skipped_reason": link_skip_reason}
 
 
 # --------------------------------------------------------- send receipt on WhatsApp

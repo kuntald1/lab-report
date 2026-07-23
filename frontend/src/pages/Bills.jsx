@@ -159,6 +159,9 @@ export default function Bills() {
       const out = await res.json();
       setWaDone({ number: waNumber.trim(), bill: detail.bill_no, link: out.payment_link });
       if (out.plink_id && waLink) startPolling(out.plink_id, detail.id);
+      if (waLink && !out.payment_link && out.payment_link_skipped_reason) {
+        showToast('error', `Bill sent, but payment link was skipped: ${out.payment_link_skipped_reason}`);
+      }
     } catch (e) { showToast('error', String(e.message||'WhatsApp failed')); }
     setWaSending(false);
   };

@@ -263,7 +263,13 @@ export default function Billing({ isAdmin = true, initialPatientId = '', onManag
         body: JSON.stringify({ to_number: waPhone.trim(), include_payment_link: true, save_patient_phone: true }) });
       if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.detail||'failed'); }
       const out = await res.json();
-      showToast('success', `Payment link sent to ${waPhone.trim()}`);
+      if (out.payment_link) {
+        showToast('success', `Payment link sent to ${waPhone.trim()}`);
+      } else if (out.payment_link_skipped_reason) {
+        showToast('error', `Bill sent, but payment link was skipped: ${out.payment_link_skipped_reason}`);
+      } else {
+        showToast('success', `Bill sent to ${waPhone.trim()}`);
+      }
       if (out.plink_id) startPolling(out.plink_id);
     } catch (e) { showToast('error', String(e.message||'WhatsApp failed')); }
     setWaBusy(false);
