@@ -14,8 +14,8 @@ Each context stores its own frozen copy, so these are independent lookups, not a
 single value with overrides. Editing one context never affects another.
 """
 from dataclasses import dataclass
-from models.clinical import TestCatalog
-from models.b2b import OrgGroupTest, OrgTest
+from models.clinical import TestCatalog, Package
+from models.b2b import OrgGroupTest, OrgTest, OrgGroupPackage, OrgPackage
 from models.org import Franchise   # franchises == organizations
 
 
@@ -62,3 +62,52 @@ def resolve_price(db, test_id: int, organization_id: int | None) -> ResolvedPric
 def resolve_many(db, test_ids: list[int], organization_id: int | None) -> dict[int, ResolvedPrice]:
     """Resolve a list of tests at once (e.g. when billing a group/profile)."""
     return {tid: resolve_price(db, tid, organization_id) for tid in test_ids}
+
+
+@dataclass
+class ResolvedPackagePrice:
+    package_id: int
+    mrp: float
+    price: float
+    source: str        # 'group' | 'org' | 'base'
+
+
+def resolve_package_price(db, package_id: int, organization_id: int | None) -> ResolvedPackagePrice:
+    """Same Group -> Org -> Base waterfall as resolve_price(), but for a whole
+    Test Group (package) — e.g. a 'lipid profile' panel can have its own bundled
+    price per org group / organization, distinct from the base package price."""
+    base = db.query(Package).filter(Package.id == package_id).first()
+    if base is None:
+        raise ValueError(f"package {package_id} not found")
+
+    def _base_mrp():
+        # Package itself has no mrp field (only a bundled price) — fall back to the
+        # sum of its member tests' own mrp, same figure shown as "Sum of Tests".
+        from models.clinical import PackageTest
+        member_ids = [pt.test_id for pt in db.query(PackageTest).filter(PackageTest.package_id == package_id).all()]
+        if not member_ids:
+            return base.price or 0.0
+        total = db.query(TestCatalog).filter(TestCatalog.id.in_(member_ids)).all()
+        return sum((t.mrp or 0.0) for t in total) or (base.price or 0.0)
+
+    if organization_id is None:
+        return ResolvedPackagePrice(package_id, _base_mrp(), base.price or 0.0, "base")
+
+    org = db.query(Franchise).filter(Franchise.id == organization_id).first()
+
+    if org is not None and getattr(org, "org_group_id", None):
+        gp = (db.query(OrgGroupPackage)
+                .filter(OrgGroupPackage.org_group_id == org.org_group_id,
+                        OrgGroupPackage.package_id == package_id)
+                .first())
+        if gp is not None:
+            return ResolvedPackagePrice(package_id, gp.mrp or 0.0, gp.price or 0.0, "group")
+
+    op = (db.query(OrgPackage)
+            .filter(OrgPackage.organization_id == organization_id,
+                    OrgPackage.package_id == package_id)
+            .first())
+    if op is not None:
+        return ResolvedPackagePrice(package_id, op.mrp or 0.0, op.price or 0.0, "org")
+
+    return ResolvedPackagePrice(package_id, _base_mrp(), base.price or 0.0, "base")
