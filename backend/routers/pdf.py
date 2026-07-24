@@ -791,7 +791,10 @@ def download_pdf(result_id: int, db: Session = Depends(get_db)):
     if not result:
         raise HTTPException(status_code=404, detail="Result not found")
     try:
-        pdf_bytes = generate_pdf(result)
+        # Reuse the same letterhead renderer as the combined download, just
+        # with a single result — keeps every PDF (single or combined) on
+        # one consistent design instead of maintaining two report styles.
+        pdf_bytes = generate_combined_pdf([result], db)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"PDF generation failed: {str(e)}")
 
