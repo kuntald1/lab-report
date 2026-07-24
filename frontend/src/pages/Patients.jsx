@@ -33,6 +33,7 @@ export default function Patients({ onBill = () => {} }) {
   const [saving, setSaving]       = useState(false);
   const [editingId, setEditingId] = useState(null);   // null = create mode
   const [form, setForm]           = useState(BLANK);
+  const [search, setSearch]       = useState('');
 
   const load = () => authedFetch('/patients/').then(r=>r.json()).then(setPatients).catch(()=>{});
   useEffect(() => {
@@ -44,6 +45,16 @@ export default function Patients({ onBill = () => {} }) {
 
   const branchName    = (id) => branches.find(b=>b.id===id)?.name || (id ? `Branch ${id}` : '—');
   const franchiseName = (id) => franchises.find(f=>f.id===id)?.name || (id ? `Franchise ${id}` : '—');
+
+  const filteredPatients = (() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return patients;
+    return patients.filter(p =>
+      (p.barcode || '').toLowerCase().includes(q) ||
+      (p.patient_name || '').toLowerCase().includes(q) ||
+      (p.phone || '').toLowerCase().includes(q)
+    );
+  })();
 
   const openCreate = () => {
     setEditingId(null);
@@ -237,6 +248,22 @@ export default function Patients({ onBill = () => {} }) {
         </div>
       )}
 
+      <div style={{ ...S.card, padding:'0.9rem 1.1rem', marginBottom:'1.2rem', display:'flex', alignItems:'center', gap:'0.7rem' }}>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8892a4" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink:0 }}><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+        <input
+          value={search}
+          onChange={e=>setSearch(e.target.value)}
+          placeholder="Search by Barcode, Patient Name, or Phone Number..."
+          style={{ ...inp, border:'none', background:'transparent', padding:'0.3rem 0', flex:1 }}
+        />
+        {search && (
+          <button onClick={()=>setSearch('')} title="Clear" style={{ background:'transparent', border:'none', color:'#8892a4', cursor:'pointer', fontSize:'0.8rem', fontWeight:700, padding:'0.2rem 0.5rem' }}>✕</button>
+        )}
+        {search && (
+          <span style={{ fontSize:'0.72rem', color:'#8892a4', whiteSpace:'nowrap' }}>{filteredPatients.length} of {patients.length}</span>
+        )}
+      </div>
+
       <div style={{ ...S.card, padding:0, overflow:'hidden' }}>
         <table style={{ width:'100%', borderCollapse:'collapse' }}>
           <thead>
@@ -247,13 +274,13 @@ export default function Patients({ onBill = () => {} }) {
             </tr>
           </thead>
           <tbody>
-            {patients.length === 0 && (
+            {filteredPatients.length === 0 && (
               <tr><td colSpan={10} style={{ textAlign:'center', padding:'3rem', color:'#8892a4' }}>
                 <div style={{ fontSize:'2rem', marginBottom:'0.8rem' }}>👤</div>
-                No patients registered yet.
+                {search ? `No patients match "${search}".` : 'No patients registered yet.'}
               </td></tr>
             )}
-            {patients.map(p => (
+            {filteredPatients.map(p => (
               <tr key={p.id} style={{ borderBottom:'1px solid #f4f6fa', transition:'background 0.1s' }}
                 onMouseEnter={e=>e.currentTarget.style.background='#fafbfc'}
                 onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
