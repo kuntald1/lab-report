@@ -694,6 +694,7 @@ def generate_combined_pdf(results: list, db: Session) -> bytes:
     # Clean, black-on-white, professional layout: an underlined panel title,
     # then a plain-ruled table (no colour fills) — abnormal values are bold,
     # everything else is regular weight, exactly like a printed lab report.
+    signers, seen_signers = [], set()   # distinct validating doctors, collected while looping, rendered together at the end
     for idx, r in enumerate(results):
         parsed = r.parsed_data or {}
         parameters = parsed.get('parameters', [])
@@ -757,33 +758,70 @@ def generate_combined_pdf(results: list, db: Session) -> bytes:
             section_flow.append(Spacer(1, 0.15*cm))
             section_flow.append(Paragraph(f'<u><b>Comments:</b></u> {r.note}'.replace(chr(10), "<br/>"), comments_style))
 
-        # Keep each panel's title glued to its own table so a page break
-        # never lands between a heading and its data.
+        # Keep each panel's title, table, and comments glued together so a
+        # page break never splits them apart. Signatures are collected below
+        # and shown together at the end of the report, not per panel.
         story.append(KeepTogether(section_flow))
+
+        # Track who validated this specific panel — deduplicated afterwards
+        # so each distinct doctor appears once at the end, in the order
+        # their first panel appears, rather than once per doctor and once
+        # per panel (a report with a doctor validating 5 tests should show
+        # their signature once, not five times).
+        signer = _validating_doctor(db, [r], patient.tenant_id if patient else None, cfg)
+        signer_key = (signer['name'], signer['qualification'], signer['registration_no'], signer['signature_filename'])
+        if signer_key not in seen_signers:
+            seen_signers.add(signer_key)
+            signers.append(signer)
 
         is_last = (idx == len(results) - 1)
         if not is_last:
-            story.append(PageBreak() if page_break_layout else Spacer(1, 0.55*cm))
+            story.append(PageBreak() if page_break_layout else Spacer(1, 0.7*cm))
 
-    # ── SIGNATURE — the doctor who actually validated this report, with
-    #    their own uploaded signature image when they have one, falling
-    #    back to the tenant's default name/qualification/registration if no
-    #    validator can be resolved (see _validating_doctor()). ────────────
-    story.append(Spacer(1, 1*cm))
-    signer = _validating_doctor(db, results, patient.tenant_id if patient else None, cfg)
-    sig_img = _sized_image(asset_path(signer['signature_filename']), 3.6) if signer['signature_filename'] else None
-    if sig_img:
-        story.append(sig_img)
-        story.append(Spacer(1, 0.05*cm))
-    else:
-        story.append(HRFlowable(width=4.5*cm, thickness=0.8, color=MUTED, hAlign='LEFT'))
-    story.append(Paragraph(signer['name'], sig_name))
-    if signer['qualification']:
-        story.append(Paragraph(signer['qualification'], sig_sub))
-    if signer['registration_no']:
-        story.append(Paragraph(f"Registration no {signer['registration_no']}", sig_sub))
+    # ── SIGN-OFF — every distinct doctor who validated any panel in this
+    #    report, each shown once with their own name/qualification/
+    #    registration/signature, laid out side by side (wrapping to a new
+    #    row after 3) rather than stacked. ──────────────────────────────
+    if signers:
+        PER_ROW = 3
+        COL_W = 5.7 * cm
+
+        def _signer_cell(signer):
+            cell = []
+            sig_img = _sized_image(asset_path(signer['signature_filename']), 3.0) if signer['signature_filename'] else None
+            if sig_img:
+                cell.append(sig_img)
+                cell.append(Spacer(1, 0.05*cm))
+            else:
+                cell.append(HRFlowable(width=3.8*cm, thickness=0.8, color=MUTED, hAlign='LEFT'))
+            cell.append(Paragraph(signer['name'], sig_name))
+            if signer['qualification']:
+                cell.append(Paragraph(signer['qualification'], sig_sub))
+            if signer['registration_no']:
+                cell.append(Paragraph(f"Registration no {signer['registration_no']}", sig_sub))
+            return cell
+
+        cells = [_signer_cell(s) for s in signers]
+        rows = [cells[i:i + PER_ROW] for i in range(0, len(cells), PER_ROW)]
+        for row in rows:
+            while len(row) < PER_ROW:
+                row.append('')   # pad an incomplete last row so the table stays rectangular
+
+        sig_table = Table(rows, colWidths=[COL_W] * PER_ROW)
+        sig_table.setStyle(TableStyle([
+            ('VALIGN',      (0,0),(-1,-1), 'TOP'),
+            ('ALIGN',       (0,0),(-1,-1), 'LEFT'),
+            ('LEFTPADDING', (0,0),(-1,-1), 0),
+            ('RIGHTPADDING',(0,0),(-1,-1), 14),
+            ('TOPPADDING',  (0,0),(0,-1),  0),
+            ('TOPPADDING',  (0,1),(-1,-1), 16),   # gap between rows when there's more than one
+            ('BOTTOMPADDING',(0,0),(-1,-1), 0),
+        ]))
+        story.append(Spacer(1, 1*cm))
+        story.append(sig_table)
 
     # ── END OF REPORT (once, at the true end) ─────────────────────
+    story.append(Spacer(1, 0.3*cm))
     story.append(Paragraph('**END OF REPORT**', end_style))
     story.append(Paragraph('The result is related to the sample(s) tested only.', disclaim_style))
 
