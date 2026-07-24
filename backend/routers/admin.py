@@ -3,19 +3,23 @@
 Every create assigns the tenant from the *creator's* scope (a lab_admin can
 never create rows in another tenant), and every list goes through apply_scope.
 """
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional, List
+import os, uuid
 
 from database import get_db
 from models.org import Tenant, Branch, Franchise, User, AuditLog, Role, ROLES, RoleMenuConfig
 from auth.security import hash_password
 from auth.deps import get_current_user, get_scope, require_roles, apply_scope, Scope
 from auth.audit import write_audit
-from services.report_settings import get_report_settings, DEFAULT_REPORT_SETTINGS
+from services.report_settings import get_report_settings, DEFAULT_REPORT_SETTINGS, asset_path, asset_url
 
 router = APIRouter()
+
+_ALLOWED_IMAGE_EXT = {".png", ".jpg", ".jpeg", ".webp"}
+_MAX_UPLOAD_BYTES = 3 * 1024 * 1024   # 3 MB — a logo/signature has no business being bigger
 
 
 # --------------------------------------------------------------------------- tenants
@@ -86,6 +90,80 @@ def update_report_settings(payload: ReportSettingsUpdate, request: Request,
     db.commit()
     write_audit(db, action="update", user=user, entity="report_settings", entity_id=tenant.id,
                 after=updates, ip=_ip(request))
+    return get_report_settings(tenant)
+
+
+@router.post("/report-settings/upload", dependencies=[Depends(require_roles(Role.SUPER_ADMIN, Role.LAB_ADMIN))])
+async def upload_report_asset(
+    kind: str = Form(...),   # "logo" | "signature"
+    file: UploadFile = File(...),
+    request: Request = None,
+    db: Session = Depends(get_db), user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
+):
+    """Upload a lab logo or pathologist signature image. Stored on disk
+    (Docker named volume report_assets_data) and referenced from
+    Tenant.report_settings by filename — see services/report_settings.py."""
+    if kind not in ("logo", "signature"):
+        raise HTTPException(status_code=400, detail="kind must be 'logo' or 'signature'")
+    if not scope.tenant_id:
+        raise HTTPException(status_code=400, detail="No tenant in scope")
+    tenant = db.query(Tenant).filter(Tenant.id == scope.tenant_id).first()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+
+    ext = os.path.splitext(file.filename or "")[1].lower()
+    if ext not in _ALLOWED_IMAGE_EXT:
+        raise HTTPException(status_code=400, detail=f"Unsupported file type '{ext}'. Use PNG, JPG or WEBP.")
+    body = await file.read()
+    if len(body) > _MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=400, detail="File too large (max 3 MB)")
+
+    filename = f"tenant_{tenant.id}_{kind}_{uuid.uuid4().hex[:8]}{ext}"
+    with open(asset_path(filename), "wb") as f:
+        f.write(body)
+
+    current = dict(tenant.report_settings or {})
+    old_filename = current.get(f"{kind}_filename")
+    current[f"{kind}_filename"] = filename
+    tenant.report_settings = current
+    db.commit()
+
+    # Best-effort cleanup of the file it's replacing.
+    if old_filename:
+        try:
+            os.remove(asset_path(old_filename))
+        except OSError:
+            pass
+
+    write_audit(db, action="upload", user=user, entity="report_settings", entity_id=tenant.id,
+                after={f"{kind}_filename": filename}, ip=_ip(request) if request else None)
+    return {**get_report_settings(tenant), f"{kind}_url": asset_url(filename)}
+
+
+@router.delete("/report-settings/{kind}", dependencies=[Depends(require_roles(Role.SUPER_ADMIN, Role.LAB_ADMIN))])
+def reset_report_asset(kind: str, request: Request,
+                        db: Session = Depends(get_db), user: User = Depends(get_current_user),
+                        scope: Scope = Depends(get_scope)):
+    """Remove an uploaded logo/signature and fall back to the default."""
+    if kind not in ("logo", "signature"):
+        raise HTTPException(status_code=400, detail="kind must be 'logo' or 'signature'")
+    if not scope.tenant_id:
+        raise HTTPException(status_code=400, detail="No tenant in scope")
+    tenant = db.query(Tenant).filter(Tenant.id == scope.tenant_id).first()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+    current = dict(tenant.report_settings or {})
+    old_filename = current.pop(f"{kind}_filename", None)
+    tenant.report_settings = current
+    db.commit()
+    if old_filename:
+        try:
+            os.remove(asset_path(old_filename))
+        except OSError:
+            pass
+    write_audit(db, action="reset", user=user, entity="report_settings", entity_id=tenant.id,
+                after={f"{kind}_filename": None}, ip=_ip(request))
     return get_report_settings(tenant)
 
 

@@ -1,5 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+import os
 from routers import devices, results, patients, simulate, pdf, tcp
 from routers import auth_router, admin
 from routers import catalog, orders, tat
@@ -36,6 +38,13 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Uploaded report-branding assets (lab logo, pathologist signature) — served
+# back out at /report-assets/... . Backed by a named Docker volume
+# (report_assets_data) so uploads survive image rebuilds.
+_REPORT_ASSETS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "uploads", "report_assets")
+os.makedirs(_REPORT_ASSETS_DIR, exist_ok=True)
+app.mount("/report-assets", StaticFiles(directory=_REPORT_ASSETS_DIR), name="report-assets")
 
 app.include_router(devices.router,  prefix="/api/devices",  tags=["Devices"])
 app.include_router(pdf.router,      prefix="/api/results",  tags=["PDF"])

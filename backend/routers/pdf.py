@@ -17,8 +17,9 @@ from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 from reportlab.graphics.barcode.qr import QrCodeWidget
 from reportlab.graphics.barcode import createBarcodeDrawing
 from reportlab.graphics.shapes import Drawing, Rect
+from reportlab.lib.utils import ImageReader
 from services.report_link import report_view_url
-from services.report_settings import get_report_settings
+from services.report_settings import get_report_settings, asset_path, asset_url
 import io
 import os
 from datetime import datetime
@@ -73,10 +74,30 @@ def _qr_drawing(data: str, size_cm: float = 2.0) -> Drawing:
 
 _LOGO_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'assets', 'healthycian_logo.jpg')
 _LOGO_ASPECT = 320 / 994   # source image is 994x320 (icon + wordmark + tagline lockup)
+_ICON_PATH  = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'assets', 'healthycian_icon.png')
 
 
-def _logo_image(width_cm: float = 4.6):
-    """The real Healthycian logo (icon+wordmark+tagline), sized to width_cm with height from its own aspect ratio."""
+def _sized_image(path, width_cm: float):
+    """An Image flowable at width_cm wide, height computed from the file's
+    own aspect ratio — works for any uploaded logo/signature regardless of
+    its native dimensions. Returns None if the file can't be read."""
+    try:
+        iw, ih = ImageReader(path).getSize()
+        w = width_cm * cm
+        h = w * (ih / iw)
+        return Image(path, width=w, height=h)
+    except Exception:
+        return None
+
+
+def _logo_image(cfg: dict, width_cm: float = 4.6):
+    """The lab's logo — an uploaded one if the tenant has configured it,
+    otherwise the built-in Healthycian logo (fixed aspect, baked asset)."""
+    custom = cfg.get('logo_filename') if cfg else None
+    if custom:
+        img = _sized_image(asset_path(custom), width_cm)
+        if img:
+            return img
     w = width_cm * cm
     h = w * _LOGO_ASPECT
     return Image(_LOGO_PATH, width=w, height=h)
@@ -102,6 +123,32 @@ def _barcode_drawing(value: str, width_cm: float = 4.2, height_cm: float = 1.1):
 
 def _fmt_dt(dt) -> str:
     return dt.strftime('%d %b %Y, %I:%M %p') if dt else '—'
+
+
+def _wrap_text(text: str, font: str, size: float, max_w: float, max_lines: int = 99):
+    """Greedy word-wrap using the real font metrics (no canvas needed — this
+    can run before the page/canvas exists, e.g. to size the footer band).
+    Never silently drops words: if max_lines is reached, whatever's left is
+    appended to the last line rather than discarded."""
+    from reportlab.pdfbase.pdfmetrics import stringWidth
+    words = text.split(' ')
+    lines, cur = [], ''
+    for i, w in enumerate(words):
+        trial = (cur + ' ' + w).strip()
+        if stringWidth(trial, font, size) <= max_w or not cur:
+            cur = trial
+        else:
+            lines.append(cur)
+            cur = w
+        if len(lines) == max_lines - 1:
+            # Everything remaining collapses onto the final allowed line
+            # rather than being dropped, even if it overflows visually.
+            rest = words[i + 1:]
+            cur = ' '.join([cur] + rest) if rest else cur
+            break
+    if cur:
+        lines.append(cur)
+    return lines
 
 
 # ── Dynamic report-context helpers ─────────────────────────────────────────
@@ -200,7 +247,7 @@ def generate_pdf(result: LabResult) -> bytes:
 
     # left cell: real Healthycian logo (icon+wordmark+tagline already baked into the image) + "LAB REPORT · Report #N"
     left_block = Table([
-        [_logo_image(4.6)],
+        [_logo_image({}, 4.6)],
         [Paragraph(f'LAB REPORT&nbsp;·&nbsp;Report #{result.id}', brand_sub)],
     ])
     left_block.setStyle(TableStyle([
@@ -427,12 +474,14 @@ def generate_combined_pdf(results: list, db: Session) -> bytes:
     """The official letterhead-style sample report: one shared header +
     patient-info block, then one dynamic section per test/panel (any number
     of panels, any set of parameters — nothing hardcoded), a configurable
-    pathologist signature block, and a repeating letterhead footer.
+    pathologist signature block (typed or an uploaded image), and a
+    repeating letterhead footer with a faint logo watermark behind the body.
 
-    Layout ("continuous" vs. "page_break" — one panel per page) and every
-    letterhead / signature detail come from Tenant.report_settings via
-    services.report_settings.get_report_settings(), so a lab can reconfigure
-    its own report without a code change.
+    Layout ("continuous" vs. "page_break" — one panel per page), the lab's
+    logo/letterhead details, and the pathologist signature all come from
+    Tenant.report_settings via services.report_settings.get_report_settings(),
+    so a lab can reconfigure its own report (including uploading its own
+    logo/signature images) without a code change.
     """
     buffer = io.BytesIO()
     first = results[0]
@@ -442,30 +491,48 @@ def generate_combined_pdf(results: list, db: Session) -> bytes:
     cfg = get_report_settings(tenant)
     page_break_layout = cfg.get('layout') == 'page_break'
 
+    BLACK      = colors.HexColor('#1a1a1a')
     GREEN      = colors.HexColor('#0e7d6b')
-    GREEN_LIGHT= colors.HexColor('#e3f7f3')
-    CREAM      = colors.HexColor('#f2fbfa')
     MUTED      = colors.HexColor('#5c7370')
-    RED        = colors.HexColor('#dc2626')
-    BLUE       = colors.HexColor('#2563eb')
-    NORMAL_C   = colors.HexColor('#16a34a')
+    BORDER     = colors.HexColor('#d8d8d8')
     TEAL_FOOT  = colors.HexColor('#0b4d3e')
-    BORDER     = colors.HexColor('#bdeae2')
 
     label_style   = ParagraphStyle('label', fontName='Helvetica-Bold', fontSize=7,   textColor=MUTED, spaceAfter=1, leading=9)
-    value_style   = ParagraphStyle('value', fontName='Helvetica-Bold', fontSize=9.5, textColor=GREEN, spaceAfter=5, leading=12)
-    section_style = ParagraphStyle('section', fontName='Helvetica-Bold', fontSize=10.5, textColor=GREEN, spaceAfter=2, leading=13)
-    meta_style    = ParagraphStyle('meta', fontName='Helvetica', fontSize=7.5, textColor=MUTED, spaceAfter=6, leading=10)
-    normal_style  = ParagraphStyle('norm', fontName='Helvetica', fontSize=9, textColor=GREEN, leading=13)
+    value_style   = ParagraphStyle('value', fontName='Helvetica-Bold', fontSize=9.5, textColor=BLACK, spaceAfter=5, leading=12)
+    section_style = ParagraphStyle('section', fontName='Helvetica-Bold', fontSize=10.5, textColor=BLACK, spaceAfter=6, leading=13)
+    normal_style  = ParagraphStyle('norm', fontName='Helvetica', fontSize=9, textColor=BLACK, leading=13)
     qr_caption    = ParagraphStyle('qrcap', fontName='Helvetica', fontSize=6, textColor=MUTED, alignment=TA_CENTER, spaceBefore=2, leading=7)
     addr_style    = ParagraphStyle('addr', fontName='Helvetica', fontSize=7.5, textColor=MUTED, alignment=TA_RIGHT, leading=10)
     addr_bold     = ParagraphStyle('addrb', fontName='Helvetica-Bold', fontSize=7.5, textColor=MUTED, alignment=TA_RIGHT, leading=10)
-    sig_name      = ParagraphStyle('signame', fontName='Helvetica-Bold', fontSize=10, textColor=GREEN, leading=13)
+    sig_name      = ParagraphStyle('signame', fontName='Helvetica-Bold', fontSize=10, textColor=BLACK, leading=13)
     sig_sub       = ParagraphStyle('sigsub', fontName='Helvetica', fontSize=8, textColor=MUTED, leading=11)
     end_style     = ParagraphStyle('end', fontName='Helvetica-Bold', fontSize=8, textColor=MUTED, alignment=TA_CENTER, spaceBefore=6, spaceAfter=4)
     disclaim_style= ParagraphStyle('disc', fontName='Helvetica', fontSize=7.5, textColor=MUTED, alignment=TA_CENTER)
+    comments_style= ParagraphStyle('comm', fontName='Helvetica', fontSize=8.5, textColor=BLACK, leading=12)
 
-    BOTTOM_MARGIN = 2.7 * cm   # reserved for the repeating letterhead footer band
+    # ── Footer geometry, computed BEFORE the doc is built so the band is
+    #    always tall enough for whatever this tenant configured — a long
+    #    address or business name wraps to more lines instead of being cut
+    #    off or overlapping the next column. ─────────────────────────────
+    PAGE_W = A4[0]
+    FOOT_LEFT_X, FOOT_LEFT_W = 1.5*cm, 4.6*cm
+    FOOT_RIGHT_W = 2.4*cm
+    FOOT_CENTER_X0 = FOOT_LEFT_X + FOOT_LEFT_W + 0.4*cm
+    FOOT_CENTER_W  = PAGE_W - 1.5*cm - FOOT_RIGHT_W - FOOT_CENTER_X0
+
+    _foot_left_lines = ['A UNIT OF'] + _wrap_text(cfg['unit_of'], 'Helvetica', 6.5, FOOT_LEFT_W, max_lines=2)
+    _foot_addr_line    = 'Reg. Office & Centralised Lab: ' + ' '.join(cfg['address_lines'])
+    _foot_contact_line = ' / '.join(cfg['phones'])
+    _foot_web_line     = f"{cfg['email']}   {cfg['website']}"
+    _foot_center_lines = (
+        _wrap_text(_foot_addr_line, 'Helvetica-Bold', 6.5, FOOT_CENTER_W, max_lines=2)
+        + _wrap_text(_foot_contact_line, 'Helvetica', 6.5, FOOT_CENTER_W, max_lines=1)
+        + _wrap_text(_foot_web_line, 'Helvetica', 6.5, FOOT_CENTER_W, max_lines=1)
+    )
+    _foot_line_count = max(len(_foot_left_lines), len(_foot_center_lines))
+    LINE_H = 0.38 * cm
+    FOOTER_BAND_H = _foot_line_count * LINE_H + 0.55*cm   # padding top+bottom
+    BOTTOM_MARGIN = FOOTER_BAND_H + 0.6 * cm
     doc = SimpleDocTemplate(
         buffer, pagesize=A4,
         rightMargin=1.5*cm, leftMargin=1.5*cm,
@@ -481,7 +548,7 @@ def generate_combined_pdf(results: list, db: Session) -> bytes:
     addr_block.append(Paragraph(' / '.join(cfg['phones']), addr_style))
     addr_block.append(Paragraph(cfg['email'], addr_style))
 
-    header_table = Table([[_logo_image(5.2), addr_block]], colWidths=['52%', '48%'])
+    header_table = Table([[_logo_image(cfg, 5.2), addr_block]], colWidths=['52%', '48%'])
     header_table.setStyle(TableStyle([
         ('VALIGN', (0,0),(-1,-1), 'TOP'),
         ('LEFTPADDING', (0,0),(-1,-1), 0), ('RIGHTPADDING', (0,0),(-1,-1), 0),
@@ -492,10 +559,9 @@ def generate_combined_pdf(results: list, db: Session) -> bytes:
     story.append(HRFlowable(width='100%', thickness=1.4, color=GREEN))
     story.append(Spacer(1, 0.45*cm))
 
-    # ── PATIENT INFO BLOCK (once — fields that are constant for the whole
-    #    sample; per-test Reporting Time / Sample ID appear with each panel
-    #    below, since different tests on the same patient can validate at
-    #    different times and carry different accession suffixes) ──────────
+    # ── PATIENT INFO BLOCK (once) — Reporting Time here is the most recent
+    #    validation across every panel in this report, so the header always
+    #    reflects "when the whole thing was actually ready" ─────────────
     def _kv_stack(pairs):
         rows = []
         for lbl, val in pairs:
@@ -509,6 +575,9 @@ def generate_combined_pdf(results: list, db: Session) -> bytes:
         return t
 
     receiving_dt = _receiving_time(db, first.barcode)
+    reporting_times = [t for t in (_reporting_time(db, r.accession_number) for r in results) if t]
+    reporting_dt = max(reporting_times) if reporting_times else None
+
     left_block = _kv_stack([
         ('PATIENT NAME', patient.patient_name if patient else 'Unknown'),
         ('AGE / GENDER', f"{patient.age or '—'} years / {patient.gender or '—'}" if patient else '—'),
@@ -520,6 +589,7 @@ def generate_combined_pdf(results: list, db: Session) -> bytes:
         ('REFERRAL',        _referral_label(db, patient)),
         ('COLLECTION TIME', _collection_time(patient)),
         ('RECEIVING TIME',  _fmt_dt(receiving_dt)),
+        ('REPORTING TIME',  _fmt_dt(reporting_dt)),
     ])
     qr_block = [
         _qr_drawing(report_view_url(first.id), 2.1),
@@ -545,90 +615,74 @@ def generate_combined_pdf(results: list, db: Session) -> bytes:
         ('ALIGN',         (3,0),(3,0), 'CENTER'),
     ]))
     story.append(info_table)
-    story.append(Spacer(1, 0.5*cm))
+    story.append(Spacer(1, 0.55*cm))
 
-    # ── ONE DYNAMIC SECTION PER TEST / PANEL ────────────────────
+    # ── ONE DYNAMIC SECTION PER TEST / PANEL ─────────────────────
+    # Clean, black-on-white, professional layout: an underlined panel title,
+    # then a plain-ruled table (no colour fills) — abnormal values are bold,
+    # everything else is regular weight, exactly like a printed lab report.
     for idx, r in enumerate(results):
         parsed = r.parsed_data or {}
         parameters = parsed.get('parameters', [])
-        reporting_dt = _reporting_time(db, r.accession_number)
 
-        section_flow = []
-        section_flow.append(Paragraph((r.test_name or f'Result #{r.id}').upper(), section_style))
-        section_flow.append(Paragraph(
-            f'Sample ID: {r.accession_number or r.barcode or "—"} &nbsp;·&nbsp; Reported: {_fmt_dt(reporting_dt)}',
-            meta_style
-        ))
+        section_flow = [Paragraph(f'<u>{(r.test_name or f"Result #{r.id}").upper()}</u>', section_style)]
 
         if parameters:
+            th_style = ParagraphStyle('th', fontName='Helvetica-Bold', fontSize=8, textColor=BLACK)
             col_headers = [
-                Paragraph('<b>TEST DESCRIPTION</b>', ParagraphStyle('th', fontName='Helvetica-Bold', fontSize=8, textColor=colors.white, alignment=TA_LEFT)),
-                Paragraph('<b>VALUE(S)</b>',          ParagraphStyle('th', fontName='Helvetica-Bold', fontSize=8, textColor=colors.white, alignment=TA_CENTER)),
-                Paragraph('<b>UNIT(S)</b>',           ParagraphStyle('th', fontName='Helvetica-Bold', fontSize=8, textColor=colors.white, alignment=TA_CENTER)),
-                Paragraph('<b>REFERENCE RANGE</b>',   ParagraphStyle('th', fontName='Helvetica-Bold', fontSize=8, textColor=colors.white, alignment=TA_LEFT)),
-                Paragraph('<b>METHODOLOGY</b>',       ParagraphStyle('th', fontName='Helvetica-Bold', fontSize=8, textColor=colors.white, alignment=TA_LEFT)),
+                Paragraph('TEST DESCRIPTION', th_style),
+                Paragraph('VALUE(S)', ParagraphStyle('th2', parent=th_style, alignment=TA_CENTER)),
+                Paragraph('UNIT(S)', ParagraphStyle('th3', parent=th_style, alignment=TA_CENTER)),
+                Paragraph('REFERENCE RANGE', th_style),
+                Paragraph('METHODOLOGY', th_style),
             ]
             table_data = [col_headers]
-            row_styles = []
-            for ridx, p in enumerate(parameters):
+            for p in parameters:
                 flag = p.get('flag', 'N')
                 value = p.get('value', '')
-                row = ridx + 1
-                if flag == 'H':
-                    val_color = RED
-                elif flag == 'L':
-                    val_color = BLUE
-                else:
-                    val_color = NORMAL_C
+                bold = flag in ('H', 'L')
 
                 ref_min, ref_max = p.get('ref_min', ''), p.get('ref_max', '')
                 has_min, has_max = ref_min not in ('', None), ref_max not in ('', None)
-                ref_text = p.get('ref_text')   # free-text multi-line range, when the parser supplies one
+                ref_text = p.get('ref_text')
                 if ref_text:
                     ref_range = ref_text.replace('\n', '<br/>')
                 elif has_min and has_max:
-                    ref_range = f"{ref_min} – {ref_max}"
+                    ref_range = f"{ref_min} \u2013 {ref_max}"
                 elif has_max:
                     ref_range = f"&lt; {ref_max}"
                 elif has_min:
                     ref_range = f"&gt; {ref_min}"
                 else:
-                    ref_range = '—'
+                    ref_range = '\u2014'
 
+                val_txt = f'<b>{value}</b>' if bold else str(value)
+                name_txt = f'<b>{p.get("name", p.get("param", ""))}</b>' if bold else p.get('name', p.get('param', ''))
                 table_data.append([
-                    Paragraph(p.get('name', p.get('param', '')), ParagraphStyle('td', fontName='Helvetica', fontSize=9, textColor=GREEN)),
-                    Paragraph(f'<b>{value}</b>', ParagraphStyle('tv', fontName='Helvetica-Bold', fontSize=9.5, textColor=val_color, alignment=TA_CENTER)),
-                    Paragraph(str(p.get('unit', '') or '—'), ParagraphStyle('tu', fontName='Helvetica', fontSize=8.5, textColor=MUTED, alignment=TA_CENTER)),
+                    Paragraph(name_txt, ParagraphStyle('td', fontName='Helvetica', fontSize=9, textColor=BLACK)),
+                    Paragraph(val_txt, ParagraphStyle('tv', fontName='Helvetica', fontSize=9.5, textColor=BLACK, alignment=TA_CENTER)),
+                    Paragraph(str(p.get('unit', '') or '\u2014'), ParagraphStyle('tu', fontName='Helvetica', fontSize=8.5, textColor=MUTED, alignment=TA_CENTER)),
                     Paragraph(ref_range, ParagraphStyle('tr', fontName='Helvetica', fontSize=8.5, textColor=MUTED, alignment=TA_LEFT, leading=11)),
-                    Paragraph(str(p.get('method', '') or '—'), ParagraphStyle('tm', fontName='Helvetica', fontSize=8.5, textColor=MUTED, alignment=TA_LEFT, leading=11)),
+                    Paragraph(str(p.get('method', '') or '\u2014'), ParagraphStyle('tm', fontName='Helvetica', fontSize=8.5, textColor=MUTED, alignment=TA_LEFT, leading=11)),
                 ])
-                if flag in ('H', 'L'):
-                    row_styles.append(('BACKGROUND', (0,row),(-1,row), colors.HexColor('#fef2f2') if flag == 'H' else colors.HexColor('#eff6ff')))
 
             result_table = Table(table_data, colWidths=['30%', '13%', '12%', '25%', '20%'])
             result_table.setStyle(TableStyle([
-                ('BACKGROUND',    (0,0),(-1,0),  GREEN),
-                ('TOPPADDING',    (0,0),(-1,-1), 7), ('BOTTOMPADDING', (0,0),(-1,-1), 7),
-                ('LEFTPADDING',   (0,0),(-1,-1), 9), ('RIGHTPADDING',  (0,0),(-1,-1), 9),
-                ('BOX',           (0,0),(-1,-1), 1, BORDER),
-                ('LINEBELOW',     (0,0),(-1,-2), 0.5, GREEN_LIGHT),
+                ('LINEBELOW',     (0,0),(-1,0),  1, BLACK),
+                ('LINEBELOW',     (0,1),(-1,-1), 0.4, BORDER),
+                ('TOPPADDING',    (0,0),(-1,-1), 6), ('BOTTOMPADDING', (0,0),(-1,-1), 6),
+                ('LEFTPADDING',   (0,0),(-1,-1), 4), ('RIGHTPADDING',  (0,0),(-1,-1), 4),
                 ('VALIGN',        (0,0),(-1,-1), 'MIDDLE'),
-                *row_styles,
             ]))
             section_flow.append(result_table)
         else:
             section_flow.append(Paragraph('No parameters found in this result.', normal_style))
 
         if r.note:
-            note_table = Table([[Paragraph(f'<b>Comments:</b> {r.note}'.replace(chr(10), "<br/>"), normal_style)]], colWidths=['100%'])
-            note_table.setStyle(TableStyle([
-                ('BACKGROUND',    (0,0),(-1,-1), CREAM),
-                ('BOX',           (0,0),(-1,-1), 1, BORDER),
-                ('TOPPADDING',    (0,0),(-1,-1), 8), ('BOTTOMPADDING', (0,0),(-1,-1), 8),
-                ('LEFTPADDING',   (0,0),(-1,-1), 10), ('RIGHTPADDING',  (0,0),(-1,-1), 10),
-            ]))
+            section_flow.append(Spacer(1, 0.2*cm))
+            section_flow.append(HRFlowable(width='100%', thickness=0.5, color=BORDER))
             section_flow.append(Spacer(1, 0.15*cm))
-            section_flow.append(note_table)
+            section_flow.append(Paragraph(f'<u><b>Comments:</b></u> {r.note}'.replace(chr(10), "<br/>"), comments_style))
 
         # Keep each panel's title glued to its own table so a page break
         # never lands between a heading and its data.
@@ -636,42 +690,76 @@ def generate_combined_pdf(results: list, db: Session) -> bytes:
 
         is_last = (idx == len(results) - 1)
         if not is_last:
-            story.append(PageBreak() if page_break_layout else Spacer(1, 0.5*cm))
+            story.append(PageBreak() if page_break_layout else Spacer(1, 0.55*cm))
 
-    # ── PATHOLOGIST SIGNATURE (configurable, text-only — no image) ──────
-    story.append(Spacer(1, 0.9*cm))
-    story.append(HRFlowable(width=4.5*cm, thickness=0.8, color=MUTED, hAlign='LEFT'))
+    # ── PATHOLOGIST SIGNATURE (uploaded image if configured, else a plain
+    #    typed line — see Tenant.report_settings.signature_filename) ─────
+    story.append(Spacer(1, 1*cm))
+    sig_filename = cfg.get('signature_filename')
+    sig_img = _sized_image(asset_path(sig_filename), 3.6) if sig_filename else None
+    if sig_img:
+        story.append(sig_img)
+        story.append(Spacer(1, 0.05*cm))
+    else:
+        story.append(HRFlowable(width=4.5*cm, thickness=0.8, color=MUTED, hAlign='LEFT'))
     story.append(Paragraph(cfg['pathologist_name'], sig_name))
     story.append(Paragraph(cfg['pathologist_qualification'], sig_sub))
     story.append(Paragraph(f"Registration no {cfg['registration_no']}", sig_sub))
 
-    # ── END OF REPORT (once, at the true end) ────────────────────
+    # ── END OF REPORT (once, at the true end) ─────────────────────
     story.append(Paragraph('**END OF REPORT**', end_style))
     story.append(Paragraph('The result is related to the sample(s) tested only.', disclaim_style))
 
-    # ── REPEATING LETTERHEAD FOOTER (every page) ─────────────────
-    def _draw_footer(canvas, doc_):
+    # ── PAGE CHROME: faint logo watermark behind the body + repeating
+    #    letterhead footer band (drawn once per page, before the page's
+    #    flowables render, so both sit BEHIND the report content) ────────
+    watermark_path = asset_path(cfg['logo_filename']) if cfg.get('logo_filename') else _ICON_PATH
+
+    def _draw_page_chrome(canvas, doc_):
         canvas.saveState()
-        band_h = 1.7 * cm
+        # --- faint watermark, centred on the page, well below the text ---
+        try:
+            iw, ih = ImageReader(watermark_path).getSize()
+            wm_w = 8.5 * cm
+            wm_h = wm_w * (ih / iw)
+            canvas.saveState()
+            canvas.setFillAlpha(0.05)
+            canvas.drawImage(watermark_path, (A4[0]-wm_w)/2, (A4[1]-wm_h)/2,
+                              width=wm_w, height=wm_h, mask='auto', preserveAspectRatio=True)
+            canvas.restoreState()
+        except Exception:
+            pass
+
+        # --- footer band: three non-overlapping zones (brand | address | page),
+        #     using the line lists computed up front so the band height and
+        #     its content always agree — nothing gets cut or overlaps. ────
         canvas.setFillColor(TEAL_FOOT)
-        canvas.rect(0, 0, A4[0], band_h, stroke=0, fill=1)
+        canvas.rect(0, 0, A4[0], FOOTER_BAND_H, stroke=0, fill=1)
         canvas.setFillColor(colors.white)
-        canvas.setFont('Helvetica-Bold', 7.5)
-        canvas.drawString(1.5*cm, band_h - 0.55*cm, f"A UNIT OF")
-        canvas.setFont('Helvetica', 7.5)
-        canvas.drawString(1.5*cm, band_h - 0.95*cm, cfg['unit_of'])
+
+        y = FOOTER_BAND_H - 0.45*cm
+        canvas.setFont('Helvetica-Bold', 7)
+        canvas.drawString(FOOT_LEFT_X, y, _foot_left_lines[0])
+        canvas.setFont('Helvetica', 6.5)
+        for line in _foot_left_lines[1:]:
+            y -= LINE_H
+            canvas.drawString(FOOT_LEFT_X, y, line)
+
+        cy = FOOTER_BAND_H - 0.45*cm
+        for i, line in enumerate(_foot_center_lines):
+            canvas.setFont('Helvetica-Bold' if i == 0 else 'Helvetica', 6.5)
+            canvas.drawCentredString(FOOT_CENTER_X0 + FOOT_CENTER_W/2, cy, line)
+            cy -= LINE_H
+
+        # right: page number
         canvas.setFont('Helvetica', 7)
-        addr_line = 'Reg. Office & Centralised Lab: ' + ' '.join(cfg['address_lines'])
-        contact_line = ' / '.join(cfg['phones']) + f"   {cfg['email']}   {cfg['website']}"
-        canvas.drawCentredString(A4[0] / 2, band_h - 0.55*cm, addr_line)
-        canvas.drawCentredString(A4[0] / 2, band_h - 0.95*cm, contact_line)
-        canvas.setFont('Helvetica', 7)
-        canvas.drawRightString(A4[0] - 1.5*cm, band_h - 0.75*cm, f"Page {doc_.page}")
+        canvas.drawRightString(A4[0] - 1.5*cm, FOOTER_BAND_H - 0.6*cm, f"Page {doc_.page}")
         canvas.restoreState()
 
-    doc.build(story, onFirstPage=_draw_footer, onLaterPages=_draw_footer)
+    doc.build(story, onFirstPage=_draw_page_chrome, onLaterPages=_draw_page_chrome)
     buffer.seek(0)
     return buffer.read()
+
 
 
 

@@ -28,6 +28,8 @@ services:
       ABDM_HIP_ID:         ""
     ports:
       - "8001:8000"
+    volumes:
+      - report_assets_data:/app/uploads
     depends_on:
       - postgres
     restart: unless-stopped
@@ -45,3 +47,4 @@ services:
 
 volumes:
   postgres_data:
+  report_assets_data:

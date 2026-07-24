@@ -11,7 +11,18 @@ endpoint) without ever needing a schema migration for new fields.
 layout:
     "continuous"  — all test panels flow one after another on shared pages
     "page_break"  — each test panel starts on its own page
+
+logo_filename / signature_filename:
+    Just the filename (not a full path/URL) of an uploaded image, saved
+    under REPORT_ASSETS_DIR by routers/admin.py's upload endpoint. Kept as
+    a bare filename (not a URL) so routers/pdf.py can read the file straight
+    off disk — it never has to make an HTTP round-trip to render its own
+    server's static files. asset_url() below builds the URL a frontend
+    would use to preview the same file.
+    None/absent = fall back to the built-in Healthycian logo, and to a
+    plain typed signature line (no image), respectively.
 """
+import os
 
 DEFAULT_REPORT_SETTINGS = {
     "layout": "continuous",   # "continuous" | "page_break"
@@ -25,7 +36,28 @@ DEFAULT_REPORT_SETTINGS = {
     "pathologist_name": "Dr Manas Talukdar",
     "pathologist_qualification": "MD (Pathology)",
     "registration_no": "63582",
+    "logo_filename": None,        # uploaded lab logo, replaces the built-in Healthycian logo when set
+    "signature_filename": None,   # uploaded pathologist signature image, replaces the plain text line when set
 }
+
+# Backend-local directory the uploaded logo/signature files live in. Mounted
+# as a Docker named volume (report_assets_data) in docker-compose.yml so
+# uploads survive image rebuilds, and served at /report-assets/... by
+# main.py's StaticFiles mount for frontend previews.
+REPORT_ASSETS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "uploads", "report_assets")
+os.makedirs(REPORT_ASSETS_DIR, exist_ok=True)
+
+APP_URL = os.getenv("APP_PUBLIC_URL", "https://medicloud.mooo.com").rstrip("/")
+
+
+def asset_path(filename: str) -> str:
+    """Absolute filesystem path for an uploaded report-branding image."""
+    return os.path.join(REPORT_ASSETS_DIR, filename)
+
+
+def asset_url(filename: str) -> str:
+    """Public URL for an uploaded report-branding image (frontend preview)."""
+    return f"{APP_URL}/report-assets/{filename}"
 
 
 def get_report_settings(tenant) -> dict:
