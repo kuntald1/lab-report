@@ -252,22 +252,26 @@ def _validating_doctor(db: Session, results: list, tenant_id, cfg: dict) -> dict
     if not name:
         return fallback
 
-    # Prefer a same-tenant match, but don't let a tenant_id mismatch (e.g. a
-    # referral_doctors row created before tenant scoping, or a differently
-    # scoped record) hide an otherwise exact name match — fall back to a
-    # tenant-agnostic lookup rather than silently losing the doctor's real
-    # qualification/registration/signature.
-    doctor = None
-    if tenant_id is not None:
-        doctor = (db.query(ReferralDoctor)
-                    .filter(sqlfunc.lower(ReferralDoctor.name) == name.lower(),
-                            ReferralDoctor.tenant_id == tenant_id)
-                    .first())
-    if not doctor:
-        doctor = (db.query(ReferralDoctor)
+    # Same-name referral_doctors rows can genuinely be duplicates in
+    # practice — e.g. one auto-created by services/doctor_sync.py when the
+    # pathologist login was first created (blank, 0% commission), and a
+    # separate one added manually later and actually filled in with
+    # qualification/registration/signature. Picking "the first match" or
+    # "the same-tenant match" isn't reliable here, since either one could be
+    # the blank duplicate. Instead, score every same-named candidate and
+    # prefer whichever one actually HAS data, tenant match second, oldest
+    # last as a final tiebreak — so a stray blank duplicate can never win
+    # over the record Kuntal actually filled in.
+    candidates = (db.query(ReferralDoctor)
                     .filter(sqlfunc.lower(ReferralDoctor.name) == name.lower())
-                    .order_by(ReferralDoctor.id.asc())
-                    .first())
+                    .all())
+    doctor = None
+    if candidates:
+        def _score(d):
+            has_data = bool(d.qualification or d.registration_no or d.signature_filename)
+            same_tenant = tenant_id is not None and d.tenant_id == tenant_id
+            return (not has_data, not same_tenant, d.id)   # False sorts before True, so "has data" wins
+        doctor = sorted(candidates, key=_score)[0]
 
     # From here on the validator is a known, named person — never fall back
     # to the tenant's generic identity for their missing fields, just omit them.
