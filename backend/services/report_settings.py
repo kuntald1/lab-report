@@ -63,8 +63,9 @@ def asset_path(filename: str) -> str:
 
 
 def asset_url(filename: str) -> str:
-    """Public URL for an uploaded report-branding image (frontend preview)."""
-    return f"{APP_URL}/report-assets/{filename}"
+    """Public URL for an uploaded report-branding image (frontend preview).
+    Under /api/ to match main.py's mount — see the comment there for why."""
+    return f"{APP_URL}/api/report-assets/{filename}"
 
 
 def get_report_settings(tenant) -> dict:

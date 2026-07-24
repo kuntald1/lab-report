@@ -39,12 +39,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Uploaded report-branding assets (lab logo, pathologist signature) — served
-# back out at /report-assets/... . Backed by a named Docker volume
-# (report_assets_data) so uploads survive image rebuilds.
+# Uploaded report-branding assets (lab logo, doctor signatures) — served
+# back out at /api/report-assets/... (mounted under /api, not the app root,
+# because Nginx forwards the /api/* path through unchanged rather than
+# stripping the prefix — every other route lives under /api/... for the
+# same reason; see the app.include_router(..., prefix="/api/...") calls
+# below). Backed by a named Docker volume (report_assets_data) so uploads
+# survive image rebuilds.
 _REPORT_ASSETS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "uploads", "report_assets")
 os.makedirs(_REPORT_ASSETS_DIR, exist_ok=True)
-app.mount("/report-assets", StaticFiles(directory=_REPORT_ASSETS_DIR), name="report-assets")
+app.mount("/api/report-assets", StaticFiles(directory=_REPORT_ASSETS_DIR), name="report-assets")
 
 app.include_router(devices.router,  prefix="/api/devices",  tags=["Devices"])
 app.include_router(pdf.router,      prefix="/api/results",  tags=["PDF"])

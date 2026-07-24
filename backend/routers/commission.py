@@ -21,6 +21,7 @@ from database import get_db
 from auth.deps import get_current_user, get_scope, Scope
 from models.org import User, Role, ReferralDoctor
 from models.commission import DoctorCommission, DoctorPayment
+from services.report_settings import asset_url
 
 router = APIRouter()
 ADMIN_ROLES = (Role.SUPER_ADMIN, Role.LAB_ADMIN)
@@ -93,7 +94,11 @@ def list_doctors_with_totals(db: Session = Depends(get_db), scope: Scope = Depen
         s = _summary(rows)
         out.append({"id": d.id, "name": d.name, "phone": d.phone or "",
                     "commission_percent": d.commission_percent or 0,
-                    "has_login": (d.name or "").strip().lower() in path_names, **s})
+                    "has_login": (d.name or "").strip().lower() in path_names,
+                    "qualification": d.qualification or "",
+                    "registration_no": d.registration_no or "",
+                    "signature_url": asset_url(d.signature_filename) if d.signature_filename else None,
+                    **s})
     return out
 
 
