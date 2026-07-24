@@ -219,10 +219,17 @@ def _validating_doctor(db: Session, results: list, tenant_id, cfg: dict) -> dict
     login to a roster entry — so THEIR own uploaded signature, qualification,
     and registration number print, not one tenant-wide default.
 
-    Falls back to the tenant's default pathologist_name/qualification/
-    registration_no (services/report_settings.py) whenever no BillItem, no
-    validating user, or no matching referral_doctors row is found — so older
-    data or an unmatched name never leaves the signature block blank."""
+    Once a real validator is identified, their name is ALWAYS what prints —
+    qualification/registration/signature come only from their own
+    referral_doctors row, and any of those left blank just don't print
+    (no borrowing the tenant's generic defaults for a named, specific
+    doctor — that produced misleading output like "manna, MD (Pathology),
+    Registration no 63582" when manna had set none of that).
+
+    The tenant's default pathologist_name/qualification/registration_no
+    (services/report_settings.py) is used ONLY as a last resort when no
+    validator can be identified at all — no BillItem, no validated_by, or
+    no resolvable user name."""
     fallback = {
         'name': cfg['pathologist_name'],
         'qualification': cfg['pathologist_qualification'],
@@ -245,21 +252,30 @@ def _validating_doctor(db: Session, results: list, tenant_id, cfg: dict) -> dict
     if not name:
         return fallback
 
-    dq = db.query(ReferralDoctor).filter(sqlfunc.lower(ReferralDoctor.name) == name.lower())
+    # Prefer a same-tenant match, but don't let a tenant_id mismatch (e.g. a
+    # referral_doctors row created before tenant scoping, or a differently
+    # scoped record) hide an otherwise exact name match — fall back to a
+    # tenant-agnostic lookup rather than silently losing the doctor's real
+    # qualification/registration/signature.
+    doctor = None
     if tenant_id is not None:
-        dq = dq.filter(ReferralDoctor.tenant_id == tenant_id)
-    doctor = dq.first()
+        doctor = (db.query(ReferralDoctor)
+                    .filter(sqlfunc.lower(ReferralDoctor.name) == name.lower(),
+                            ReferralDoctor.tenant_id == tenant_id)
+                    .first())
     if not doctor:
-        # No roster entry yet — still show the real validator's name rather
-        # than falling all the way back to a generic default.
-        return {'name': name, 'qualification': fallback['qualification'],
-                'registration_no': fallback['registration_no'], 'signature_filename': None}
+        doctor = (db.query(ReferralDoctor)
+                    .filter(sqlfunc.lower(ReferralDoctor.name) == name.lower())
+                    .order_by(ReferralDoctor.id.asc())
+                    .first())
 
+    # From here on the validator is a known, named person — never fall back
+    # to the tenant's generic identity for their missing fields, just omit them.
     return {
-        'name': doctor.name or name,
-        'qualification': doctor.qualification or fallback['qualification'],
-        'registration_no': doctor.registration_no or fallback['registration_no'],
-        'signature_filename': doctor.signature_filename,
+        'name': (doctor.name if doctor and doctor.name else name),
+        'qualification': (doctor.qualification or '') if doctor else '',
+        'registration_no': (doctor.registration_no or '') if doctor else '',
+        'signature_filename': doctor.signature_filename if doctor else None,
     }
 
 
