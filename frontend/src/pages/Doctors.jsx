@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { authedFetch } from '../services/auth';
 
 const inr = (n) => '₹' + (Number(n)||0).toLocaleString('en-IN', { minimumFractionDigits:2, maximumFractionDigits:2 });
@@ -48,8 +48,12 @@ export default function Doctors() {
   const applyDates  = () => fetchLedger(selected.id, dateFrom, dateTo);
   const clearDates  = () => { setDateFrom(''); setDateTo(''); fetchLedger(selected.id, '', ''); };
 
-  const openNew  = () => setForm({ name:'', phone:'', commission_percent:'' });
-  const openEdit = (d) => setForm({ id:d.id, name:d.name, phone:d.phone, commission_percent:d.commission_percent });
+  const [uploadingSig, setUploadingSig] = useState(false);
+  const sigInputRef = useRef(null);
+
+  const openNew  = () => setForm({ name:'', phone:'', commission_percent:'', qualification:'', registration_no:'' });
+  const openEdit = (d) => setForm({ id:d.id, name:d.name, phone:d.phone, commission_percent:d.commission_percent,
+                                     qualification:d.qualification||'', registration_no:d.registration_no||'', signature_url:d.signature_url||null });
 
   const [del, setDel] = useState(null);   // doctor row pending delete confirmation
   const doDelete = async () => {
@@ -64,15 +68,55 @@ export default function Doctors() {
   const save = async () => {
     if (!form.name.trim()) { showToast('error', 'Doctor name is required'); return; }
     setSaving(true);
-    const payload = { name: form.name.trim(), phone: form.phone || null, commission_percent: Number(form.commission_percent) || 0 };
+    const wasCreate = !form.id;
+    const payload = { name: form.name.trim(), phone: form.phone || null, commission_percent: Number(form.commission_percent) || 0,
+                       qualification: form.qualification || null, registration_no: form.registration_no || null };
     const url    = form.id ? `/b2b/referral-doctors/${form.id}` : '/b2b/referral-doctors';
     const method = form.id ? 'PUT' : 'POST';
     try {
       const res = await authedFetch(url, { method, headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
       if (!res.ok) throw new Error();
-      setForm(null); load(); showToast('success', form.id ? 'Doctor updated' : 'Doctor added');
+      const d = await res.json();
+      load(); showToast('success', form.id ? 'Doctor updated' : 'Doctor added');
+      // On create, stay in the form (now in edit mode) so the signature can
+      // be uploaded right away instead of having to reopen it. On edit, close.
+      setForm(wasCreate
+        ? { id:d.id, name:d.name, phone:d.phone, commission_percent:d.commission_percent,
+            qualification:d.qualification||'', registration_no:d.registration_no||'', signature_url:d.signature_url||null }
+        : null);
     } catch { showToast('error', 'Save failed'); }
     setSaving(false);
+  };
+
+  const uploadSignature = async (file) => {
+    if (!file || !form?.id) return;
+    setUploadingSig(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await authedFetch(`/b2b/referral-doctors/${form.id}/signature`, { method:'POST', body: fd });
+      if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.detail || 'Upload failed'); }
+      const d = await res.json();
+      setForm(f => ({ ...f, signature_url: d.signature_url }));
+      load();
+      showToast('success', 'Signature uploaded');
+    } catch (e) { showToast('error', e.message || 'Upload failed'); }
+    setUploadingSig(false);
+  };
+
+  const resetSignature = async () => {
+    if (!form?.id) return;
+    if (!window.confirm('Remove this signature image?')) return;
+    setUploadingSig(true);
+    try {
+      const res = await authedFetch(`/b2b/referral-doctors/${form.id}/signature`, { method:'DELETE' });
+      if (!res.ok) throw new Error();
+      const d = await res.json();
+      setForm(f => ({ ...f, signature_url: d.signature_url }));
+      load();
+      showToast('success', 'Signature removed');
+    } catch { showToast('error', 'Remove failed'); }
+    setUploadingSig(false);
   };
 
   const payNow = async () => {
@@ -241,7 +285,7 @@ export default function Doctors() {
 
       {form && (
         <div onClick={()=>setForm(null)} style={{ position:'fixed', inset:0, zIndex:9998, background:'rgba(15,18,24,0.45)', display:'flex', alignItems:'center', justifyContent:'center', padding:'1rem' }}>
-          <div onClick={e=>e.stopPropagation()} style={{ ...S.card, width:'420px', maxWidth:'96vw' }}>
+          <div onClick={e=>e.stopPropagation()} style={{ ...S.card, width:'440px', maxWidth:'96vw', maxHeight:'92vh', overflowY:'auto' }}>
             <div style={{ fontFamily:'Manrope,sans-serif', fontWeight:800, color:'#0f1218', fontSize:'1.1rem', marginBottom:'1rem' }}>{form.id ? 'Edit Doctor' : 'Add Referral Doctor'}</div>
             <div style={{ marginBottom:'0.8rem' }}>
               <label style={lbl}>Full Name</label>
@@ -251,13 +295,39 @@ export default function Doctors() {
               <label style={lbl}>Phone (optional)</label>
               <input style={inp} value={form.phone||''} onChange={e=>setForm({...form,phone:e.target.value})} placeholder="10-digit mobile" />
             </div>
-            <div style={{ marginBottom:'1.2rem' }}>
+            <div style={{ marginBottom:'0.8rem' }}>
               <label style={lbl}>Commission %</label>
               <input style={inp} type="number" step="0.5" value={form.commission_percent} onChange={e=>setForm({...form,commission_percent:e.target.value})} placeholder="10" />
               <div style={{ fontSize:'0.72rem', color:'#8892a4', marginTop:'0.3rem' }}>Applied to the billed test price when this doctor validates a report.</div>
             </div>
+
+            {/* ── Signature block — printed on any report this doctor validates ── */}
+            <div style={{ borderTop:'1px solid #e8ecf4', margin:'1rem 0 0.9rem', paddingTop:'0.9rem' }}>
+              <div style={{ fontSize:'0.78rem', fontWeight:700, color:'#0f1218', marginBottom:'0.7rem', fontFamily:'Manrope,sans-serif' }}>Signature block (shown when this doctor validates a report)</div>
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.7rem', marginBottom:'0.8rem' }}>
+                <div><label style={lbl}>Qualification</label>
+                  <input style={inp} value={form.qualification||''} onChange={e=>setForm({...form,qualification:e.target.value})} placeholder="MD (Pathology)" /></div>
+                <div><label style={lbl}>Registration No.</label>
+                  <input style={inp} value={form.registration_no||''} onChange={e=>setForm({...form,registration_no:e.target.value})} placeholder="63582" /></div>
+              </div>
+
+              {form.id ? (
+                <SignatureUploadBox
+                  previewUrl={form.signature_url}
+                  uploading={uploadingSig}
+                  inputRef={sigInputRef}
+                  onPick={uploadSignature}
+                  onReset={form.signature_url ? resetSignature : null}
+                />
+              ) : (
+                <div style={{ fontSize:'0.72rem', color:'#8892a4', background:'#fafbfc', border:'1px dashed #e8ecf4', borderRadius:'9px', padding:'0.7rem 0.9rem' }}>
+                  Save this doctor first — you'll be able to upload their signature image right after.
+                </div>
+              )}
+            </div>
+
             <div style={{ display:'flex', gap:'0.6rem', justifyContent:'flex-end' }}>
-              <button onClick={()=>setForm(null)} style={{ background:'transparent', color:'#8892a4', border:'1px solid #e8ecf4', borderRadius:'10px', padding:'0.65rem 1.3rem', cursor:'pointer', fontWeight:600, fontFamily:'Manrope,sans-serif' }}>Cancel</button>
+              <button onClick={()=>setForm(null)} style={{ background:'transparent', color:'#8892a4', border:'1px solid #e8ecf4', borderRadius:'10px', padding:'0.65rem 1.3rem', cursor:'pointer', fontWeight:600, fontFamily:'Manrope,sans-serif' }}>{form.id ? 'Close' : 'Cancel'}</button>
               <button onClick={save} disabled={saving} style={{ background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', border:'none', borderRadius:'10px', padding:'0.65rem 1.6rem', cursor:'pointer', fontWeight:700, fontFamily:'Manrope,sans-serif' }}>{saving?'Saving…':(form.id?'Save changes':'Add Doctor')}</button>
             </div>
           </div>
@@ -278,6 +348,44 @@ export default function Doctors() {
             </div>
           </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+function SignatureUploadBox({ previewUrl, uploading, inputRef, onPick, onReset }) {
+  const [drag, setDrag] = useState(false);
+  return (
+    <div>
+      <div
+        onClick={() => inputRef.current?.click()}
+        onDragOver={e => { e.preventDefault(); setDrag(true); }}
+        onDragLeave={() => setDrag(false)}
+        onDrop={e => { e.preventDefault(); setDrag(false); const f = e.dataTransfer.files?.[0]; if (f) onPick(f); }}
+        style={{
+          border: `1.5px dashed ${drag ? '#f97316' : '#e8ecf4'}`, borderRadius:'11px', padding:'0.9rem',
+          display:'flex', alignItems:'center', gap:'0.9rem', cursor:'pointer',
+          background: drag ? 'rgba(249,115,22,0.05)' : '#fafbfc', minHeight:'76px',
+        }}>
+        {previewUrl ? (
+          <img src={previewUrl} alt="Signature" style={{ maxHeight:'56px', maxWidth:'140px', objectFit:'contain', background:'#fff', border:'1px solid #e8ecf4', borderRadius:'8px', padding:'0.3rem' }} />
+        ) : (
+          <div style={{ width:'56px', height:'56px', borderRadius:'8px', background:'#fff', border:'1px dashed #d8dde6', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'1.2rem', color:'#c2c8d4', flexShrink:0 }}>✍️</div>
+        )}
+        <div style={{ flex:1 }}>
+          <div style={{ fontSize:'0.78rem', fontWeight:700, color:'#0f1218', fontFamily:'Manrope,sans-serif' }}>
+            {uploading ? 'Uploading...' : previewUrl ? 'Click or drop to replace' : 'Click or drop a signature image'}
+          </div>
+          <div style={{ fontSize:'0.68rem', color:'#8892a4', marginTop:'0.15rem' }}>PNG, JPG or WEBP, up to 3 MB.</div>
+        </div>
+      </div>
+      <input ref={inputRef} type="file" accept="image/png,image/jpeg,image/webp" style={{ display:'none' }}
+        onChange={e => { const f = e.target.files?.[0]; if (f) onPick(f); e.target.value = ''; }} />
+      {onReset && (
+        <button onClick={onReset} disabled={uploading}
+          style={{ marginTop:'0.5rem', background:'transparent', color:'#dc2626', border:'1px solid rgba(220,38,38,0.25)', borderRadius:'8px', padding:'0.35rem 0.8rem', fontSize:'0.72rem', fontWeight:700, cursor:'pointer', fontFamily:'Manrope,sans-serif' }}>
+          Remove signature
+        </button>
       )}
     </div>
   );

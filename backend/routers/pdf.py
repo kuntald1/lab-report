@@ -1,9 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
+from sqlalchemy import func as sqlfunc
 from database import get_db
 from models.models import LabResult, Patient
-from models.org import Tenant, ReferralDoctor, Franchise
+from models.org import Tenant, ReferralDoctor, Franchise, User
 from models.billing import BillItem
 from models.clinical import SampleEvent, EventType
 from models.commission import DoctorCommission
@@ -208,6 +209,58 @@ def _referral_label(db: Session, patient) -> str:
         return 'SELF'
     doc = db.query(ReferralDoctor).filter(ReferralDoctor.id == patient.referral_doctor_id).first()
     return doc.name if doc else 'SELF'
+
+
+def _validating_doctor(db: Session, results: list, tenant_id, cfg: dict) -> dict:
+    """Who actually signs this report: the pathologist who validated the
+    most recently reported test in this combined report (BillItem.validated_by),
+    matched by name to their referral_doctors row — the same name-matching
+    convention services/doctor_sync.py already uses to link a pathologist
+    login to a roster entry — so THEIR own uploaded signature, qualification,
+    and registration number print, not one tenant-wide default.
+
+    Falls back to the tenant's default pathologist_name/qualification/
+    registration_no (services/report_settings.py) whenever no BillItem, no
+    validating user, or no matching referral_doctors row is found — so older
+    data or an unmatched name never leaves the signature block blank."""
+    fallback = {
+        'name': cfg['pathologist_name'],
+        'qualification': cfg['pathologist_qualification'],
+        'registration_no': cfg['registration_no'],
+        'signature_filename': None,
+    }
+    accession_numbers = [r.accession_number for r in results if r.accession_number]
+    if not accession_numbers:
+        return fallback
+
+    item = (db.query(BillItem)
+              .filter(BillItem.accession_number.in_(accession_numbers), BillItem.validated_by.isnot(None))
+              .order_by(BillItem.validated_at.desc().nullslast(), BillItem.id.desc())
+              .first())
+    if not item or not item.validated_by:
+        return fallback
+
+    validator = db.query(User).filter(User.id == item.validated_by).first()
+    name = (validator.full_name or validator.email or '').strip() if validator else ''
+    if not name:
+        return fallback
+
+    dq = db.query(ReferralDoctor).filter(sqlfunc.lower(ReferralDoctor.name) == name.lower())
+    if tenant_id is not None:
+        dq = dq.filter(ReferralDoctor.tenant_id == tenant_id)
+    doctor = dq.first()
+    if not doctor:
+        # No roster entry yet — still show the real validator's name rather
+        # than falling all the way back to a generic default.
+        return {'name': name, 'qualification': fallback['qualification'],
+                'registration_no': fallback['registration_no'], 'signature_filename': None}
+
+    return {
+        'name': doctor.name or name,
+        'qualification': doctor.qualification or fallback['qualification'],
+        'registration_no': doctor.registration_no or fallback['registration_no'],
+        'signature_filename': doctor.signature_filename,
+    }
 
 
 def generate_pdf(result: LabResult) -> bytes:
@@ -692,19 +745,23 @@ def generate_combined_pdf(results: list, db: Session) -> bytes:
         if not is_last:
             story.append(PageBreak() if page_break_layout else Spacer(1, 0.55*cm))
 
-    # ── PATHOLOGIST SIGNATURE (uploaded image if configured, else a plain
-    #    typed line — see Tenant.report_settings.signature_filename) ─────
+    # ── SIGNATURE — the doctor who actually validated this report, with
+    #    their own uploaded signature image when they have one, falling
+    #    back to the tenant's default name/qualification/registration if no
+    #    validator can be resolved (see _validating_doctor()). ────────────
     story.append(Spacer(1, 1*cm))
-    sig_filename = cfg.get('signature_filename')
-    sig_img = _sized_image(asset_path(sig_filename), 3.6) if sig_filename else None
+    signer = _validating_doctor(db, results, patient.tenant_id if patient else None, cfg)
+    sig_img = _sized_image(asset_path(signer['signature_filename']), 3.6) if signer['signature_filename'] else None
     if sig_img:
         story.append(sig_img)
         story.append(Spacer(1, 0.05*cm))
     else:
         story.append(HRFlowable(width=4.5*cm, thickness=0.8, color=MUTED, hAlign='LEFT'))
-    story.append(Paragraph(cfg['pathologist_name'], sig_name))
-    story.append(Paragraph(cfg['pathologist_qualification'], sig_sub))
-    story.append(Paragraph(f"Registration no {cfg['registration_no']}", sig_sub))
+    story.append(Paragraph(signer['name'], sig_name))
+    if signer['qualification']:
+        story.append(Paragraph(signer['qualification'], sig_sub))
+    if signer['registration_no']:
+        story.append(Paragraph(f"Registration no {signer['registration_no']}", sig_sub))
 
     # ── END OF REPORT (once, at the true end) ─────────────────────
     story.append(Paragraph('**END OF REPORT**', end_style))

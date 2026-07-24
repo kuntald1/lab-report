@@ -12,15 +12,23 @@ layout:
     "continuous"  — all test panels flow one after another on shared pages
     "page_break"  — each test panel starts on its own page
 
-logo_filename / signature_filename:
-    Just the filename (not a full path/URL) of an uploaded image, saved
-    under REPORT_ASSETS_DIR by routers/admin.py's upload endpoint. Kept as
-    a bare filename (not a URL) so routers/pdf.py can read the file straight
-    off disk — it never has to make an HTTP round-trip to render its own
-    server's static files. asset_url() below builds the URL a frontend
-    would use to preview the same file.
-    None/absent = fall back to the built-in Healthycian logo, and to a
-    plain typed signature line (no image), respectively.
+logo_filename / signature on this tenant object:
+    logo_filename is just the filename (not a full path/URL) of an uploaded
+    lab logo, saved under REPORT_ASSETS_DIR by routers/admin.py's upload
+    endpoint. Kept as a bare filename (not a URL) so routers/pdf.py can read
+    the file straight off disk — it never has to make an HTTP round-trip to
+    render its own server's static files. asset_url() below builds the URL
+    a frontend would use to preview the same file.
+    None/absent = fall back to the built-in Healthycian logo.
+
+    There is deliberately no tenant-level signature image anymore — a
+    report's signature comes from whichever doctor actually validated it
+    (ReferralDoctor.signature_filename, see routers/pdf.py
+    _validating_doctor()), since one shared tenant-wide signature doesn't
+    make sense once more than one pathologist can sign reports. The
+    pathologist_name/qualification/registration_no fields below are kept
+    only as the fallback identity used when no validating doctor can be
+    resolved (e.g. a report with no BillItem link yet).
 """
 import os
 
@@ -37,7 +45,6 @@ DEFAULT_REPORT_SETTINGS = {
     "pathologist_qualification": "MD (Pathology)",
     "registration_no": "63582",
     "logo_filename": None,        # uploaded lab logo, replaces the built-in Healthycian logo when set
-    "signature_filename": None,   # uploaded pathologist signature image, replaces the plain text line when set
 }
 
 # Backend-local directory the uploaded logo/signature files live in. Mounted

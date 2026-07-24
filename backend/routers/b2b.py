@@ -14,8 +14,8 @@ Covers:
 Follows the existing conventions: get_db / get_scope / require_roles / write_audit,
 and tenant pinning via the lab_admin's own tenant.
 """
-from fastapi import APIRouter, Depends, HTTPException, Request
-import os, hmac, hashlib, requests
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File, Form
+import os, hmac, hashlib, requests, uuid
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional, List
@@ -30,6 +30,10 @@ from models.billing import Bill
 from sqlalchemy import func as sqlfunc
 from services.whatsapp import send_whatsapp
 from services.credit import is_franchise_locked
+from services.report_settings import asset_path, asset_url
+
+_ALLOWED_SIG_EXT = {".png", ".jpg", ".jpeg", ".webp"}
+_MAX_SIG_BYTES = 3 * 1024 * 1024
 
 RZP_KEY_ID     = os.getenv("RAZORPAY_KEY_ID", "")
 RZP_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET", "")
@@ -662,6 +666,19 @@ class ReferralDoctorIn(BaseModel):
     name: str
     phone: Optional[str] = None
     commission_percent: float = 0.0
+    qualification: Optional[str] = None
+    registration_no: Optional[str] = None
+
+
+def _doctor_out(d, has_login: bool = False) -> dict:
+    return {
+        "id": d.id, "name": d.name, "phone": d.phone or "",
+        "commission_percent": d.commission_percent or 0,
+        "has_login": has_login,
+        "qualification": d.qualification or "",
+        "registration_no": d.registration_no or "",
+        "signature_url": asset_url(d.signature_filename) if d.signature_filename else None,
+    }
 
 
 @router.get("/referral-doctors")
@@ -672,9 +689,7 @@ def list_referral_doctors(db: Session = Depends(get_db), scope: Scope = Depends(
     q = db.query(ReferralDoctor).filter(ReferralDoctor.is_active.is_(True))
     if scope.tenant_id is not None:
         q = q.filter(ReferralDoctor.tenant_id == scope.tenant_id)
-    return [{"id": d.id, "name": d.name, "phone": d.phone or "",
-             "commission_percent": d.commission_percent or 0,
-             "has_login": (d.name or "").strip().lower() in path_names}
+    return [_doctor_out(d, has_login=(d.name or "").strip().lower() in path_names)
             for d in q.order_by(ReferralDoctor.name).all()]
 
 
@@ -685,9 +700,10 @@ def create_referral_doctor(payload: ReferralDoctorIn, db: Session = Depends(get_
         raise HTTPException(400, "Doctor name is required")
     d = ReferralDoctor(tenant_id=getattr(user, "tenant_id", None),
                        name=payload.name.strip(), phone=payload.phone,
-                       commission_percent=payload.commission_percent or 0)
+                       commission_percent=payload.commission_percent or 0,
+                       qualification=payload.qualification, registration_no=payload.registration_no)
     db.add(d); db.commit(); db.refresh(d)
-    return {"id": d.id, "name": d.name, "phone": d.phone or "", "commission_percent": d.commission_percent}
+    return _doctor_out(d)
 
 
 @router.put("/referral-doctors/{doc_id}")
@@ -699,8 +715,62 @@ def update_referral_doctor(doc_id: int, payload: ReferralDoctorIn, db: Session =
     d.name = payload.name.strip() or d.name
     d.phone = payload.phone
     d.commission_percent = payload.commission_percent or 0
+    d.qualification = payload.qualification
+    d.registration_no = payload.registration_no
     db.commit()
-    return {"id": d.id, "name": d.name, "phone": d.phone or "", "commission_percent": d.commission_percent}
+    return _doctor_out(d)
+
+
+@router.post("/referral-doctors/{doc_id}/signature")
+async def upload_doctor_signature(doc_id: int, file: UploadFile = File(...), request: Request = None,
+                                   db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Upload this doctor's own signature image — used on any report they
+    validate (see routers/pdf.py _validating_doctor()) instead of a single
+    tenant-wide default."""
+    _require_admin(user)
+    d = db.query(ReferralDoctor).filter(ReferralDoctor.id == doc_id).first()
+    if not d: raise HTTPException(404, "Doctor not found")
+
+    ext = os.path.splitext(file.filename or "")[1].lower()
+    if ext not in _ALLOWED_SIG_EXT:
+        raise HTTPException(400, f"Unsupported file type '{ext}'. Use PNG, JPG or WEBP.")
+    body = await file.read()
+    if len(body) > _MAX_SIG_BYTES:
+        raise HTTPException(400, "File too large (max 3 MB)")
+
+    filename = f"doctor_{d.id}_signature_{uuid.uuid4().hex[:8]}{ext}"
+    with open(asset_path(filename), "wb") as f:
+        f.write(body)
+    old_filename = d.signature_filename
+    d.signature_filename = filename
+    db.commit()
+    if old_filename:
+        try:
+            os.remove(asset_path(old_filename))
+        except OSError:
+            pass
+    write_audit(db, action="upload", user=user, entity="referral_doctor_signature", entity_id=d.id,
+                after={"signature_filename": filename}, ip=_ip(request) if request else None)
+    return _doctor_out(d)
+
+
+@router.delete("/referral-doctors/{doc_id}/signature")
+def reset_doctor_signature(doc_id: int, request: Request,
+                            db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    _require_admin(user)
+    d = db.query(ReferralDoctor).filter(ReferralDoctor.id == doc_id).first()
+    if not d: raise HTTPException(404, "Doctor not found")
+    old_filename = d.signature_filename
+    d.signature_filename = None
+    db.commit()
+    if old_filename:
+        try:
+            os.remove(asset_path(old_filename))
+        except OSError:
+            pass
+    write_audit(db, action="reset", user=user, entity="referral_doctor_signature", entity_id=d.id,
+                after={"signature_filename": None}, ip=_ip(request))
+    return _doctor_out(d)
 
 
 @router.delete("/referral-doctors/{doc_id}")

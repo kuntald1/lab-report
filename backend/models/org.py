@@ -177,7 +177,13 @@ class AuditLog(Base):
 
 class ReferralDoctor(Base):
     """Referral / referring doctor — sends patients to the lab and earns commission.
-    No login credentials needed; just a name and optional commission rate."""
+    No login credentials needed; just a name and optional commission rate.
+
+    When this doctor is also the one who VALIDATES a report (matched to a
+    pathologist login by name — see services/doctor_sync.py), the fields
+    below let their own signature/qualification/registration print on the
+    report instead of a single tenant-wide default — see routers/pdf.py
+    _validating_doctor()."""
     __tablename__ = "referral_doctors"
     id                 = Column(Integer, primary_key=True, index=True)
     tenant_id          = Column(Integer, ForeignKey("tenants.id"), nullable=True, index=True)
@@ -186,3 +192,6 @@ class ReferralDoctor(Base):
     commission_percent = Column(Float, default=0.0)
     is_active          = Column(Boolean, default=True)
     created_at         = Column(DateTime(timezone=True), server_default=func.now())
+    qualification      = Column(String, nullable=True)     # e.g. "MD (Pathology)"
+    registration_no    = Column(String, nullable=True)      # medical council registration no.
+    signature_filename = Column(String, nullable=True)      # uploaded signature image, see services/report_settings.py asset helpers

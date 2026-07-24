@@ -67,12 +67,11 @@ class ReportSettingsUpdate(BaseModel):
 
 
 def _with_asset_urls(settings: dict) -> dict:
-    """Adds ready-to-use logo_url/signature_url alongside the stored
-    filenames, so the frontend never has to build /report-assets/... URLs
-    itself. Purely additive — doesn't change what's stored."""
+    """Adds a ready-to-use logo_url alongside the stored filename, so the
+    frontend never has to build /report-assets/... URLs itself. Purely
+    additive — doesn't change what's stored."""
     out = dict(settings)
     out["logo_url"] = asset_url(settings["logo_filename"]) if settings.get("logo_filename") else None
-    out["signature_url"] = asset_url(settings["signature_filename"]) if settings.get("signature_filename") else None
     return out
 
 
@@ -105,17 +104,18 @@ def update_report_settings(payload: ReportSettingsUpdate, request: Request,
 
 @router.post("/report-settings/upload", dependencies=[Depends(require_roles(Role.SUPER_ADMIN, Role.LAB_ADMIN))])
 async def upload_report_asset(
-    kind: str = Form(...),   # "logo" | "signature"
+    kind: str = Form(...),   # "logo" — the only tenant-level asset; a doctor's own
+                              # signature is uploaded via POST /b2b/referral-doctors/{id}/signature
     file: UploadFile = File(...),
     request: Request = None,
     db: Session = Depends(get_db), user: User = Depends(get_current_user),
     scope: Scope = Depends(get_scope),
 ):
-    """Upload a lab logo or pathologist signature image. Stored on disk
-    (Docker named volume report_assets_data) and referenced from
-    Tenant.report_settings by filename — see services/report_settings.py."""
-    if kind not in ("logo", "signature"):
-        raise HTTPException(status_code=400, detail="kind must be 'logo' or 'signature'")
+    """Upload the lab logo. Stored on disk (Docker named volume
+    report_assets_data) and referenced from Tenant.report_settings by
+    filename — see services/report_settings.py."""
+    if kind != "logo":
+        raise HTTPException(status_code=400, detail="kind must be 'logo' — signatures are uploaded per-doctor via /b2b/referral-doctors/{id}/signature")
     if not scope.tenant_id:
         raise HTTPException(status_code=400, detail="No tenant in scope")
     tenant = db.query(Tenant).filter(Tenant.id == scope.tenant_id).first()
@@ -155,9 +155,9 @@ async def upload_report_asset(
 def reset_report_asset(kind: str, request: Request,
                         db: Session = Depends(get_db), user: User = Depends(get_current_user),
                         scope: Scope = Depends(get_scope)):
-    """Remove an uploaded logo/signature and fall back to the default."""
-    if kind not in ("logo", "signature"):
-        raise HTTPException(status_code=400, detail="kind must be 'logo' or 'signature'")
+    """Remove the uploaded logo and fall back to the default."""
+    if kind != "logo":
+        raise HTTPException(status_code=400, detail="kind must be 'logo' — a doctor's signature is reset via DELETE /b2b/referral-doctors/{id}/signature")
     if not scope.tenant_id:
         raise HTTPException(status_code=400, detail="No tenant in scope")
     tenant = db.query(Tenant).filter(Tenant.id == scope.tenant_id).first()

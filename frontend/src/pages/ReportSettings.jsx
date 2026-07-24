@@ -11,8 +11,7 @@ const BLANK = {
   layout: 'continuous',
   lab_name: '', tagline: '', unit_of: '',
   address_lines: [], phones: [], email: '', website: '',
-  pathologist_name: '', pathologist_qualification: '', registration_no: '',
-  logo_filename: null, signature_filename: null, logo_url: null, signature_url: null,
+  logo_filename: null, logo_url: null,
 };
 
 export default function ReportSettings() {
@@ -20,10 +19,9 @@ export default function ReportSettings() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving]   = useState(false);
   const [toast, setToast]     = useState(null);
-  const [uploading, setUploading] = useState(null);   // 'logo' | 'signature' | null
+  const [uploading, setUploading] = useState(null);   // 'logo' | null
 
   const logoInputRef = useRef(null);
-  const sigInputRef  = useRef(null);
 
   const load = () => {
     setLoading(true);
@@ -55,9 +53,6 @@ export default function ReportSettings() {
         phones: form.phones,
         email: form.email,
         website: form.website,
-        pathologist_name: form.pathologist_name,
-        pathologist_qualification: form.pathologist_qualification,
-        registration_no: form.registration_no,
       };
       const r = await authedFetch('/admin/report-settings', {
         method: 'PUT',
@@ -108,7 +103,7 @@ export default function ReportSettings() {
       <div style={{ marginBottom:'2rem' }}>
         <div style={{ display:'inline-flex', background:'rgba(249,115,22,0.08)', border:'1px solid rgba(249,115,22,0.2)', color:'#f97316', padding:'4px 12px', borderRadius:'100px', fontSize:'0.62rem', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:'0.6rem' }}>Master</div>
         <h1 style={{ fontFamily:'Manrope,sans-serif', fontSize:'2rem', fontWeight:800, color:'#0f1218', letterSpacing:'-0.025em' }}>Report Settings</h1>
-        <p style={{ color:'#8892a4', fontSize:'0.82rem', marginTop:'0.2rem' }}>Letterhead, pathologist signature, and layout for the official sample report PDF.</p>
+        <p style={{ color:'#8892a4', fontSize:'0.82rem', marginTop:'0.2rem' }}>Letterhead and layout for the official sample report PDF. Each doctor's own signature is set on their profile under <strong>Doctor Commission → Referral Doctors</strong>.</p>
       </div>
 
       {toast && (
@@ -152,23 +147,6 @@ export default function ReportSettings() {
           </div>
         </div>
 
-        {/* ── Pathologist / signature block ─────────────────── */}
-        <div style={S.card}>
-          <div style={sectionTitle}>Pathologist Signature Block</div>
-          <div style={{ marginBottom:'0.9rem' }}>
-            <label style={lbl}>Name</label>
-            <input style={inp} value={form.pathologist_name} onChange={e=>set('pathologist_name', e.target.value)} placeholder="Dr Manas Talukdar" />
-          </div>
-          <div style={{ marginBottom:'0.9rem' }}>
-            <label style={lbl}>Qualification</label>
-            <input style={inp} value={form.pathologist_qualification} onChange={e=>set('pathologist_qualification', e.target.value)} placeholder="MD (Pathology)" />
-          </div>
-          <div>
-            <label style={lbl}>Registration No.</label>
-            <input style={inp} value={form.registration_no} onChange={e=>set('registration_no', e.target.value)} placeholder="63582" />
-          </div>
-        </div>
-
         {/* ── Layout ─────────────────────────────────────────── */}
         <div style={S.card}>
           <div style={sectionTitle}>Report Layout</div>
@@ -202,19 +180,6 @@ export default function ReportSettings() {
           onPick={(f) => upload('logo', f)}
           onReset={() => resetAsset('logo')}
           canReset={!!form.logo_filename}
-        />
-
-        {/* ── Signature upload ───────────────────────────────── */}
-        <AssetUploadCard
-          title="Pathologist Signature"
-          hintText="Shown above the pathologist's name at the end of the report. PNG, JPG or WEBP, up to 3 MB."
-          previewUrl={form.signature_url}
-          fallbackNote="Using a plain typed signature line (none uploaded)."
-          uploading={uploading === 'signature'}
-          inputRef={sigInputRef}
-          onPick={(f) => upload('signature', f)}
-          onReset={() => resetAsset('signature')}
-          canReset={!!form.signature_filename}
         />
 
       </div>
