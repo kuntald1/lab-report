@@ -66,10 +66,20 @@ class ReportSettingsUpdate(BaseModel):
     registration_no: Optional[str] = None
 
 
+def _with_asset_urls(settings: dict) -> dict:
+    """Adds ready-to-use logo_url/signature_url alongside the stored
+    filenames, so the frontend never has to build /report-assets/... URLs
+    itself. Purely additive — doesn't change what's stored."""
+    out = dict(settings)
+    out["logo_url"] = asset_url(settings["logo_filename"]) if settings.get("logo_filename") else None
+    out["signature_url"] = asset_url(settings["signature_filename"]) if settings.get("signature_filename") else None
+    return out
+
+
 @router.get("/report-settings", dependencies=[Depends(require_roles(Role.SUPER_ADMIN, Role.LAB_ADMIN))])
 def get_report_settings_route(db: Session = Depends(get_db), scope: Scope = Depends(get_scope)):
     tenant = db.query(Tenant).filter(Tenant.id == scope.tenant_id).first() if scope.tenant_id else None
-    return get_report_settings(tenant)
+    return _with_asset_urls(get_report_settings(tenant))
 
 
 @router.put("/report-settings", dependencies=[Depends(require_roles(Role.SUPER_ADMIN, Role.LAB_ADMIN))])
@@ -90,7 +100,7 @@ def update_report_settings(payload: ReportSettingsUpdate, request: Request,
     db.commit()
     write_audit(db, action="update", user=user, entity="report_settings", entity_id=tenant.id,
                 after=updates, ip=_ip(request))
-    return get_report_settings(tenant)
+    return _with_asset_urls(get_report_settings(tenant))
 
 
 @router.post("/report-settings/upload", dependencies=[Depends(require_roles(Role.SUPER_ADMIN, Role.LAB_ADMIN))])
@@ -138,7 +148,7 @@ async def upload_report_asset(
 
     write_audit(db, action="upload", user=user, entity="report_settings", entity_id=tenant.id,
                 after={f"{kind}_filename": filename}, ip=_ip(request) if request else None)
-    return {**get_report_settings(tenant), f"{kind}_url": asset_url(filename)}
+    return _with_asset_urls(get_report_settings(tenant))
 
 
 @router.delete("/report-settings/{kind}", dependencies=[Depends(require_roles(Role.SUPER_ADMIN, Role.LAB_ADMIN))])
@@ -164,7 +174,7 @@ def reset_report_asset(kind: str, request: Request,
             pass
     write_audit(db, action="reset", user=user, entity="report_settings", entity_id=tenant.id,
                 after={f"{kind}_filename": None}, ip=_ip(request))
-    return get_report_settings(tenant)
+    return _with_asset_urls(get_report_settings(tenant))
 
 
 # --------------------------------------------------------------------------- branches

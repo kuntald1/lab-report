@@ -18,6 +18,7 @@ const nav = [
   { id:'testscatalog', icon:'🧾', label:'Tests Catalog', section:'master' },
   { id:'users', icon:'👥', label:'Users & Staff', section:'master' },
   { id:'menupermissions', icon:'🔐', label:'Menu Permissions', section:'master', tag:'NEW' },
+  { id:'reportsettings', icon:'🖨️', label:'Report Settings', section:'master', tag:'NEW', adminOnly:true },
   { id:'billing', icon:'🧾', label:'New Bill', section:'master' },
   { id:'bills',   icon:'📑', label:'Bills',    section:'master' },
   { id:'doctors', icon:'💵', label:'Doctor Commission', section:'master' },
@@ -99,7 +100,7 @@ export default function Sidebar({ current, onChange, counts = {}, user = null, o
           </>
         ) : (() => {
           const mainItems   = visible(nav.filter(n=>n.section==='main'));
-          const masterItems = visible(nav.filter(n=>n.section==='master'));
+          const masterItems = visible(nav.filter(n=>n.section==='master' && !n.adminOnly));
           const showCredit  = isFranchise && !hidden.includes('credit');
           const reportItems = visible(nav.filter(n=>n.section==='reports'));
           const toolItems   = visible(nav.filter(n=>n.section==='tools'));
