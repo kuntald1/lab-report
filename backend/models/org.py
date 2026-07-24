@@ -128,6 +128,12 @@ class User(Base):
     department_id = Column(Integer, ForeignKey("departments.id"), nullable=True, index=True)  # which lab section this person works in — independent of role
     is_active     = Column(Boolean, default=True)
     created_at    = Column(DateTime(timezone=True), server_default=func.now())
+    # For a pathologist login: which referral_doctors roster row is THIS
+    # person, for commission + report-signature purposes (services/doctor_sync.py,
+    # routers/pdf.py _validating_doctor()). A real FK instead of name-matching
+    # so renaming either the login or the roster entry later never breaks the
+    # link or spawns a duplicate roster row.
+    referral_doctor_id = Column(Integer, ForeignKey("referral_doctors.id"), nullable=True, index=True)
 
     tenant        = relationship("Tenant", back_populates="users")
 

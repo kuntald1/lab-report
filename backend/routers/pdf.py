@@ -214,10 +214,10 @@ def _referral_label(db: Session, patient) -> str:
 def _validating_doctor(db: Session, results: list, tenant_id, cfg: dict) -> dict:
     """Who actually signs this report: the pathologist who validated the
     most recently reported test in this combined report (BillItem.validated_by),
-    matched by name to their referral_doctors row — the same name-matching
-    convention services/doctor_sync.py already uses to link a pathologist
-    login to a roster entry — so THEIR own uploaded signature, qualification,
-    and registration number print, not one tenant-wide default.
+    resolved to their referral_doctors row via User.referral_doctor_id — a
+    real FK (services/doctor_sync.py) — so THEIR own uploaded signature,
+    qualification, and registration number print, not one tenant-wide
+    default, and renaming the doctor later never loses the link.
 
     Once a real validator is identified, their name is ALWAYS what prints —
     qualification/registration/signature come only from their own
@@ -252,26 +252,28 @@ def _validating_doctor(db: Session, results: list, tenant_id, cfg: dict) -> dict
     if not name:
         return fallback
 
-    # Same-name referral_doctors rows can genuinely be duplicates in
-    # practice — e.g. one auto-created by services/doctor_sync.py when the
-    # pathologist login was first created (blank, 0% commission), and a
-    # separate one added manually later and actually filled in with
-    # qualification/registration/signature. Picking "the first match" or
-    # "the same-tenant match" isn't reliable here, since either one could be
-    # the blank duplicate. Instead, score every same-named candidate and
-    # prefer whichever one actually HAS data, tenant match second, oldest
-    # last as a final tiebreak — so a stray blank duplicate can never win
-    # over the record Kuntal actually filled in.
-    candidates = (db.query(ReferralDoctor)
-                    .filter(sqlfunc.lower(ReferralDoctor.name) == name.lower())
-                    .all())
     doctor = None
-    if candidates:
-        def _score(d):
-            has_data = bool(d.qualification or d.registration_no or d.signature_filename)
-            same_tenant = tenant_id is not None and d.tenant_id == tenant_id
-            return (not has_data, not same_tenant, d.id)   # False sorts before True, so "has data" wins
-        doctor = sorted(candidates, key=_score)[0]
+    if validator and validator.referral_doctor_id:
+        # The real link — unambiguous, and immune to either side being renamed.
+        doctor = db.query(ReferralDoctor).filter(ReferralDoctor.id == validator.referral_doctor_id).first()
+
+    if not doctor:
+        # Fallback for a login that hasn't been linked yet (e.g. created
+        # right before this exact request, before any doctor-list page
+        # triggered services/doctor_sync.py). Same-name referral_doctors
+        # rows can genuinely be duplicates in practice, so score every
+        # same-named candidate and prefer whichever one actually HAS data,
+        # tenant match second, oldest last as a final tiebreak — a stray
+        # blank duplicate can never win over a record that's filled in.
+        candidates = (db.query(ReferralDoctor)
+                        .filter(sqlfunc.lower(ReferralDoctor.name) == name.lower())
+                        .all())
+        if candidates:
+            def _score(d):
+                has_data = bool(d.qualification or d.registration_no or d.signature_filename)
+                same_tenant = tenant_id is not None and d.tenant_id == tenant_id
+                return (not has_data, not same_tenant, d.id)   # False sorts before True, so "has data" wins
+            doctor = sorted(candidates, key=_score)[0]
 
     # From here on the validator is a known, named person — never fall back
     # to the tenant's generic identity for their missing fields, just omit them.

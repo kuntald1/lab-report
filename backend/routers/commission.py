@@ -82,9 +82,9 @@ def _summary(rows) -> dict:
 def list_doctors_with_totals(db: Session = Depends(get_db), scope: Scope = Depends(get_scope),
                              user: User = Depends(get_current_user)):
     _require_lab(user)
-    from services.doctor_sync import sync_pathologist_doctors, pathologist_name_set
+    from services.doctor_sync import sync_pathologist_doctors, pathologist_doctor_ids
     sync_pathologist_doctors(db, scope.tenant_id)
-    path_names = pathologist_name_set(db, scope.tenant_id)
+    linked_ids = pathologist_doctor_ids(db, scope.tenant_id)
     q = db.query(ReferralDoctor).filter(ReferralDoctor.is_active.is_(True))
     if scope.tenant_id is not None:
         q = q.filter(ReferralDoctor.tenant_id == scope.tenant_id)
@@ -94,7 +94,7 @@ def list_doctors_with_totals(db: Session = Depends(get_db), scope: Scope = Depen
         s = _summary(rows)
         out.append({"id": d.id, "name": d.name, "phone": d.phone or "",
                     "commission_percent": d.commission_percent or 0,
-                    "has_login": (d.name or "").strip().lower() in path_names,
+                    "has_login": (d.id in linked_ids),
                     "qualification": d.qualification or "",
                     "registration_no": d.registration_no or "",
                     "signature_url": asset_url(d.signature_filename) if d.signature_filename else None,

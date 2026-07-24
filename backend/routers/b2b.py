@@ -30,7 +30,7 @@ from models.billing import Bill
 from sqlalchemy import func as sqlfunc
 from services.whatsapp import send_whatsapp
 from services.credit import is_franchise_locked
-from services.report_settings import asset_path, asset_url
+from services.report_settings import asset_path, asset_url, autocrop_signature
 
 _ALLOWED_SIG_EXT = {".png", ".jpg", ".jpeg", ".webp"}
 _MAX_SIG_BYTES = 3 * 1024 * 1024
@@ -683,13 +683,13 @@ def _doctor_out(d, has_login: bool = False) -> dict:
 
 @router.get("/referral-doctors")
 def list_referral_doctors(db: Session = Depends(get_db), scope: Scope = Depends(get_scope)):
-    from services.doctor_sync import sync_pathologist_doctors, pathologist_name_set
+    from services.doctor_sync import sync_pathologist_doctors, pathologist_doctor_ids
     sync_pathologist_doctors(db, scope.tenant_id)
-    path_names = pathologist_name_set(db, scope.tenant_id)
+    linked_ids = pathologist_doctor_ids(db, scope.tenant_id)
     q = db.query(ReferralDoctor).filter(ReferralDoctor.is_active.is_(True))
     if scope.tenant_id is not None:
         q = q.filter(ReferralDoctor.tenant_id == scope.tenant_id)
-    return [_doctor_out(d, has_login=(d.name or "").strip().lower() in path_names)
+    return [_doctor_out(d, has_login=(d.id in linked_ids))
             for d in q.order_by(ReferralDoctor.name).all()]
 
 
@@ -737,6 +737,7 @@ async def upload_doctor_signature(doc_id: int, file: UploadFile = File(...), req
     body = await file.read()
     if len(body) > _MAX_SIG_BYTES:
         raise HTTPException(400, "File too large (max 3 MB)")
+    body = autocrop_signature(body)   # trim blank margin so the ink aligns tightly in the signature block
 
     filename = f"doctor_{d.id}_signature_{uuid.uuid4().hex[:8]}{ext}"
     with open(asset_path(filename), "wb") as f:
