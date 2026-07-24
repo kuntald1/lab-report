@@ -60,6 +60,10 @@ class Tenant(Base):
     gst_exempt  = Column(Boolean, default=True)   # diagnostic services are GST-exempt by default
     is_active   = Column(Boolean, default=True)
     created_at  = Column(DateTime(timezone=True), server_default=func.now())
+    # Configurable letterhead / signature / layout settings for the official
+    # sample report PDF (routers/pdf.py). Single JSON blob so new fields never
+    # need a migration. See services/report_settings.py for the shape + defaults.
+    report_settings = Column(JSON, nullable=True)
 
     branches    = relationship("Branch",    back_populates="tenant")
     franchises  = relationship("Franchise", back_populates="tenant")

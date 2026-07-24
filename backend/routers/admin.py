@@ -13,6 +13,7 @@ from models.org import Tenant, Branch, Franchise, User, AuditLog, Role, ROLES, R
 from auth.security import hash_password
 from auth.deps import get_current_user, get_scope, require_roles, apply_scope, Scope
 from auth.audit import write_audit
+from services.report_settings import get_report_settings, DEFAULT_REPORT_SETTINGS
 
 router = APIRouter()
 
@@ -39,6 +40,53 @@ def create_tenant(payload: TenantCreate, request: Request,
 @router.get("/tenants", dependencies=[Depends(require_roles(Role.SUPER_ADMIN))])
 def list_tenants(db: Session = Depends(get_db)):
     return db.query(Tenant).order_by(Tenant.id).all()
+
+
+# --------------------------------------------------------------------------- report settings
+# Letterhead / pathologist-signature / layout config for the official sample
+# report PDF (routers/pdf.py). Stored as Tenant.report_settings (JSON); GET
+# always returns the full effective settings (defaults merged with overrides)
+# so the admin UI never has to know the default values itself. PUT is a
+# partial update — only the keys sent are changed, everything else is kept.
+class ReportSettingsUpdate(BaseModel):
+    layout: Optional[str] = None                     # "continuous" | "page_break"
+    lab_name: Optional[str] = None
+    tagline: Optional[str] = None
+    unit_of: Optional[str] = None
+    address_lines: Optional[List[str]] = None
+    phones: Optional[List[str]] = None
+    email: Optional[str] = None
+    website: Optional[str] = None
+    pathologist_name: Optional[str] = None
+    pathologist_qualification: Optional[str] = None
+    registration_no: Optional[str] = None
+
+
+@router.get("/report-settings", dependencies=[Depends(require_roles(Role.SUPER_ADMIN, Role.LAB_ADMIN))])
+def get_report_settings_route(db: Session = Depends(get_db), scope: Scope = Depends(get_scope)):
+    tenant = db.query(Tenant).filter(Tenant.id == scope.tenant_id).first() if scope.tenant_id else None
+    return get_report_settings(tenant)
+
+
+@router.put("/report-settings", dependencies=[Depends(require_roles(Role.SUPER_ADMIN, Role.LAB_ADMIN))])
+def update_report_settings(payload: ReportSettingsUpdate, request: Request,
+                            db: Session = Depends(get_db), user: User = Depends(get_current_user),
+                            scope: Scope = Depends(get_scope)):
+    if not scope.tenant_id:
+        raise HTTPException(status_code=400, detail="No tenant in scope")
+    tenant = db.query(Tenant).filter(Tenant.id == scope.tenant_id).first()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+    if payload.layout and payload.layout not in ("continuous", "page_break"):
+        raise HTTPException(status_code=400, detail="layout must be 'continuous' or 'page_break'")
+    current = dict(tenant.report_settings or {})
+    updates = {k: v for k, v in payload.model_dump().items() if v is not None}
+    current.update(updates)
+    tenant.report_settings = current
+    db.commit()
+    write_audit(db, action="update", user=user, entity="report_settings", entity_id=tenant.id,
+                after=updates, ip=_ip(request))
+    return get_report_settings(tenant)
 
 
 # --------------------------------------------------------------------------- branches
