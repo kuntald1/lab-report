@@ -76,3 +76,49 @@ def get_report_settings(tenant) -> dict:
     if overrides:
         merged.update({k: v for k, v in overrides.items() if v not in (None, "")})
     return merged
+
+
+def autocrop_signature(data: bytes) -> bytes:
+    """Trim the blank margin around an uploaded signature image so the ink
+    sits flush against the edges instead of floating off-center in the
+    signature block (a lot of phone-scanned/exported signatures have a big
+    built-in white or transparent border). Best-effort — on any failure
+    (corrupt image, Pillow unavailable, etc.) the original bytes are
+    returned unchanged rather than failing the upload."""
+    try:
+        from PIL import Image, ImageChops
+        import io
+        img = Image.open(io.BytesIO(data))
+        img.load()
+        fmt = (img.format or 'PNG').upper()
+
+        bbox = None
+        if img.mode in ('RGBA', 'LA') or (img.mode == 'P' and 'transparency' in img.info):
+            alpha = img.convert('RGBA').split()[-1]
+            # Only trust the alpha channel if it's actually doing something
+            # (i.e. not a fully-opaque PNG saved with an alpha channel anyway).
+            if alpha.getextrema() != (255, 255):
+                bbox = alpha.getbbox()
+
+        if not bbox:
+            # No usable transparency — treat near-white as background instead.
+            rgb = img.convert('RGB')
+            bg = Image.new('RGB', rgb.size, (255, 255, 255))
+            bbox = ImageChops.difference(rgb, bg).getbbox()
+
+        if not bbox:
+            return data   # blank or solid image — nothing sensible to crop to
+
+        pad = 8
+        left, top, right, bottom = bbox
+        left = max(0, left - pad); top = max(0, top - pad)
+        right = min(img.width, right + pad); bottom = min(img.height, bottom + pad)
+        if (right - left) < 4 or (bottom - top) < 4:
+            return data   # degenerate crop — bail out rather than produce a sliver
+
+        cropped = img.crop((left, top, right, bottom))
+        out = io.BytesIO()
+        cropped.save(out, format=fmt if fmt in ('PNG', 'JPEG', 'WEBP') else 'PNG')
+        return out.getvalue()
+    except Exception:
+        return data
