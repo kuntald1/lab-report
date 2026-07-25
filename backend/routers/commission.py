@@ -38,8 +38,22 @@ def _ip(request: Request) -> Optional[str]:
 
 
 def _match_doctor(db: Session, user: User) -> Optional[ReferralDoctor]:
-    """Loose match: a pathologist's full_name against a referral doctor's name
-    (case/space-insensitive), scoped to the same tenant when known."""
+    """Which referral_doctors row IS this pathologist, for their self-service
+    'My Commission' view. Resolved via User.referral_doctor_id — a real FK
+    (services/doctor_sync.py) — not by comparing name strings, since a
+    doctor's roster display name and their login's full_name can legitimately
+    differ (e.g. "manna" the login vs "Mr. Manna" on the roster) without
+    that meaning they're unregistered.
+
+    Falls back to a name match only for a login that hasn't been linked yet
+    (e.g. created moments ago, before any doctor-list page triggered
+    services/doctor_sync.py)."""
+    if user.referral_doctor_id:
+        d = db.query(ReferralDoctor).filter(ReferralDoctor.id == user.referral_doctor_id,
+                                             ReferralDoctor.is_active.is_(True)).first()
+        if d:
+            return d
+
     name = (user.full_name or "").strip().lower()
     if not name:
         return None
