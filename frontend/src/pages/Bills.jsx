@@ -50,9 +50,7 @@ export default function Bills() {
     setAccBusy(null);
   };
 
-  const printSamples = () => {
-    if (!detail) return;
-    const rows = (detail.items||[]).filter(it => it.accession_number);
+  const openLabelPrint = (patientName, rows) => {
     if (rows.length === 0) return showToast('error', 'No accession numbers to print');
     const w = window.open('', '_blank', 'width=480,height=640');
     w.document.write(`<!doctype html><html><head><title>${detail.bill_no} · Sample Labels</title>
@@ -66,7 +64,7 @@ export default function Bills() {
         @media print{ .label{border-bottom:1px dashed #ccc;} }
       </style></head><body>
       ${rows.map(it => `<div class="label">
-          <div class="pname">${detail.patient_name || ''}</div>
+          <div class="pname">${patientName || ''}</div>
           <div class="tname">${it.package_name || it.test_name}</div>
           <svg class="bc" data-code="${it.accession_number}"></svg>
         </div>`).join('')}
@@ -80,6 +78,17 @@ export default function Bills() {
       </script>
       </body></html>`);
     w.document.close();
+  };
+
+  const printSamples = () => {
+    if (!detail) return;
+    const rows = (detail.items||[]).filter(it => it.accession_number);
+    openLabelPrint(detail.patient_name, rows);
+  };
+
+  const printSingleLabel = (item) => {
+    if (!detail || !item.accession_number) return;
+    openLabelPrint(detail.patient_name, [item]);
   };
 
   // load the Razorpay checkout script once
@@ -370,7 +379,7 @@ export default function Bills() {
                         {g.members.map((m,i)=>(
                           <div key={i} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', fontSize:'0.74rem', color:'#8892a4', padding:'0.1rem 0' }}>
                             <span>• {m.test_name}</span>
-                            <AccessionField it={m} accEdit={accEdit} setAccEdit={setAccEdit} accBusy={accBusy} onSave={saveAccession} />
+                            <AccessionField it={m} accEdit={accEdit} setAccEdit={setAccEdit} accBusy={accBusy} onSave={saveAccession} onPrint={printSingleLabel} />
                           </div>
                         ))}
                       </div>
@@ -383,7 +392,7 @@ export default function Bills() {
                         <span style={{ fontWeight:600 }}>{inr(it.price)}</span>
                       </div>
                       <div style={{ display:'flex', justifyContent:'flex-end', marginTop:'0.2rem' }}>
-                        <AccessionField it={it} accEdit={accEdit} setAccEdit={setAccEdit} accBusy={accBusy} onSave={saveAccession} />
+                        <AccessionField it={it} accEdit={accEdit} setAccEdit={setAccEdit} accBusy={accBusy} onSave={saveAccession} onPrint={printSingleLabel} />
                       </div>
                     </div>
                   ))}
@@ -476,14 +485,22 @@ export default function Bills() {
   );
 }
 
-function AccessionField({ it, accEdit, setAccEdit, accBusy, onSave }) {
+function AccessionField({ it, accEdit, setAccEdit, accBusy, onSave, onPrint }) {
   const editing = it.id in accEdit;
   const val = editing ? accEdit[it.id] : (it.accession_number || '');
   if (!editing) {
     return (
-      <span onClick={()=>setAccEdit(prev=>({ ...prev, [it.id]: it.accession_number || '' }))}
-        title="Click to edit accession no." style={{ cursor:'pointer', fontFamily:'monospace', fontSize:'0.7rem', color:'#c2410c', background:'rgba(249,115,22,0.08)', border:'1px dashed rgba(249,115,22,0.3)', borderRadius:'5px', padding:'0.05rem 0.4rem' }}>
-        {it.accession_number || '— set accession no.'}
+      <span style={{ display:'inline-flex', alignItems:'center', gap:'0.25rem' }}>
+        <span onClick={()=>setAccEdit(prev=>({ ...prev, [it.id]: it.accession_number || '' }))}
+          title="Click to edit accession no." style={{ cursor:'pointer', fontFamily:'monospace', fontSize:'0.7rem', color:'#c2410c', background:'rgba(249,115,22,0.08)', border:'1px dashed rgba(249,115,22,0.3)', borderRadius:'5px', padding:'0.05rem 0.4rem' }}>
+          {it.accession_number || '— set accession no.'}
+        </span>
+        {it.accession_number && onPrint && (
+          <button onClick={()=>onPrint(it)} title="Print this sample's label"
+            style={{ border:'1px solid rgba(37,99,235,0.25)', background:'rgba(37,99,235,0.08)', color:'#2563eb', borderRadius:'5px', width:'20px', height:'20px', fontSize:'0.65rem', cursor:'pointer', display:'inline-flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+            🖨
+          </button>
+        )}
       </span>
     );
   }
