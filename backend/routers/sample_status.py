@@ -28,7 +28,11 @@ from services.whatsapp import send_whatsapp
 
 router = APIRouter()
 
-REJECTION_VALID = STATUS_ORDER + ["sample_rejected"]
+# collected/received/tested/validated/reported form the normal linear pipeline;
+# sample_rejected and outsource are out-of-band branches valid at any stage —
+# see services/lifecycle.py.
+ADVANCE_VALID = STATUS_ORDER + ["sample_rejected", "outsource"]
+REJECTION_VALID = ADVANCE_VALID   # kept as an alias — some older code/tests may still reference this name
 
 
 def _test_label(it) -> str:
@@ -96,7 +100,7 @@ def search_samples(db: Session = Depends(get_db), scope: Scope = Depends(get_sco
 
 class AdvanceIn(BaseModel):
     item_ids: List[int]
-    status: str   # received | tested | validated | reported | sample_rejected
+    status: str   # collected | received | tested | validated | reported | sample_rejected | outsource
 
 
 @router.post("/advance")
@@ -131,6 +135,18 @@ def advance_status(p: AdvanceIn, request: Request,
             # an orphaned 'reported' test with no validator on record.
             it.validated_by = user.id
             it.validated_at = now
+        if p.status == "outsource" and it.accession_number:
+            # Outsourced tests skip the normal analyser/manual-entry path, so
+            # there'd otherwise be no lab_results row for them to show up on
+            # the Results page (where staff attach the external lab's report).
+            # Create an empty placeholder one if it doesn't already exist.
+            exists = (db.query(LabResult)
+                        .filter(LabResult.accession_number == it.accession_number).first())
+            if not exists:
+                db.add(LabResult(patient_id=patient.id, barcode=patient.barcode,
+                                  accession_number=it.accession_number, test_name=it.test_name,
+                                  parsed_data=None, status="outsource",
+                                  tenant_id=getattr(b, "tenant_id", None), branch_id=patient.branch_id))
     db.commit()
 
     # When a sample is rejected -> WhatsApp the franchise (if patient belongs to one)

@@ -50,6 +50,14 @@ _REPORT_ASSETS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "u
 os.makedirs(_REPORT_ASSETS_DIR, exist_ok=True)
 app.mount("/api/report-assets", StaticFiles(directory=_REPORT_ASSETS_DIR), name="report-assets")
 
+# Outsourced-test attachments (external lab reports) — same reasoning as
+# report-assets above: mounted under /api so Nginx's existing proxy rule
+# reaches it. Also backed by the report_assets_data volume (same parent
+# uploads/ dir) so it survives image rebuilds without a separate volume.
+_RESULT_ATTACHMENTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "uploads", "result_attachments")
+os.makedirs(_RESULT_ATTACHMENTS_DIR, exist_ok=True)
+app.mount("/api/result-attachments", StaticFiles(directory=_RESULT_ATTACHMENTS_DIR), name="result-attachments")
+
 app.include_router(devices.router,  prefix="/api/devices",  tags=["Devices"])
 app.include_router(pdf.router,      prefix="/api/results",  tags=["PDF"])
 app.include_router(results.router,  prefix="/api/results",  tags=["Results"])

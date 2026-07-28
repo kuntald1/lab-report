@@ -42,6 +42,7 @@ class EventType:
     RESULTED     = "resulted"       # analyser produced the result
     VALIDATED    = "validated"      # pathologist signed off
     REPORTED     = "reported"       # report released
+    OUTSOURCED   = "outsourced"     # sent to an external/reference lab instead of tested in-house
 
 
 EVENT_SEQUENCE = [

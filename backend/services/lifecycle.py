@@ -21,10 +21,13 @@ STATUS_EVENTS = {
     "validated":       [EventType.VALIDATED],
     "reported":        [EventType.REPORTED],
     "sample_rejected": [EventType.REJECTED],
+    "outsource":       [EventType.OUTSOURCED],
 }
 
 STATUS_ORDER = ["collected", "received", "tested", "validated", "reported"]
-# sample_rejected is a terminal out-of-band status — valid at any stage
+# sample_rejected and outsource are out-of-band statuses, valid at any stage —
+# sample_rejected ends the pipeline, outsource branches it to an external lab
+# (see routers/sample_status.py, routers/results.py attachment endpoints)
 
 
 def record_status(db, patient, status, actor_id=None, commit=True):
