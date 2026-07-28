@@ -45,18 +45,18 @@ export default function Sidebar({ current, onChange, counts = {}, user = null, o
   const visible = (items) => items.filter(n => !hidden.includes(n.id));
 
   const s = {
-    aside: { position:'fixed', top:0, left:0, bottom:0, width:'235px', background:'rgb(11, 77, 62)', display:'flex', flexDirection:'column', zIndex:50, boxShadow:'4px 0 24px rgba(0,0,0,0.15)' },
-    logoWrap: { padding:'1.4rem 1.3rem 1.2rem', borderBottom:'1px solid rgba(255,255,255,0.06)' },
+    aside: { position:'fixed', top:0, left:0, bottom:0, width:'235px', background:'#ffffff', borderRight:'1px solid #eef1f6', display:'flex', flexDirection:'column', zIndex:50, boxShadow:'2px 0 16px rgba(15,18,24,0.05)' },
+    logoWrap: { padding:'1.4rem 1.3rem 1.2rem', borderBottom:'1px solid #f0f2f6' },
     logoRow: { display:'flex', alignItems:'center', gap:'0.7rem' },
-    logoIcon: { width:'38px', height:'38px', background:'linear-gradient(135deg,#f97316,#fbbf24)', borderRadius:'11px', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'1.15rem', boxShadow:'0 4px 16px rgba(249,115,22,0.4)', flexShrink:0 },
-    logoText: { fontFamily:'Manrope,sans-serif', fontSize:'1.05rem', fontWeight:800, color:'#fff', letterSpacing:'-0.01em' },
-    logoSub: { fontSize:'0.6rem', color:'rgba(255,255,255,0.28)', marginTop:'0.1rem', letterSpacing:'0.04em' },
-    pill: { margin:'0.9rem 1rem', background:'rgba(249,115,22,0.08)', border:'1px solid rgba(249,115,22,0.2)', borderRadius:'8px', padding:'0.45rem 0.8rem', display:'flex', alignItems:'center', gap:'0.5rem' },
-    pillDot: { width:'7px', height:'7px', borderRadius:'50%', background:'#f97316', boxShadow:'0 0 10px rgba(249,115,22,0.7)', flexShrink:0, animation:'pulse 2s infinite' },
-    pillText: { fontSize:'0.68rem', color:'#f97316', fontWeight:700, letterSpacing:'0.04em' },
+    logoIcon: { width:'38px', height:'38px', background:'linear-gradient(135deg,#f97316,#fbbf24)', borderRadius:'11px', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'1.15rem', boxShadow:'0 4px 16px rgba(249,115,22,0.28)', flexShrink:0 },
+    logoText: { fontFamily:'Manrope,sans-serif', fontSize:'1.05rem', fontWeight:800, color:'#0f1218', letterSpacing:'-0.01em' },
+    logoSub: { fontSize:'0.6rem', color:'#a3acbb', marginTop:'0.1rem', letterSpacing:'0.04em' },
+    pill: { margin:'0.9rem 1rem', background:'rgba(249,115,22,0.07)', border:'1px solid rgba(249,115,22,0.18)', borderRadius:'8px', padding:'0.45rem 0.8rem', display:'flex', alignItems:'center', gap:'0.5rem' },
+    pillDot: { width:'7px', height:'7px', borderRadius:'50%', background:'#f97316', boxShadow:'0 0 10px rgba(249,115,22,0.5)', flexShrink:0, animation:'pulse 2s infinite' },
+    pillText: { fontSize:'0.68rem', color:'#c2410c', fontWeight:700, letterSpacing:'0.04em' },
     navSection: { flex:1, padding:'0.4rem 0.6rem', overflowY:'auto' },
-    navLabel: { fontSize:'0.58rem', color:'rgba(255,255,255,0.2)', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.1em', padding:'0.8rem 0.7rem 0.3rem' },
-    footer: { padding:'1rem 1.3rem', borderTop:'1px solid rgba(255,255,255,0.06)' },
+    navLabel: { fontSize:'0.58rem', color:'#b4bcc9', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.1em', padding:'0.8rem 0.7rem 0.3rem' },
+    footer: { padding:'1rem 1.3rem', borderTop:'1px solid #f0f2f6' },
     userRow: { display:'flex', alignItems:'center', gap:'0.7rem' },
     avatar: { width:'34px', height:'34px', background:'linear-gradient(135deg,#f97316,#fbbf24)', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'0.75rem', fontWeight:800, color:'#fff', flexShrink:0 },
   };
@@ -64,12 +64,12 @@ export default function Sidebar({ current, onChange, counts = {}, user = null, o
   return (
     <aside style={s.aside}>
       {/* Glow effects */}
-      <div style={{ position:'absolute', top:'-60px', left:'-60px', width:'200px', height:'200px', background:'radial-gradient(circle,rgba(249,115,22,0.1) 0%,transparent 70%)', pointerEvents:'none' }} />
+      <div style={{ position:'absolute', top:'-60px', left:'-60px', width:'200px', height:'200px', background:'radial-gradient(circle,rgba(249,115,22,0.06) 0%,transparent 70%)', pointerEvents:'none' }} />
 
       {/* Logo */}
       <div style={s.logoWrap}>
         <div style={s.logoRow}>
-          <div style={{ ...s.logoIcon, background:'#fff', padding:'4px', boxShadow:'none', border:'1px solid rgba(255,255,255,0.15)' }}>
+          <div style={{ ...s.logoIcon, background:'#fff', padding:'4px', boxShadow:'none', border:'1px solid #eef1f6' }}>
             <img src={healthycianIcon} alt="Healthycian" style={{ width:'100%', height:'100%', objectFit:'contain' }} />
           </div>
           <div>
@@ -125,13 +125,13 @@ export default function Sidebar({ current, onChange, counts = {}, user = null, o
         <div style={s.userRow}>
           <div style={s.avatar}>{initials(user)}</div>
           <div style={{ flex:1, minWidth:0 }}>
-            <div style={{ fontSize:'0.8rem', fontWeight:700, color:'rgba(255,255,255,0.85)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{user?.full_name || user?.email || 'User'}</div>
-            <div style={{ fontSize:'0.62rem', color:'rgba(255,255,255,0.3)', marginTop:'0.05rem', textTransform:'capitalize' }}>{(user?.role || 'user').replace('_',' ')}</div>
+            <div style={{ fontSize:'0.8rem', fontWeight:700, color:'#0f1218', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{user?.full_name || user?.email || 'User'}</div>
+            <div style={{ fontSize:'0.62rem', color:'#a3acbb', marginTop:'0.05rem', textTransform:'capitalize' }}>{(user?.role || 'user').replace('_',' ')}</div>
           </div>
           <div onClick={onLogout} title="Sign out"
-            style={{ cursor:'pointer', color:'rgba(255,255,255,0.35)', fontSize:'1rem', padding:'0.3rem', borderRadius:'7px' }}
+            style={{ cursor:'pointer', color:'#c2c8d4', fontSize:'1rem', padding:'0.3rem', borderRadius:'7px' }}
             onMouseEnter={e=>e.currentTarget.style.color='#f97316'}
-            onMouseLeave={e=>e.currentTarget.style.color='rgba(255,255,255,0.35)'}>⏻</div>
+            onMouseLeave={e=>e.currentTarget.style.color='#c2c8d4'}>⏻</div>
         </div>
       </div>
     </aside>
@@ -155,16 +155,16 @@ function NavItem({ item, active, onClick, count }) {
         display:'flex', alignItems:'center', gap:'0.65rem',
         padding:'0.58rem 0.8rem', borderRadius:'10px', cursor:'pointer',
         margin:'0.1rem 0', transition:'all 0.15s',
-        background: active ? 'rgba(249,115,22,0.12)' : hov ? 'rgba(255,255,255,0.04)' : 'transparent',
-        color: active ? '#fff' : 'rgba(255,255,255,0.4)',
+        background: active ? 'rgba(249,115,22,0.09)' : hov ? '#f7f8fa' : 'transparent',
+        color: active ? '#0f1218' : '#68707e',
         fontWeight: active ? 700 : 500,
         borderLeft: active ? '3px solid #f97316' : '3px solid transparent',
         fontSize: '0.82rem',
       }}>
       <div style={{
         width:'26px', height:'26px', borderRadius:'7px', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'0.78rem', flexShrink:0,
-        background: active ? 'linear-gradient(135deg,#f97316,#fbbf24)' : 'rgba(255,255,255,0.05)',
-        boxShadow: active ? '0 2px 10px rgba(249,115,22,0.4)' : 'none',
+        background: active ? 'linear-gradient(135deg,#f97316,#fbbf24)' : '#f2f4f8',
+        boxShadow: active ? '0 2px 10px rgba(249,115,22,0.35)' : 'none',
       }}>{item.icon}</div>
       {item.label}
       {count > 0 && !item.tag && (
@@ -172,9 +172,9 @@ function NavItem({ item, active, onClick, count }) {
       )}
       {item.tag && (
         <span style={{ marginLeft:'auto', fontSize:'0.52rem', fontWeight:800, padding:'0.15rem 0.45rem', borderRadius:'100px', letterSpacing:'0.04em',
-          background: isPhase2 ? 'rgba(59,130,246,0.15)' : 'rgba(249,115,22,0.15)',
-          color:       isPhase2 ? '#60a5fa' : '#f97316',
-          border:      isPhase2 ? '1px solid rgba(59,130,246,0.3)' : '1px solid rgba(249,115,22,0.3)',
+          background: isPhase2 ? 'rgba(59,130,246,0.1)' : 'rgba(249,115,22,0.1)',
+          color:       isPhase2 ? '#2563eb' : '#c2410c',
+          border:      isPhase2 ? '1px solid rgba(59,130,246,0.25)' : '1px solid rgba(249,115,22,0.25)',
         }}>{item.tag}</span>
       )}
     </div>
