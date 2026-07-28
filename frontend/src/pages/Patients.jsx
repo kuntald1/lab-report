@@ -30,6 +30,7 @@ export default function Patients({ onBill = () => {} }) {
   const [addingDoctor, setAddingDoctor] = useState(false);
   const [newDocName, setNewDocName] = useState('');
   const [showForm, setShowForm]   = useState(false);
+  const [branchWarning, setBranchWarning] = useState(false);
   const [saving, setSaving]       = useState(false);
   const [editingId, setEditingId] = useState(null);   // null = create mode
   const [form, setForm]           = useState(BLANK);
@@ -58,6 +59,7 @@ export default function Patients({ onBill = () => {} }) {
 
   const openCreate = () => {
     setEditingId(null);
+    setBranchWarning(false);
     const blank = {...BLANK};
     if (isFranchise && me?.franchise_id) {
       blank.registered_franchise_id = String(me.franchise_id);
@@ -68,6 +70,7 @@ export default function Patients({ onBill = () => {} }) {
   };
   const startEdit  = (p) => {
     setEditingId(p.id);
+    setBranchWarning(false);
     setForm({
       patient_name: p.patient_name || '', age: p.age ?? '', gender: p.gender || 'Male',
       doctor_name: p.doctor_name || '', referral_doctor_id: p.referral_doctor_id ?? null, barcode: p.barcode || '',
@@ -82,6 +85,16 @@ export default function Patients({ onBill = () => {} }) {
 
   const submit = async () => {
     if (!form.patient_name) return alert('Patient name required');
+    if (!form.age) return alert('Age is required');
+    // Franchise-role users have Branch/Franchise locked to their own
+    // franchise automatically, so this only applies to lab-side staff who
+    // can actually pick either field.
+    if (!isFranchise && !form.branch_id && !form.registered_franchise_id) {
+      setBranchWarning(true);
+      document.getElementById('branch-franchise-row')?.scrollIntoView({ behavior:'smooth', block:'center' });
+      return;
+    }
+    setBranchWarning(false);
     setSaving(true);
     const payload = {
       patient_name: form.patient_name,
@@ -167,7 +180,7 @@ export default function Patients({ onBill = () => {} }) {
           </div>
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.9rem', marginBottom:'1rem' }}>
             <div><label style={lbl}>Patient Name *</label><input style={inp} placeholder="Full Name" value={form.patient_name} onChange={e=>setForm({...form,patient_name:e.target.value})} /></div>
-            <div><label style={lbl}>Age</label><input style={inp} type="number" placeholder="35" value={form.age} onChange={e=>setForm({...form,age:e.target.value})} /></div>
+            <div><label style={lbl}>Age *</label><input style={inp} type="number" placeholder="35" value={form.age} onChange={e=>setForm({...form,age:e.target.value})} /></div>
             <div><label style={lbl}>Gender</label>
               <select style={inp} value={form.gender} onChange={e=>setForm({...form,gender:e.target.value})}>
                 <option>Male</option><option>Female</option><option>Other</option>
@@ -193,16 +206,23 @@ export default function Patients({ onBill = () => {} }) {
               <input style={{ ...inp, fontFamily:'monospace', letterSpacing:'0.04em' }} placeholder="e.g. 91-1234-5678-9012" value={form.abha_number} onChange={e=>setForm({...form,abha_number:e.target.value})} /></div>
             <div><label style={lbl}>Phone <span style={{ textTransform:'none', letterSpacing:0, fontWeight:400 }}>(for WhatsApp bill)</span></label>
               <input style={inp} placeholder="10-digit mobile" value={form.phone} onChange={e=>setForm({...form,phone:e.target.value})} /></div>
-            <div><label style={lbl}>Branch {isFranchise && <span style={{color:'#f97316',fontWeight:400,textTransform:'none'}}>(locked – set by franchise)</span>}</label>
-              <select style={{...inp, background: isFranchise?'#f1f3f7':'', color: isFranchise?'#8892a4':''}} disabled={isFranchise} value={form.branch_id} onChange={e=>setForm({...form,branch_id:e.target.value})}>
-                <option value="">— Use my branch —</option>
-                {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-              </select></div>
-            <div><label style={lbl}>Franchise <span style={{ textTransform:'none', letterSpacing:0, fontWeight:400 }}>(also used for B2B billing)</span></label>
-              <select style={{...inp, background: isFranchise?'#f1f3f7':'', color: isFranchise?'#0f1218':''}} disabled={isFranchise} value={isFranchise ? (me?.franchise_id || form.registered_franchise_id) : form.registered_franchise_id} onChange={e=>setForm({...form,registered_franchise_id:e.target.value, organization_id:e.target.value})}>
-                <option value="">— Direct / Walk-in —</option>
-                {franchises.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
-              </select></div>
+            <div id="branch-franchise-row" style={{ gridColumn:'1 / -1', display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.9rem' }}>
+              <div><label style={lbl}>Branch {isFranchise && <span style={{color:'#f97316',fontWeight:400,textTransform:'none'}}>(locked – set by franchise)</span>}</label>
+                <select style={{...inp, background: isFranchise?'#f1f3f7':(branchWarning?'#fff7ed':''), color: isFranchise?'#8892a4':'', border: branchWarning?'1.5px solid #f97316':undefined}} disabled={isFranchise} value={form.branch_id} onChange={e=>{ setForm({...form,branch_id:e.target.value}); setBranchWarning(false); }}>
+                  <option value="">— Select branch —</option>
+                  {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                </select></div>
+              <div><label style={lbl}>Franchise <span style={{ textTransform:'none', letterSpacing:0, fontWeight:400 }}>(also used for B2B billing)</span></label>
+                <select style={{...inp, background: isFranchise?'#f1f3f7':(branchWarning?'#fff7ed':''), color: isFranchise?'#0f1218':'', border: branchWarning?'1.5px solid #f97316':undefined}} disabled={isFranchise} value={isFranchise ? (me?.franchise_id || form.registered_franchise_id) : form.registered_franchise_id} onChange={e=>{ setForm({...form,registered_franchise_id:e.target.value, organization_id:e.target.value}); setBranchWarning(false); }}>
+                  <option value="">— Direct / Walk-in —</option>
+                  {franchises.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+                </select></div>
+              {branchWarning && !isFranchise && (
+                <div style={{ gridColumn:'1 / -1', background:'rgba(249,115,22,0.08)', border:'1px solid rgba(249,115,22,0.3)', borderRadius:'8px', padding:'0.6rem 0.9rem', color:'#c2410c', fontSize:'0.8rem', fontWeight:600 }}>
+                  ⚠ Please select either a Branch or a Franchise before saving.
+                </div>
+              )}
+            </div>
             {!editingId && (
               <div style={{ gridColumn:'1 / -1' }}><label style={lbl}>Barcode <span style={{ textTransform:'none', letterSpacing:0, fontWeight:400 }}>(auto-generated · HC + 5 digits)</span></label>
                 <input style={{ ...inp, fontFamily:'monospace', letterSpacing:'0.04em', background:'#f1f3f7', color:'#8892a4' }} placeholder="e.g. HC48213" value="Assigned automatically on save" disabled /></div>
