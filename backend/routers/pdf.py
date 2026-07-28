@@ -13,6 +13,8 @@ from reportlab.lib import colors
 from reportlab.lib.units import cm
 from reportlab.platypus import (SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer,
                                  HRFlowable, Image, PageBreak, KeepTogether, Flowable)
+from reportlab.platypus.doctemplate import FrameBreak
+from reportlab.platypus.flowables import _listWrapOn, _flowableSublist
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 from reportlab.graphics.barcode.qr import QrCodeWidget
@@ -78,33 +80,46 @@ _LOGO_ASPECT = 320 / 994   # source image is 994x320 (icon + wordmark + tagline 
 _ICON_PATH  = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'assets', 'healthycian_icon.png')
 
 
-class _PushToBottom(Flowable):
-    """An invisible spacer that expands to fill whatever vertical space is
-    left in the current frame, minus `content_height` — used to pin the
-    flowables that come right after it flush against the bottom margin of
-    whichever page they land on, instead of floating directly under
-    whatever content came before them with unused space left over below."""
-    def __init__(self, content_height: float):
+class _BottomPinnedBlock(Flowable):
+    """A block of flowables that behaves like KeepTogether (never splits
+    internally — moves to the next page as one atomic unit if it doesn't fit
+    on the current one) but ALSO renders flush against the bottom of
+    whichever frame it ends up fitting on, instead of wherever it happens to
+    land in the normal top-down flow.
+
+    This exists because a simple "spacer sized to (remaining space - content
+    height)" approach breaks the moment the content doesn't fit on the
+    current page: the spacer gets consumed on the page where there wasn't
+    enough room, the content then spills to the next page anyway (since
+    Platypus won't split a KeepTogether), and it lands stranded at the TOP
+    of that next page with no spacer to push it back down. Mirrors
+    KeepTogether's own wrap()/split() trick (return a huge sentinel height
+    to force split() to run, decide there vs. here) — see
+    reportlab.platypus.flowables.KeepTogether — except split() here
+    re-inserts `self` (not the bare content) so the bottom-pin decision gets
+    made fresh on whichever frame it actually lands on."""
+    def __init__(self, flowables):
         Flowable.__init__(self)
-        self.content_height = content_height
+        self._content = _flowableSublist(flowables)
 
-    def wrap(self, availWidth, availHeight):
-        return (availWidth, max(availHeight - self.content_height, 0))
+    def wrap(self, aW, aH):
+        W, H = _listWrapOn(self._content, aW, self.canv)
+        self._H = H
+        self._wrapInfo = (aW, aH)
+        return aW, 0xFFFFFF   # force split() to be called, same trick KeepTogether uses
 
-    def draw(self):
-        pass
-
-
-def _flowable_height(flowable, width: float) -> float:
-    """Measure a flowable's rendered height at a given width, without a real
-    canvas — Paragraph/Table/Image/Spacer all support this. Best-effort: on
-    any failure, assume 0 rather than blow up the whole PDF over a spacing
-    calculation."""
-    try:
-        _, h = flowable.wrap(width, 0xFFFFFF)
-        return h
-    except Exception:
-        return 0
+    def split(self, aW, aH):
+        if getattr(self, '_wrapInfo', None) != (aW, aH):
+            self.wrap(aW, aH)
+        if self._H > aH:
+            # Doesn't fit here at all — defer the WHOLE block to the next
+            # frame and retry there. Re-inserting `self` (not just the raw
+            # content) means wrap()/split() run again on the new frame, so
+            # the bottom-pin padding gets recalculated for wherever it
+            # actually lands rather than being baked in for this page.
+            return [FrameBreak(), self]
+        pad = max(aH - self._H, 0)
+        return [Spacer(1, pad)] + list(self._content)
 
 
 def _sized_image(path, width_cm: float):
@@ -812,9 +827,10 @@ def generate_combined_pdf(results: list, db: Session) -> bytes:
     # ── SIGN-OFF + END OF REPORT — pinned flush to the bottom margin of
     #    whichever page they land on (per Kuntal: always at the bottom, even
     #    when there's leftover space above), instead of floating directly
-    #    under the last panel's table. Built as its own list first so its
-    #    total height can be measured, then a _PushToBottom spacer eats
-    #    exactly enough of the remaining page to shove it down. ───────────
+    #    under the last panel's table. Wrapped in _BottomPinnedBlock, which
+    #    defers the whole block to the next page (like KeepTogether) if it
+    #    doesn't fit here, and only THEN pads it flush to the bottom of
+    #    whichever page it actually lands on. ─────────────────────────────
     footer_flow = []
 
     if signers:
@@ -859,9 +875,7 @@ def generate_combined_pdf(results: list, db: Session) -> bytes:
     footer_flow.append(Paragraph('**END OF REPORT**', end_style))
     footer_flow.append(Paragraph('The result is related to the sample(s) tested only.', disclaim_style))
 
-    footer_height = sum(_flowable_height(f, doc.width) for f in footer_flow)
-    story.append(_PushToBottom(footer_height))
-    story.extend(footer_flow)
+    story.append(_BottomPinnedBlock(footer_flow))
 
     # ── PAGE CHROME: faint logo watermark behind the body + repeating
     #    letterhead footer band (drawn once per page, before the page's
