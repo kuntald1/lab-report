@@ -67,3 +67,21 @@ class LabResult(Base):
     created_at  = Column(DateTime(timezone=True), server_default=func.now())
     patient     = relationship("Patient", back_populates="results")
     device      = relationship("Device",  back_populates="results")
+
+
+class ResultAttachment(Base):
+    """A file (PDF/image) attached to a lab_results row — used for outsourced
+    tests, where the actual report comes from an external/reference lab
+    instead of being entered/parsed locally. Upload/download restricted to
+    lab staff logins (see routers/results.py, services/report_settings.py
+    asset helpers reused for storage). Multiple files per result are
+    allowed since an outside lab's report can span several documents.
+    Merged into the generated PDF on download — see routers/pdf.py."""
+    __tablename__ = "result_attachments"
+    id             = Column(Integer, primary_key=True, index=True)
+    lab_result_id  = Column(Integer, ForeignKey("lab_results.id"), nullable=False, index=True)
+    filename       = Column(String, nullable=False)   # stored disk filename (opaque, uuid-based)
+    original_name  = Column(String, nullable=True)    # the name the uploader's file actually had
+    content_type   = Column(String, nullable=True)     # e.g. application/pdf, image/png
+    uploaded_by    = Column(Integer, ForeignKey("users.id"), nullable=True)
+    uploaded_at    = Column(DateTime(timezone=True), server_default=func.now())
