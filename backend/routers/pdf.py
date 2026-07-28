@@ -12,7 +12,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.lib.units import cm
 from reportlab.platypus import (SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer,
-                                 HRFlowable, Image, PageBreak, KeepTogether)
+                                 HRFlowable, Image, PageBreak, KeepTogether, Flowable)
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 from reportlab.graphics.barcode.qr import QrCodeWidget
@@ -76,6 +76,35 @@ def _qr_drawing(data: str, size_cm: float = 2.0) -> Drawing:
 _LOGO_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'assets', 'healthycian_logo.jpg')
 _LOGO_ASPECT = 320 / 994   # source image is 994x320 (icon + wordmark + tagline lockup)
 _ICON_PATH  = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'assets', 'healthycian_icon.png')
+
+
+class _PushToBottom(Flowable):
+    """An invisible spacer that expands to fill whatever vertical space is
+    left in the current frame, minus `content_height` — used to pin the
+    flowables that come right after it flush against the bottom margin of
+    whichever page they land on, instead of floating directly under
+    whatever content came before them with unused space left over below."""
+    def __init__(self, content_height: float):
+        Flowable.__init__(self)
+        self.content_height = content_height
+
+    def wrap(self, availWidth, availHeight):
+        return (availWidth, max(availHeight - self.content_height, 0))
+
+    def draw(self):
+        pass
+
+
+def _flowable_height(flowable, width: float) -> float:
+    """Measure a flowable's rendered height at a given width, without a real
+    canvas — Paragraph/Table/Image/Spacer all support this. Best-effort: on
+    any failure, assume 0 rather than blow up the whole PDF over a spacing
+    calculation."""
+    try:
+        _, h = flowable.wrap(width, 0xFFFFFF)
+        return h
+    except Exception:
+        return 0
 
 
 def _sized_image(path, width_cm: float):
@@ -780,10 +809,14 @@ def generate_combined_pdf(results: list, db: Session) -> bytes:
         if not is_last:
             story.append(PageBreak() if page_break_layout else Spacer(1, 0.7*cm))
 
-    # ── SIGN-OFF — every distinct doctor who validated any panel in this
-    #    report, each shown once with their own name/qualification/
-    #    registration/signature, laid out side by side (wrapping to a new
-    #    row after 3) rather than stacked. ──────────────────────────────
+    # ── SIGN-OFF + END OF REPORT — pinned flush to the bottom margin of
+    #    whichever page they land on (per Kuntal: always at the bottom, even
+    #    when there's leftover space above), instead of floating directly
+    #    under the last panel's table. Built as its own list first so its
+    #    total height can be measured, then a _PushToBottom spacer eats
+    #    exactly enough of the remaining page to shove it down. ───────────
+    footer_flow = []
+
     if signers:
         PER_ROW = 3
         COL_W = 5.7 * cm
@@ -819,13 +852,16 @@ def generate_combined_pdf(results: list, db: Session) -> bytes:
             ('TOPPADDING',  (0,1),(-1,-1), 16),   # gap between rows when there's more than one
             ('BOTTOMPADDING',(0,0),(-1,-1), 0),
         ]))
-        story.append(Spacer(1, 1*cm))
-        story.append(sig_table)
+        footer_flow.append(Spacer(1, 1*cm))
+        footer_flow.append(sig_table)
 
-    # ── END OF REPORT (once, at the true end) ─────────────────────
-    story.append(Spacer(1, 0.3*cm))
-    story.append(Paragraph('**END OF REPORT**', end_style))
-    story.append(Paragraph('The result is related to the sample(s) tested only.', disclaim_style))
+    footer_flow.append(Spacer(1, 0.3*cm))
+    footer_flow.append(Paragraph('**END OF REPORT**', end_style))
+    footer_flow.append(Paragraph('The result is related to the sample(s) tested only.', disclaim_style))
+
+    footer_height = sum(_flowable_height(f, doc.width) for f in footer_flow)
+    story.append(_PushToBottom(footer_height))
+    story.extend(footer_flow)
 
     # ── PAGE CHROME: faint logo watermark behind the body + repeating
     #    letterhead footer band (drawn once per page, before the page's
