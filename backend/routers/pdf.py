@@ -589,7 +589,7 @@ def generate_pdf(result: LabResult) -> bytes:
     return buffer.read()
 
 
-def generate_combined_pdf(results: list, db: Session) -> bytes:
+def generate_combined_pdf(results: list, db: Session, with_header: bool = True) -> bytes:
     """The official letterhead-style sample report: one shared header +
     patient-info block, then one dynamic section per test/panel (any number
     of panels, any set of parameters — nothing hardcoded), a configurable
@@ -601,6 +601,13 @@ def generate_combined_pdf(results: list, db: Session) -> bytes:
     Tenant.report_settings via services.report_settings.get_report_settings(),
     so a lab can reconfigure its own report (including uploading its own
     logo/signature images) without a code change.
+
+    with_header=False: for printing on pre-printed letterhead paper — skips
+    drawing the logo/address header block, the teal footer band, and the
+    watermark, but keeps the exact same blank space they'd occupy (same
+    top/bottom margins, same starting Y for the patient-info block), so the
+    content lines up identically over physical letterhead stationery as it
+    does in the normal "with header" PDF.
     """
     buffer = io.BytesIO()
     first = results[0]
@@ -661,6 +668,14 @@ def generate_combined_pdf(results: list, db: Session) -> bytes:
 
     story = []
 
+    def _h(flowable):
+        """Measure a flowable's height without needing a real canvas —
+        used only to preserve spacing when with_header=False."""
+        try:
+            return flowable.wrap(doc.width, 100000)[1]
+        except Exception:
+            return 0
+
     # ── LETTERHEAD HEADER (once) ────────────────────────────────
     addr_block = [Paragraph('<b>Reg. Office &amp; Centralised Lab:</b>', addr_bold)]
     addr_block += [Paragraph(l, addr_style) for l in cfg['address_lines']]
@@ -673,10 +688,15 @@ def generate_combined_pdf(results: list, db: Session) -> bytes:
         ('LEFTPADDING', (0,0),(-1,-1), 0), ('RIGHTPADDING', (0,0),(-1,-1), 0),
         ('TOPPADDING', (0,0),(-1,-1), 0), ('BOTTOMPADDING', (0,0),(-1,-1), 0),
     ]))
-    story.append(header_table)
-    story.append(Spacer(1, 0.2*cm))
-    story.append(HRFlowable(width='100%', thickness=1.4, color=GREEN))
-    story.append(Spacer(1, 0.45*cm))
+    header_flow = [header_table, Spacer(1, 0.2*cm), HRFlowable(width='100%', thickness=1.4, color=GREEN), Spacer(1, 0.45*cm)]
+    if with_header:
+        story.extend(header_flow)
+    else:
+        # Pre-printed letterhead paper: skip the logo/address block, but
+        # keep the exact same vertical space so the patient-info block
+        # (and everything after it) starts at the same Y as the "with
+        # header" version — same content alignment either way.
+        story.append(Spacer(1, sum(_h(f) for f in header_flow)))
 
     # ── PATIENT INFO BLOCK (once) — Reporting Time here is the most recent
     #    validation across every panel in this report, so the header always
@@ -885,21 +905,30 @@ def generate_combined_pdf(results: list, db: Session) -> bytes:
     def _draw_page_chrome(canvas, doc_):
         canvas.saveState()
         # --- faint watermark, centred on the page, well below the text ---
-        try:
-            iw, ih = ImageReader(watermark_path).getSize()
-            wm_w = 8.5 * cm
-            wm_h = wm_w * (ih / iw)
-            canvas.saveState()
-            canvas.setFillAlpha(0.05)
-            canvas.drawImage(watermark_path, (A4[0]-wm_w)/2, (A4[1]-wm_h)/2,
-                              width=wm_w, height=wm_h, mask='auto', preserveAspectRatio=True)
-            canvas.restoreState()
-        except Exception:
-            pass
+        # (skipped for with_header=False — pre-printed letterhead stock
+        # already carries its own branding, so this would double up)
+        if with_header:
+            try:
+                iw, ih = ImageReader(watermark_path).getSize()
+                wm_w = 8.5 * cm
+                wm_h = wm_w * (ih / iw)
+                canvas.saveState()
+                canvas.setFillAlpha(0.05)
+                canvas.drawImage(watermark_path, (A4[0]-wm_w)/2, (A4[1]-wm_h)/2,
+                                  width=wm_w, height=wm_h, mask='auto', preserveAspectRatio=True)
+                canvas.restoreState()
+            except Exception:
+                pass
 
         # --- footer band: three non-overlapping zones (brand | address | page),
         #     using the line lists computed up front so the band height and
-        #     its content always agree — nothing gets cut or overlaps. ────
+        #     its content always agree — nothing gets cut or overlaps.
+        #     Skipped for with_header=False, but BOTTOM_MARGIN already
+        #     reserves this exact space either way, so it's just left blank
+        #     instead of drawn — content above still lines up identically. ──
+        if not with_header:
+            canvas.restoreState()
+            return
         canvas.setFillColor(TEAL_FOOT)
         canvas.rect(0, 0, A4[0], FOOTER_BAND_H, stroke=0, fill=1)
         canvas.setFillColor(colors.white)
@@ -932,9 +961,15 @@ def generate_combined_pdf(results: list, db: Session) -> bytes:
 
 
 @router.get("/combined-pdf")
-def download_combined_pdf(ids: str, db: Session = Depends(get_db)):
+def download_combined_pdf(ids: str, with_header: bool = True, db: Session = Depends(get_db)):
     """One PDF covering several results (e.g. all tests under one barcode),
-    with a single shared header instead of one PDF per test."""
+    with a single shared header instead of one PDF per test.
+
+    with_header=False: for printing on pre-printed letterhead paper — the
+    logo/address header and the teal footer band are left out, but the
+    exact same blank vertical space they'd occupy is kept, so the content
+    lines up identically whether you're looking at the "with header" PDF
+    on screen or the "without header" one printed on physical letterhead."""
     id_list = [int(x) for x in ids.split(',') if x.strip().isdigit()]
     if not id_list:
         raise HTTPException(status_code=400, detail="no result ids given")
@@ -942,18 +977,19 @@ def download_combined_pdf(ids: str, db: Session = Depends(get_db)):
     if not results:
         raise HTTPException(status_code=404, detail="no matching results")
     try:
-        pdf_bytes = generate_combined_pdf(results, db)
+        pdf_bytes = generate_combined_pdf(results, db, with_header=with_header)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"PDF generation failed: {str(e)}")
+    suffix = "" if with_header else "_NoHeader"
     return StreamingResponse(
         io.BytesIO(pdf_bytes),
         media_type="application/pdf",
-        headers={"Content-Disposition": f"attachment; filename=Healthycian_Combined_{results[0].barcode}.pdf"}
+        headers={"Content-Disposition": f"attachment; filename=Healthycian_Combined_{results[0].barcode}{suffix}.pdf"}
     )
 
 
 @router.get("/{result_id}/pdf")
-def download_pdf(result_id: int, db: Session = Depends(get_db)):
+def download_pdf(result_id: int, with_header: bool = True, db: Session = Depends(get_db)):
     result = db.query(LabResult).filter(LabResult.id == result_id).first()
     if not result:
         raise HTTPException(status_code=404, detail="Result not found")
@@ -961,12 +997,13 @@ def download_pdf(result_id: int, db: Session = Depends(get_db)):
         # Reuse the same letterhead renderer as the combined download, just
         # with a single result — keeps every PDF (single or combined) on
         # one consistent design instead of maintaining two report styles.
-        pdf_bytes = generate_combined_pdf([result], db)
+        pdf_bytes = generate_combined_pdf([result], db, with_header=with_header)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"PDF generation failed: {str(e)}")
 
+    suffix = "" if with_header else "_NoHeader"
     return StreamingResponse(
         io.BytesIO(pdf_bytes),
         media_type="application/pdf",
-        headers={"Content-Disposition": f"attachment; filename=Healthycian_Report_{result_id}.pdf"}
+        headers={"Content-Disposition": f"attachment; filename=Healthycian_Report_{result_id}{suffix}.pdf"}
     )

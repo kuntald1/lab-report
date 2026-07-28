@@ -67,6 +67,7 @@ export default function Results() {
   const [results, setResults] = useState([]);
   const [sel,     setSel]     = useState(null);
   const [loading, setLoading] = useState(false);
+  const [pdfMenu, setPdfMenu] = useState(null);   // 'single' | 'combined' | null — which download dropdown is open
   const [q, setQ] = useState({ barcode:'', accession_number:'' });
 
   const load = () => {
@@ -78,10 +79,10 @@ export default function Results() {
   useEffect(() => { load(); }, []);
   useEffect(() => { setEditing(false); }, [sel?.id]);
 
-  const downloadPDF = async (id) => {
+  const downloadPDF = async (id, withHeader = true) => {
     setLoading(true);
     try {
-      const r = await authedFetch(`/results/${id}/pdf`);
+      const r = await authedFetch(`/results/${id}/pdf?with_header=${withHeader}`);
       if (!r.ok) {
         const e = await r.json().catch(()=>({}));
         throw new Error(apiErrorText(e.detail) || 'PDF not available');
@@ -89,7 +90,7 @@ export default function Results() {
       const blob = await r.blob();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href=url; a.download=`Healthycian_Report_${id}.pdf`; a.click();
+      a.href=url; a.download=`Healthycian_Report_${id}${withHeader?'':'_NoHeader'}.pdf`; a.click();
       window.URL.revokeObjectURL(url);
     } catch (err) { alert(String(err.message || 'PDF failed')); }
     setLoading(false);
@@ -98,17 +99,17 @@ export default function Results() {
   // every OTHER result (excluding the selected one) that shares the same barcode — for "combine" downloads
   const siblingResults = sel ? results.filter(r => r.id != null && r.barcode === sel.barcode) : [];
 
-  const downloadCombinedPDF = async () => {
+  const downloadCombinedPDF = async (withHeader = true) => {
     if (siblingResults.length < 2) return;
     setLoading(true);
     try {
       const ids = siblingResults.map(r=>r.id).join(',');
-      const r = await authedFetch(`/results/combined-pdf?ids=${ids}`);
+      const r = await authedFetch(`/results/combined-pdf?ids=${ids}&with_header=${withHeader}`);
       if (!r.ok) { const e = await r.json().catch(()=>({})); throw new Error(apiErrorText(e.detail) || 'PDF not available'); }
       const blob = await r.blob();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = url; a.download = `Healthycian_Combined_${sel.barcode}.pdf`; a.click();
+      a.href = url; a.download = `Healthycian_Combined_${sel.barcode}${withHeader?'':'_NoHeader'}.pdf`; a.click();
       window.URL.revokeObjectURL(url);
     } catch (err) { alert(String(err.message || 'Combined PDF failed')); }
     setLoading(false);
@@ -208,19 +209,30 @@ export default function Results() {
               </div>
               <div style={{ display:'flex', gap:'0.5rem', flexWrap:'wrap', justifyContent:'flex-end' }}>
                 {!sel.locked && siblingResults.length > 1 && (
-                <button onClick={downloadCombinedPDF} disabled={loading} title={`Combine all ${siblingResults.length} results under ${sel.barcode} into one PDF`} style={{ background:'#eef2ff', color:'#4338ca', border:'1px solid #c7d2fe', borderRadius:'8px', padding:'0.5rem 0.9rem', cursor:'pointer', fontSize:'0.78rem', fontWeight:700, fontFamily:'Manrope,sans-serif', display:'flex', alignItems:'center', gap:'0.4rem' }}>
-                  📎 Combine ({siblingResults.length}) & Download
-                </button>
+                <PdfSplitButton
+                  label={`📎 Combine (${siblingResults.length}) & Download`}
+                  title={`Combine all ${siblingResults.length} results under ${sel.barcode} into one PDF`}
+                  loading={loading}
+                  open={pdfMenu==='combined'}
+                  onToggle={()=>setPdfMenu(pdfMenu==='combined'?null:'combined')}
+                  onChoose={(withHeader)=>{ setPdfMenu(null); downloadCombinedPDF(withHeader); }}
+                  colors={{ bg:'#eef2ff', fg:'#4338ca', border:'#c7d2fe' }}
+                />
                 )}
                 {!sel.locked && !editing && (sel.parsed_data?.parameters?.length > 0) && CAN_EDIT_RESULTS.includes(auth.user()?.role) && (
                 <button onClick={startEdit} style={{ background:'#fafbfc', border:'1px solid #e8ecf4', color:'#475569', borderRadius:'8px', padding:'0.5rem 0.9rem', cursor:'pointer', fontSize:'0.78rem', fontWeight:700, fontFamily:'Manrope,sans-serif' }}>✎ Edit</button>
                 )}
                 {!sel.locked && (
-                <button onClick={() => downloadPDF(sel.id)} disabled={loading} style={{ background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', border:'none', borderRadius:'8px', padding:'0.5rem 1rem', cursor:'pointer', fontSize:'0.78rem', fontWeight:700, fontFamily:'Manrope,sans-serif', boxShadow:'0 4px 12px rgba(249,115,22,0.3)', display:'flex', alignItems:'center', gap:'0.4rem' }}>
-                  {loading?'⏳':'📄'} {loading?'Generating...':'Download PDF'}
-                </button>
+                <PdfSplitButton
+                  label={loading ? '⏳ Generating...' : '📄 Download PDF'}
+                  loading={loading}
+                  open={pdfMenu==='single'}
+                  onToggle={()=>setPdfMenu(pdfMenu==='single'?null:'single')}
+                  onChoose={(withHeader)=>{ setPdfMenu(null); downloadPDF(sel.id, withHeader); }}
+                  colors={{ bg:'linear-gradient(135deg,#f97316,#fbbf24)', fg:'#fff', border:'transparent', shadow:'0 4px 12px rgba(249,115,22,0.3)' }}
+                />
                 )}
-                <button onClick={()=>{ setSel(null); setEditing(false); }} style={{ background:'#fafbfc', border:'1px solid #e8ecf4', color:'#8892a4', borderRadius:'8px', padding:'0.5rem 0.7rem', cursor:'pointer' }}>✕</button>
+                <button onClick={()=>{ setSel(null); setEditing(false); setPdfMenu(null); }} style={{ background:'#fafbfc', border:'1px solid #e8ecf4', color:'#8892a4', borderRadius:'8px', padding:'0.5rem 0.7rem', cursor:'pointer' }}>✕</button>
               </div>
             </div>
 
@@ -348,6 +360,38 @@ export default function Results() {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function PdfSplitButton({ label, title, loading, open, onToggle, onChoose, colors }) {
+  return (
+    <div style={{ position:'relative' }}>
+      <div style={{ display:'flex', borderRadius:'8px', overflow:'hidden', boxShadow: colors.shadow }} title={title}>
+        <button onClick={()=>onChoose(true)} disabled={loading}
+          style={{ background:colors.bg, color:colors.fg, border: colors.border!=='transparent' ? `1px solid ${colors.border}`:'none', borderRight: colors.border!=='transparent' ? `1px solid ${colors.border}` : '1px solid rgba(255,255,255,0.35)', borderRadius:0, padding:'0.5rem 0.9rem', cursor:'pointer', fontSize:'0.78rem', fontWeight:700, fontFamily:'Manrope,sans-serif', display:'flex', alignItems:'center', gap:'0.4rem' }}>
+          {label}
+        </button>
+        <button onClick={onToggle} disabled={loading} title="More download options"
+          style={{ background:colors.bg, color:colors.fg, border: colors.border!=='transparent' ? `1px solid ${colors.border}`:'none', borderRadius:0, padding:'0.5rem 0.5rem', cursor:'pointer', fontSize:'0.7rem', fontWeight:700 }}>
+          {open ? '▲' : '▼'}
+        </button>
+      </div>
+      {open && (
+        <>
+          <div onClick={onToggle} style={{ position:'fixed', inset:0, zIndex:20 }} />
+          <div style={{ position:'absolute', top:'calc(100% + 6px)', right:0, zIndex:21, background:'#fff', border:'1px solid #e8ecf4', borderRadius:'10px', boxShadow:'0 8px 28px rgba(15,18,24,0.14)', minWidth:'240px', overflow:'hidden' }}>
+            <div onClick={()=>onChoose(true)} style={{ padding:'0.7rem 0.9rem', cursor:'pointer', borderBottom:'1px solid #f4f6fa' }}>
+              <div style={{ fontSize:'0.8rem', fontWeight:700, color:'#0f1218', fontFamily:'Manrope,sans-serif' }}>With Header</div>
+              <div style={{ fontSize:'0.68rem', color:'#8892a4', marginTop:'0.15rem' }}>Full letterhead — logo, address, footer</div>
+            </div>
+            <div onClick={()=>onChoose(false)} style={{ padding:'0.7rem 0.9rem', cursor:'pointer' }}>
+              <div style={{ fontSize:'0.8rem', fontWeight:700, color:'#0f1218', fontFamily:'Manrope,sans-serif' }}>Without Header</div>
+              <div style={{ fontSize:'0.68rem', color:'#8892a4', marginTop:'0.15rem' }}>For pre-printed letterhead paper — same layout, header/footer left blank</div>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
