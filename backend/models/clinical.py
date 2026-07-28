@@ -79,6 +79,8 @@ class TestCatalog(Base):
     assigned_doctor_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     # target analytical time in minutes — used for TAT SLA comparison
     tat_target_minutes = Column(Integer, nullable=True)
+    disclaimer     = Column(Text, nullable=True)   # printed below this test's results on the report
+    interpretation = Column(Text, nullable=True)   # printed below this test's results on the report
     is_active     = Column(Boolean, default=True)
     created_at    = Column(DateTime(timezone=True), server_default=func.now())
 

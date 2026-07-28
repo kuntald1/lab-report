@@ -6,7 +6,7 @@ from database import get_db
 from models.models import LabResult, Patient
 from models.org import Tenant, ReferralDoctor, Franchise, User
 from models.billing import BillItem
-from models.clinical import SampleEvent, EventType
+from models.clinical import SampleEvent, EventType, TestCatalog
 from models.commission import DoctorCommission
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
@@ -218,6 +218,25 @@ def _receiving_time(db: Session, barcode: str):
             .order_by(SampleEvent.event_at.desc())
             .first())
     return ev.event_at if ev else None
+
+
+def _test_catalog_notes(db: Session, accession_number: str) -> dict:
+    """This test's Disclaimer/Interpretation text (set on its Tests Catalog
+    entry) — resolved via BillItem.test_id, a real FK, not by matching test
+    name text (which is fragile — see the accession_number-matching
+    convention used everywhere else in this file)."""
+    empty = {'disclaimer': '', 'interpretation': ''}
+    if not accession_number:
+        return empty
+    item = (db.query(BillItem)
+              .filter(BillItem.accession_number == accession_number)
+              .order_by(BillItem.id.desc()).first())
+    if not item or not item.test_id:
+        return empty
+    tc = db.query(TestCatalog).filter(TestCatalog.id == item.test_id).first()
+    if not tc:
+        return empty
+    return {'disclaimer': tc.disclaimer or '', 'interpretation': tc.interpretation or ''}
 
 
 def _reporting_time(db: Session, accession_number: str):
@@ -823,6 +842,14 @@ def generate_combined_pdf(results: list, db: Session, with_header: bool = True) 
             section_flow.append(HRFlowable(width='100%', thickness=0.5, color=BORDER))
             section_flow.append(Spacer(1, 0.15*cm))
             section_flow.append(Paragraph(f'<u><b>Comments:</b></u> {r.note}'.replace(chr(10), "<br/>"), comments_style))
+
+        tc_notes = _test_catalog_notes(db, r.accession_number)
+        for label, text_val in [('Interpretation', tc_notes['interpretation']), ('Disclaimer', tc_notes['disclaimer'])]:
+            if text_val:
+                section_flow.append(Spacer(1, 0.2*cm))
+                section_flow.append(HRFlowable(width='100%', thickness=0.5, color=BORDER))
+                section_flow.append(Spacer(1, 0.15*cm))
+                section_flow.append(Paragraph(f'<u><b>{label}:</b></u> {text_val}'.replace(chr(10), "<br/>"), comments_style))
 
         # Keep each panel's title, table, and comments glued together so a
         # page break never splits them apart. Signatures are collected below

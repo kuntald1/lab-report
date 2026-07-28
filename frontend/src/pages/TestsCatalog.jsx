@@ -12,8 +12,7 @@ export default function TestsCatalog() {
   const [tubes, setTubes]     = useState([]);
   const [doctors, setDoctors] = useState([]);
   const [search, setSearch]   = useState('');
-  const [editingId, setEditingId] = useState(null);
-  const [form, setForm]       = useState({});
+  const [form, setForm]       = useState(null);   // null = modal closed; object = create/edit modal open
   const [saving, setSaving]   = useState(false);
   const [toast, setToast]     = useState(null);
   const [confirmDel, setConfirmDel] = useState(null);   // the test pending deletion
@@ -41,29 +40,36 @@ export default function TestsCatalog() {
     );
   };
 
-  const startEdit = (t) => {
-    setEditingId(t.id);
-    setForm({
-      mrp: t.mrp ?? '', price: t.price ?? '', normal_value: t.normal_value || '',
-      sample_tube_id: t.sample_tube_id ?? '', assigned_doctor_id: t.assigned_doctor_id ?? '',
-    });
-  };
+  const BLANK_TEST = { name:'', code:'', unit:'', method:'', mrp:'', price:'', normal_value:'',
+                        sample_tube_id:'', assigned_doctor_id:'', disclaimer:'', interpretation:'' };
+  const openNew  = () => setForm({ ...BLANK_TEST });
+  const openEdit = (t) => setForm({
+    id: t.id, name: t.name || '', code: t.code || '', unit: t.unit || '', method: t.method || '',
+    mrp: t.mrp ?? '', price: t.price ?? '', normal_value: t.normal_value || '',
+    sample_tube_id: t.sample_tube_id ?? '', assigned_doctor_id: t.assigned_doctor_id ?? '',
+    disclaimer: t.disclaimer || '', interpretation: t.interpretation || '',
+  });
 
-  const save = async (t) => {
+  const save = async () => {
+    if (!form.name.trim()) { showToast('error', 'Test name is required'); return; }
     setSaving(true);
     const payload = {
+      name: form.name.trim(), code: form.code || null, unit: form.unit || null, method: form.method || null,
       mrp: form.mrp === '' ? null : Number(form.mrp),
       price: form.price === '' ? null : Number(form.price),
       normal_value: form.normal_value || null,
       sample_tube_id: form.sample_tube_id ? parseInt(form.sample_tube_id) : null,
       assigned_doctor_id: form.assigned_doctor_id ? parseInt(form.assigned_doctor_id) : null,
+      disclaimer: form.disclaimer || null,
+      interpretation: form.interpretation || null,
     };
+    const url    = form.id ? `/b2b/tests/${form.id}` : '/b2b/tests';
+    const method = form.id ? 'PUT' : 'POST';
     try {
-      const res = await authedFetch(`/b2b/tests/${t.id}`, { method:'PUT',
-        headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+      const res = await authedFetch(url, { method, headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
       if (!res.ok) throw new Error();
-      setEditingId(null); load();
-      showToast('success', `Updated ${t.name}`);
+      setForm(null); load();
+      showToast('success', form.id ? `Updated ${payload.name}` : `Added ${payload.name}`);
     } catch { showToast('error', 'Save failed'); }
     setSaving(false);
   };
@@ -107,10 +113,15 @@ export default function TestsCatalog() {
       )}
       <style>{`@keyframes fadeIn { from { opacity:0;} to { opacity:1;} }`}</style>
 
-      <div style={{ marginBottom:'1.5rem' }}>
-        <div style={{ display:'inline-flex', background:'rgba(249,115,22,0.08)', border:'1px solid rgba(249,115,22,0.2)', color:'#f97316', padding:'4px 12px', borderRadius:'100px', fontSize:'0.62rem', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:'0.6rem' }}>Master</div>
-        <h1 style={{ fontFamily:'Manrope,sans-serif', fontSize:'2rem', fontWeight:800, color:'#0f1218', letterSpacing:'-0.025em' }}>Tests Catalog</h1>
-        <p style={{ color:'#8892a4', fontSize:'0.82rem', marginTop:'0.2rem' }}>{tests.length} tests · set MRP, price, normal value, sample tube &amp; assigned doctor</p>
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:'1.5rem' }}>
+        <div>
+          <div style={{ display:'inline-flex', background:'rgba(249,115,22,0.08)', border:'1px solid rgba(249,115,22,0.2)', color:'#f97316', padding:'4px 12px', borderRadius:'100px', fontSize:'0.62rem', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:'0.6rem' }}>Master</div>
+          <h1 style={{ fontFamily:'Manrope,sans-serif', fontSize:'2rem', fontWeight:800, color:'#0f1218', letterSpacing:'-0.025em' }}>Tests Catalog</h1>
+          <p style={{ color:'#8892a4', fontSize:'0.82rem', marginTop:'0.2rem' }}>{tests.length} tests · set MRP, price, normal value, sample tube &amp; assigned doctor</p>
+        </div>
+        {tab === 'tests' && (
+          <button onClick={openNew} style={{ background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', border:'none', borderRadius:'10px', padding:'0.7rem 1.3rem', fontWeight:700, cursor:'pointer', fontFamily:'Manrope,sans-serif', whiteSpace:'nowrap', boxShadow:'0 4px 14px rgba(249,115,22,0.3)' }}>+ Add Test</button>
+        )}
       </div>
 
       <div style={{ display:'flex', gap:'0.4rem', marginBottom:'1.2rem', borderBottom:'1.5px solid #e8ecf4' }}>
@@ -137,32 +148,7 @@ export default function TestsCatalog() {
             {filtered.length === 0 && (
               <tr><td colSpan={7} style={{ textAlign:'center', padding:'3rem', color:'#8892a4' }}>No tests found.</td></tr>
             )}
-            {filtered.map(t => editingId === t.id ? (
-              <tr key={t.id} style={{ borderBottom:'1px solid #f4f6fa', background:'rgba(249,115,22,0.03)' }}>
-                <td style={{ padding:'0.7rem 1.2rem', fontWeight:700, color:'#0f1218', fontSize:'0.85rem' }}>{t.name}</td>
-                <td style={{ padding:'0.7rem 1.2rem' }}><input style={{ ...inp, width:'80px', padding:'0.4rem 0.6rem' }} type="number" value={form.mrp} onChange={e=>setForm({...form,mrp:e.target.value})} /></td>
-                <td style={{ padding:'0.7rem 1.2rem' }}><input style={{ ...inp, width:'80px', padding:'0.4rem 0.6rem' }} type="number" value={form.price} onChange={e=>setForm({...form,price:e.target.value})} /></td>
-                <td style={{ padding:'0.7rem 1.2rem' }}><input style={{ ...inp, width:'130px', padding:'0.4rem 0.6rem' }} value={form.normal_value} onChange={e=>setForm({...form,normal_value:e.target.value})} placeholder="e.g. < 200" /></td>
-                <td style={{ padding:'0.7rem 1.2rem' }}>
-                  <select style={{ ...inp, width:'140px', padding:'0.4rem 0.6rem' }} value={form.sample_tube_id} onChange={e=>setForm({...form,sample_tube_id:e.target.value})}>
-                    <option value="">—</option>
-                    {tubes.map(tb => <option key={tb.id} value={tb.id}>{tb.name}</option>)}
-                  </select>
-                </td>
-                <td style={{ padding:'0.7rem 1.2rem' }}>
-                  <select style={{ ...inp, width:'150px', padding:'0.4rem 0.6rem' }} value={form.assigned_doctor_id} onChange={e=>setForm({...form,assigned_doctor_id:e.target.value})}>
-                    <option value="">— Unassigned —</option>
-                    {doctors.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-                  </select>
-                </td>
-                <td style={{ padding:'0.7rem 1.2rem' }}>
-                  <div style={{ display:'flex', gap:'0.4rem' }}>
-                    <button onClick={()=>save(t)} disabled={saving} style={{ background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', border:'none', borderRadius:'8px', padding:'0.4rem 0.9rem', fontWeight:700, cursor:'pointer', fontSize:'0.78rem', fontFamily:'Manrope,sans-serif' }}>{saving?'…':'Save'}</button>
-                    <button onClick={()=>setEditingId(null)} style={{ background:'transparent', color:'#8892a4', border:'1px solid #e8ecf4', borderRadius:'8px', padding:'0.4rem 0.8rem', cursor:'pointer', fontSize:'0.78rem' }}>Cancel</button>
-                  </div>
-                </td>
-              </tr>
-            ) : (
+            {filtered.map(t => (
               <tr key={t.id} style={{ borderBottom:'1px solid #f4f6fa' }}
                 onMouseEnter={e=>e.currentTarget.style.background='#fafbfc'}
                 onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
@@ -174,7 +160,7 @@ export default function TestsCatalog() {
                 <td style={{ padding:'0.9rem 1.2rem', color:'#475569', fontSize:'0.82rem' }}>{doctorName(t.assigned_doctor_id)}</td>
                 <td style={{ padding:'0.9rem 1.2rem' }}>
                   <div style={{ display:'flex', gap:'0.4rem' }}>
-                    <button title="Edit" onClick={()=>startEdit(t)} style={iconBtn('#2563eb')}>
+                    <button title="Edit" onClick={()=>openEdit(t)} style={iconBtn('#2563eb')}>
                       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
                     </button>
                     <button title="Delete" onClick={()=>setConfirmDel(t)} style={iconBtn('#dc2626')}>
@@ -188,6 +174,70 @@ export default function TestsCatalog() {
         </table>
       </div>
       </>)}
+
+      {form && (
+        <div onClick={()=>setForm(null)} style={{ position:'fixed', inset:0, zIndex:9998, background:'rgba(15,18,24,0.45)', display:'flex', alignItems:'center', justifyContent:'center', padding:'1rem' }}>
+          <div onClick={e=>e.stopPropagation()} style={{ ...S.card, width:'620px', maxWidth:'96vw', maxHeight:'90vh', overflowY:'auto' }}>
+            <div style={{ fontFamily:'Manrope,sans-serif', fontWeight:800, color:'#0f1218', fontSize:'1.1rem', marginBottom:'1rem' }}>{form.id ? 'Edit Test' : 'Add Test'}</div>
+
+            <div style={{ display:'grid', gridTemplateColumns:'2fr 1fr', gap:'0.7rem', marginBottom:'0.8rem' }}>
+              <div><label style={lbl}>Test Name</label><input style={inp} value={form.name} onChange={e=>setForm({...form,name:e.target.value})} placeholder="e.g. HDL Cholesterol" /></div>
+              <div><label style={lbl}>Code (optional)</label><input style={inp} value={form.code} onChange={e=>setForm({...form,code:e.target.value})} placeholder="HDL" /></div>
+            </div>
+
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.7rem', marginBottom:'0.8rem' }}>
+              <div><label style={lbl}>Unit</label><input style={inp} value={form.unit} onChange={e=>setForm({...form,unit:e.target.value})} placeholder="mg/dL" /></div>
+              <div><label style={lbl}>Method</label><input style={inp} value={form.method} onChange={e=>setForm({...form,method:e.target.value})} placeholder="e.g. Direct measure-PEG" /></div>
+            </div>
+
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.7rem', marginBottom:'0.8rem' }}>
+              <div><label style={lbl}>MRP</label><input style={inp} type="number" value={form.mrp} onChange={e=>setForm({...form,mrp:e.target.value})} /></div>
+              <div><label style={lbl}>Price</label><input style={inp} type="number" value={form.price} onChange={e=>setForm({...form,price:e.target.value})} /></div>
+            </div>
+
+            <div style={{ marginBottom:'0.8rem' }}>
+              <label style={lbl}>Normal Value / Reference Range</label>
+              <input style={inp} value={form.normal_value} onChange={e=>setForm({...form,normal_value:e.target.value})} placeholder="e.g. < 200 mg/dL" />
+            </div>
+
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.7rem', marginBottom:'0.9rem' }}>
+              <div><label style={lbl}>Sample Tube</label>
+                <select style={inp} value={form.sample_tube_id} onChange={e=>setForm({...form,sample_tube_id:e.target.value})}>
+                  <option value="">—</option>
+                  {tubes.map(tb => <option key={tb.id} value={tb.id}>{tb.name}</option>)}
+                </select>
+              </div>
+              <div><label style={lbl}>Assigned Doctor</label>
+                <select style={inp} value={form.assigned_doctor_id} onChange={e=>setForm({...form,assigned_doctor_id:e.target.value})}>
+                  <option value="">— Unassigned —</option>
+                  {doctors.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                </select>
+              </div>
+            </div>
+
+            <div style={{ borderTop:'1px solid #e8ecf4', paddingTop:'0.9rem', marginBottom:'0.9rem' }}>
+              <label style={lbl}>Interpretation</label>
+              <textarea style={{ ...inp, minHeight:'80px', resize:'vertical', fontFamily:'Manrope,sans-serif' }}
+                value={form.interpretation} onChange={e=>setForm({...form,interpretation:e.target.value})}
+                placeholder="e.g. LDL > 130 mg/dL indicates elevated cardiovascular risk..." />
+              <div style={{ fontSize:'0.72rem', color:'#8892a4', marginTop:'0.3rem' }}>Shown on the report, below this test's results.</div>
+            </div>
+
+            <div style={{ marginBottom:'1.2rem' }}>
+              <label style={lbl}>Disclaimer</label>
+              <textarea style={{ ...inp, minHeight:'70px', resize:'vertical', fontFamily:'Manrope,sans-serif' }}
+                value={form.disclaimer} onChange={e=>setForm({...form,disclaimer:e.target.value})}
+                placeholder="e.g. This test requires a 10-12 hour fasting sample..." />
+              <div style={{ fontSize:'0.72rem', color:'#8892a4', marginTop:'0.3rem' }}>Shown on the report, below this test's results.</div>
+            </div>
+
+            <div style={{ display:'flex', gap:'0.6rem', justifyContent:'flex-end' }}>
+              <button onClick={()=>setForm(null)} style={{ background:'transparent', color:'#8892a4', border:'1px solid #e8ecf4', borderRadius:'10px', padding:'0.65rem 1.3rem', cursor:'pointer', fontWeight:600, fontFamily:'Manrope,sans-serif' }}>Cancel</button>
+              <button onClick={save} disabled={saving} style={{ background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', border:'none', borderRadius:'10px', padding:'0.65rem 1.6rem', cursor:'pointer', fontWeight:700, fontFamily:'Manrope,sans-serif' }}>{saving?'Saving…':(form.id?'Save changes':'Add Test')}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

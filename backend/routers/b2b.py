@@ -118,19 +118,42 @@ def list_doctors(db: Session = Depends(get_db), scope: Scope = Depends(get_scope
 
 # =================================================================== test catalog
 class TestPatch(BaseModel):
+    name: Optional[str] = None
+    code: Optional[str] = None
+    unit: Optional[str] = None
+    method: Optional[str] = None
     mrp: Optional[float] = None
     price: Optional[float] = None
     normal_value: Optional[str] = None
     sample_tube_id: Optional[int] = None
     assigned_doctor_id: Optional[int] = None
     department_id: Optional[int] = None
+    disclaimer: Optional[str] = None
+    interpretation: Optional[str] = None
+
+
+class TestCreate(BaseModel):
+    name: str
+    code: Optional[str] = None
+    unit: Optional[str] = None
+    method: Optional[str] = None
+    mrp: Optional[float] = 0
+    price: Optional[float] = 0
+    normal_value: Optional[str] = None
+    sample_tube_id: Optional[int] = None
+    assigned_doctor_id: Optional[int] = None
+    department_id: Optional[int] = None
+    disclaimer: Optional[str] = None
+    interpretation: Optional[str] = None
 
 
 def _test_dict(t: TestCatalog) -> dict:
-    return {"id": t.id, "name": t.name, "mrp": t.mrp, "price": t.price,
+    return {"id": t.id, "name": t.name, "code": t.code, "unit": t.unit, "method": t.method,
+            "mrp": t.mrp, "price": t.price,
             "sample_type": t.sample_type, "normal_value": t.normal_value,
             "sample_tube_id": t.sample_tube_id, "assigned_doctor_id": t.assigned_doctor_id,
-            "department_id": t.department_id, "tat_target_minutes": t.tat_target_minutes}
+            "department_id": t.department_id, "tat_target_minutes": t.tat_target_minutes,
+            "disclaimer": t.disclaimer or "", "interpretation": t.interpretation or ""}
 
 
 @router.get("/tests")
@@ -141,6 +164,20 @@ def list_tests(db: Session = Depends(get_db), scope: Scope = Depends(get_scope),
     if q:
         query = query.filter(TestCatalog.name.ilike(f"%{q}%"))
     return [_test_dict(t) for t in query.order_by(TestCatalog.name).limit(1000).all()]
+
+
+@router.post("/tests")
+def create_test(payload: TestCreate, request: Request,
+                 db: Session = Depends(get_db), user: User = Depends(get_current_user),
+                 scope: Scope = Depends(get_scope)):
+    _require_admin(user)
+    if not payload.name.strip():
+        raise HTTPException(400, "Test name is required")
+    t = TestCatalog(tenant_id=scope.tenant_id, **payload.model_dump(exclude={"name"}), name=payload.name.strip())
+    db.add(t); db.commit(); db.refresh(t)
+    write_audit(db, action="create", user=user, entity="test", entity_id=t.id,
+                after=payload.model_dump(), ip=_ip(request))
+    return _test_dict(t)
 
 
 @router.put("/tests/{test_id}")
