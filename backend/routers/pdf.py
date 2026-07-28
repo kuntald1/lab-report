@@ -25,6 +25,109 @@ from services.report_link import report_view_url
 from services.report_settings import get_report_settings, asset_path, asset_url
 import io
 import os
+
+_ATTACH_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'uploads', 'result_attachments')
+
+
+def _attachment_path(filename: str) -> str:
+    return os.path.join(_ATTACH_DIR, filename)
+
+
+def _image_to_pdf_page(image_path: str) -> bytes:
+    """Renders a single image file as one A4 PDF page (centred, scaled to
+    fit) — used so a non-PDF attachment (e.g. a phone photo of an outsourced
+    report) still merges cleanly into the final PDF."""
+    from reportlab.pdfgen import canvas as pdfcanvas
+    buf = io.BytesIO()
+    c = pdfcanvas.Canvas(buf, pagesize=A4)
+    try:
+        iw, ih = ImageReader(image_path).getSize()
+        max_w, max_h = A4[0] - 2*cm, A4[1] - 2*cm
+        scale = min(max_w / iw, max_h / ih)
+        w, h = iw * scale, ih * scale
+        x, y = (A4[0] - w) / 2, (A4[1] - h) / 2
+        c.drawImage(image_path, x, y, width=w, height=h, preserveAspectRatio=True, mask='auto')
+    except Exception:
+        pass
+    c.showPage()
+    c.save()
+    buf.seek(0)
+    return buf.read()
+
+
+def _append_attachments(writer, result_ids: list, db: Session) -> bool:
+    """Appends every uploaded attachment (PDF pages as-is, images converted
+    to one page each) for the given result ids onto an existing PdfWriter.
+    Returns True if at least one page was actually added. Best-effort: a
+    missing/unreadable file is skipped rather than failing the download."""
+    from models.models import ResultAttachment
+    attachments = (db.query(ResultAttachment)
+                     .filter(ResultAttachment.lab_result_id.in_(result_ids))
+                     .order_by(ResultAttachment.lab_result_id.asc(), ResultAttachment.id.asc())
+                     .all())
+    added_any = False
+    for a in attachments:
+        path = _attachment_path(a.filename)
+        if not os.path.exists(path):
+            continue
+        try:
+            from pypdf import PdfReader
+            if (a.content_type or '').lower() == 'application/pdf' or path.lower().endswith('.pdf'):
+                writer.append(PdfReader(path))
+            else:
+                writer.append(PdfReader(io.BytesIO(_image_to_pdf_page(path))))
+            added_any = True
+        except Exception:
+            continue   # one bad attachment shouldn't take down the whole download
+    return added_any
+
+
+def _merge_attachments(pdf_bytes: bytes, result_ids: list, db: Session) -> bytes:
+    """Appends any uploaded outsourced-test attachments for the given result
+    ids onto the end of an already-generated report. Used when a download
+    includes a MIX of normal and outsourced tests — the normal ones render
+    through generate_combined_pdf as usual, then this bolts the outsourced
+    ones' actual external-lab pages on afterward. Best-effort: if nothing
+    can be merged, the original report is returned unchanged."""
+    try:
+        from pypdf import PdfReader, PdfWriter
+    except ImportError:
+        return pdf_bytes
+
+    writer = PdfWriter()
+    try:
+        writer.append(PdfReader(io.BytesIO(pdf_bytes)))
+    except Exception:
+        return pdf_bytes   # if the base report itself can't be read back, don't risk corrupting it further
+
+    if not _append_attachments(writer, result_ids, db):
+        return pdf_bytes   # nothing to add — don't even bother re-serializing
+
+    out = io.BytesIO()
+    writer.write(out)
+    out.seek(0)
+    return out.read()
+
+
+def _attachments_only_pdf(result_ids: list, db: Session):
+    """For a download that's ENTIRELY outsourced tests: skip generating our
+    own letterhead report altogether (there'd be nothing real to put in it)
+    and just hand back the uploaded attachment(s) directly, concatenated
+    into one PDF if there's more than one. Returns None if there are no
+    attachments at all yet, so the caller can show a clear "nothing to
+    download yet" message instead of an empty/broken file."""
+    try:
+        from pypdf import PdfWriter
+    except ImportError:
+        return None
+    writer = PdfWriter()
+    if not _append_attachments(writer, result_ids, db):
+        return None
+    out = io.BytesIO()
+    writer.write(out)
+    out.seek(0)
+    return out.read()
+
 from datetime import datetime
 import matplotlib
 matplotlib.use('Agg')
@@ -989,8 +1092,15 @@ def generate_combined_pdf(results: list, db: Session, with_header: bool = True) 
 
 @router.get("/combined-pdf")
 def download_combined_pdf(ids: str, with_header: bool = True, db: Session = Depends(get_db)):
-    """One PDF covering several results (e.g. all tests under one barcode),
-    with a single shared header instead of one PDF per test.
+    """One PDF covering the IN-HOUSE results in the given id list (e.g. all
+    tests under one barcode), with a single shared header instead of one
+    PDF per test — unchanged from before outsourced tests existed.
+
+    Outsourced tests among the given ids are simply left out of this PDF
+    entirely — no placeholder, no merged pages, nothing changes about this
+    report. Their attachments are separate files, fetched independently via
+    GET /results/attachments-for and downloaded alongside this one — see
+    Results.jsx's downloadCombinedPDF(), which calls both.
 
     with_header=False: for printing on pre-printed letterhead paper — the
     logo/address header and the teal footer band are left out, but the
@@ -1003,10 +1113,16 @@ def download_combined_pdf(ids: str, with_header: bool = True, db: Session = Depe
     results = db.query(LabResult).filter(LabResult.id.in_(id_list)).order_by(LabResult.id.asc()).all()
     if not results:
         raise HTTPException(status_code=404, detail="no matching results")
+
+    normal_results = [r for r in results if r.status != "outsource"]
+    if not normal_results:
+        raise HTTPException(status_code=404, detail="Every test in this selection is outsourced — nothing in-house to report. Download the attachment(s) instead.")
+
     try:
-        pdf_bytes = generate_combined_pdf(results, db, with_header=with_header)
+        pdf_bytes = generate_combined_pdf(normal_results, db, with_header=with_header)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"PDF generation failed: {str(e)}")
+
     suffix = "" if with_header else "_NoHeader"
     return StreamingResponse(
         io.BytesIO(pdf_bytes),
@@ -1017,14 +1133,27 @@ def download_combined_pdf(ids: str, with_header: bool = True, db: Session = Depe
 
 @router.get("/{result_id}/pdf")
 def download_pdf(result_id: int, with_header: bool = True, db: Session = Depends(get_db)):
+    """Outsourced tests skip our own letterhead report entirely and just
+    hand back the uploaded attachment(s) directly (concatenated if there's
+    more than one) — there's no in-house content to generate a report
+    around, so building one would just be an empty placeholder that gets in
+    the way of seeing the actual external-lab file."""
     result = db.query(LabResult).filter(LabResult.id == result_id).first()
     if not result:
         raise HTTPException(status_code=404, detail="Result not found")
+
     try:
-        # Reuse the same letterhead renderer as the combined download, just
-        # with a single result — keeps every PDF (single or combined) on
-        # one consistent design instead of maintaining two report styles.
-        pdf_bytes = generate_combined_pdf([result], db, with_header=with_header)
+        if result.status == "outsource":
+            pdf_bytes = _attachments_only_pdf([result_id], db)
+            if pdf_bytes is None:
+                raise HTTPException(status_code=404, detail="No attachment uploaded yet for this outsourced test")
+        else:
+            # Reuse the same letterhead renderer as the combined download, just
+            # with a single result — keeps every PDF (single or combined) on
+            # one consistent design instead of maintaining two report styles.
+            pdf_bytes = generate_combined_pdf([result], db, with_header=with_header)
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"PDF generation failed: {str(e)}")
 

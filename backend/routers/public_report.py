@@ -25,7 +25,7 @@ from models.models import LabResult, Patient
 from models.billing import Bill, Payment, BillItem
 from models.messaging import PaymentTransaction
 from services.report_link import check_token, check_patient_token, report_token
-from routers.pdf import generate_combined_pdf
+from routers.pdf import generate_combined_pdf, _attachments_only_pdf
 
 RZP_KEY_ID     = os.getenv("RAZORPAY_KEY_ID", "")
 RZP_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET", "")
@@ -102,8 +102,15 @@ def public_pdf(result_id: int, token: str = Query(...), password: str = Query(..
                db: Session = Depends(get_db)):
     result, _ = _verify(db, result_id, token, password)
     try:
-        # Same letterhead renderer as everywhere else, single result.
-        pdf_bytes = generate_combined_pdf([result], db)
+        if result.status == "outsource":
+            pdf_bytes = _attachments_only_pdf([result_id], db)
+            if pdf_bytes is None:
+                raise HTTPException(404, "No attachment uploaded yet for this outsourced test")
+        else:
+            # Same letterhead renderer as everywhere else, single result.
+            pdf_bytes = generate_combined_pdf([result], db)
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(500, f"PDF generation failed: {e}")
     return StreamingResponse(
@@ -220,8 +227,11 @@ def public_patient_combined_pdf(patient_id: int, token: str = Query(...), passwo
     if not results:
         raise HTTPException(404, "no reported results found")
 
+    normal_results  = [r for r in results if r.status != "outsource"]
+    if not normal_results:
+        raise HTTPException(404, "Every test in this selection is outsourced — nothing in-house to report yet")
     try:
-        pdf_bytes = generate_combined_pdf(results, db)
+        pdf_bytes = generate_combined_pdf(normal_results, db)
     except Exception as e:
         raise HTTPException(500, f"PDF generation failed: {e}")
     return StreamingResponse(

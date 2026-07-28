@@ -1,7 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File
 from sqlalchemy.orm import Session
 from database import get_db
-from models.models import LabResult, Patient, Device
+from models.models import LabResult, Patient, Device, ResultAttachment
 from auth.deps import get_scope, apply_scope, Scope, get_current_user
 from auth.audit import write_audit
 from models.org import User, Role, Franchise
@@ -10,8 +10,34 @@ from parsers.astm_parser import auto_parse
 from pydantic import BaseModel
 from typing import Optional, List, Any
 from sqlalchemy import or_
+import os, uuid
 
 router = APIRouter()
+
+# "Lab logins" — the internal staff roles allowed to manage outsourced-test
+# attachments (upload/list/delete/download the raw files). Deliberately
+# excludes pathologist (a doctor, not lab staff) and franchise/patient.
+LAB_STAFF_ROLES = {Role.SUPER_ADMIN, Role.LAB_ADMIN, Role.TECHNICIAN, Role.RECEPTIONIST, Role.PHLEBOTOMIST}
+
+_ATTACH_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "uploads", "result_attachments")
+os.makedirs(_ATTACH_DIR, exist_ok=True)
+_ALLOWED_ATTACH_EXT = {".pdf", ".png", ".jpg", ".jpeg", ".webp"}
+_MAX_ATTACH_BYTES = 15 * 1024 * 1024   # external lab reports can be multi-page scans
+
+_ATTACH_APP_URL = os.getenv("APP_PUBLIC_URL", "https://medicloud.mooo.com").rstrip("/")
+
+
+def _attach_path(filename: str) -> str:
+    return os.path.join(_ATTACH_DIR, filename)
+
+
+def _attach_url(filename: str) -> str:
+    return f"{_ATTACH_APP_URL}/api/result-attachments/{filename}"
+
+
+def _attachment_dict(a: ResultAttachment) -> dict:
+    return {"id": a.id, "filename": a.original_name or a.filename, "content_type": a.content_type,
+            "url": _attach_url(a.filename), "uploaded_at": a.uploaded_at}
 
 class RawDataSubmit(BaseModel):
     raw_data:    str
@@ -283,6 +309,8 @@ def get_result(result_id: int, db: Session = Depends(get_db),
     return {
         "id":          result.id,
         "barcode":     result.barcode,
+        "accession_number": result.accession_number,
+        "test_name":   result.test_name,
         "raw_data":    result.raw_data,
         "parsed_data": result.parsed_data,
         "note":        result.note,
@@ -292,3 +320,104 @@ def get_result(result_id: int, db: Session = Depends(get_db),
         "patient":     result.patient,
         "device":      result.device,
     }
+
+
+# ================================================================ outsourced-test attachments
+# The Attachments management section (list/upload/delete) is restricted to
+# LAB_STAFF_ROLES — not doctors/pathologists, not franchises, not patients.
+#
+# Downloading, though, is a separate concern: /attachments-for below is a
+# read-only, role-open endpoint used by the "Combine & Download" / single
+# "Download PDF" flow in Results.jsx so ANYONE who can already download a
+# report can also grab an outsourced test's attachment(s) as their own
+# separate file(s) — the report PDF itself is never touched/merged, see
+# routers/pdf.py download_combined_pdf().
+
+def _require_lab_staff(user: User):
+    if user.role not in LAB_STAFF_ROLES:
+        raise HTTPException(status_code=403, detail="Only lab staff can manage attachments")
+
+
+@router.get("/attachments-for")
+def attachments_for_results(ids: str, db: Session = Depends(get_db),
+                             user: User = Depends(get_current_user)):
+    """Read-only: attachment file links for any OUTSOURCED results among the
+    given ids. Deliberately NOT gated to LAB_STAFF_ROLES — this only reveals
+    already-uploaded file links (no upload/delete capability), used so the
+    Combine & Download button can hand back each outsourced test's
+    attachment(s) as separate files alongside the normal in-house report."""
+    if user.role == Role.PATIENT:
+        raise HTTPException(status_code=403, detail="not available to patient logins")
+    id_list = [int(x) for x in ids.split(',') if x.strip().isdigit()]
+    if not id_list:
+        return []
+    outsourced = db.query(LabResult).filter(LabResult.id.in_(id_list), LabResult.status == "outsource").all()
+    out = []
+    for r in outsourced:
+        rows = (db.query(ResultAttachment)
+                  .filter(ResultAttachment.lab_result_id == r.id)
+                  .order_by(ResultAttachment.id.asc()).all())
+        for a in rows:
+            out.append({"result_id": r.id, "test_name": r.test_name, **_attachment_dict(a)})
+    return out
+
+
+@router.get("/{result_id}/attachments")
+def list_attachments(result_id: int, db: Session = Depends(get_db),
+                      user: User = Depends(get_current_user)):
+    _require_lab_staff(user)
+    result = db.query(LabResult).filter(LabResult.id == result_id).first()
+    if not result:
+        raise HTTPException(status_code=404, detail="Result not found")
+    rows = (db.query(ResultAttachment)
+              .filter(ResultAttachment.lab_result_id == result_id)
+              .order_by(ResultAttachment.id.asc()).all())
+    return [_attachment_dict(a) for a in rows]
+
+
+@router.post("/{result_id}/attachments")
+async def upload_attachment(result_id: int, file: UploadFile = File(...), request: Request = None,
+                             db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    _require_lab_staff(user)
+    result = db.query(LabResult).filter(LabResult.id == result_id).first()
+    if not result:
+        raise HTTPException(status_code=404, detail="Result not found")
+
+    ext = os.path.splitext(file.filename or "")[1].lower()
+    if ext not in _ALLOWED_ATTACH_EXT:
+        raise HTTPException(status_code=400, detail=f"Unsupported file type '{ext}'. Use PDF, PNG, JPG or WEBP.")
+    body = await file.read()
+    if len(body) > _MAX_ATTACH_BYTES:
+        raise HTTPException(status_code=400, detail="File too large (max 15 MB)")
+
+    stored_name = f"result_{result_id}_{uuid.uuid4().hex[:10]}{ext}"
+    with open(_attach_path(stored_name), "wb") as f:
+        f.write(body)
+
+    a = ResultAttachment(lab_result_id=result_id, filename=stored_name,
+                          original_name=file.filename, content_type=file.content_type,
+                          uploaded_by=user.id)
+    db.add(a); db.commit(); db.refresh(a)
+    write_audit(db, action="upload", user=user, entity="result_attachment", entity_id=a.id,
+                after={"lab_result_id": result_id, "filename": file.filename},
+                ip=(request.client.host if request and request.client else None))
+    return _attachment_dict(a)
+
+
+@router.delete("/{result_id}/attachments/{attachment_id}")
+def delete_attachment(result_id: int, attachment_id: int, request: Request,
+                       db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    _require_lab_staff(user)
+    a = (db.query(ResultAttachment)
+           .filter(ResultAttachment.id == attachment_id, ResultAttachment.lab_result_id == result_id)
+           .first())
+    if not a:
+        raise HTTPException(status_code=404, detail="Attachment not found")
+    try:
+        os.remove(_attach_path(a.filename))
+    except OSError:
+        pass
+    db.delete(a); db.commit()
+    write_audit(db, action="delete", user=user, entity="result_attachment", entity_id=attachment_id,
+                after={"lab_result_id": result_id}, ip=(request.client.host if request.client else None))
+    return {"ok": True}

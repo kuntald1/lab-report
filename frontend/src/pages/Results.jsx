@@ -1,9 +1,17 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '../services/api';
 import { authedFetch, auth } from '../services/auth';
 
 // only these roles are allowed to edit a result's values — matches the backend guard exactly
 const CAN_EDIT_RESULTS = ['super_admin', 'lab_admin', 'pathologist', 'technician'];
+
+// "lab staff" — allowed to manage outsourced-test attachments; matches
+// backend LAB_STAFF_ROLES in routers/results.py exactly (not pathologist/
+// doctor, not franchise, not patient).
+const LAB_STAFF_ROLES = ['super_admin', 'lab_admin', 'technician', 'receptionist', 'phlebotomist'];
+
+const RESULT_STATUS_COLOR = { outsource:'#7c3aed', reported:'#16a34a', pending:'#94a3b8' };
+const resultStatusColor = (s) => RESULT_STATUS_COLOR[s] || '#16a34a';
 
 // FastAPI 422s return `detail` as an array of {loc,msg,type} objects, not a plain string —
 // Error(arrayOfObjects) stringifies to "[object Object],[object Object]". Format it properly.
@@ -79,6 +87,45 @@ export default function Results() {
   useEffect(() => { load(); }, []);
   useEffect(() => { setEditing(false); }, [sel?.id]);
 
+  // ---- outsourced-test attachments ----
+  const isLabStaff = LAB_STAFF_ROLES.includes(auth.user()?.role);
+  const [attachments, setAttachments] = useState([]);
+  const [attachLoading, setAttachLoading] = useState(false);
+  const [attachUploading, setAttachUploading] = useState(false);
+
+  const loadAttachments = (id) => {
+    if (!isLabStaff) return;
+    setAttachLoading(true);
+    authedFetch(`/results/${id}/attachments`).then(r=>r.ok?r.json():[]).then(setAttachments).catch(()=>setAttachments([])).finally(()=>setAttachLoading(false));
+  };
+  useEffect(() => {
+    if (sel && sel.status === 'outsource' && isLabStaff) loadAttachments(sel.id);
+    else setAttachments([]);
+  }, [sel?.id, sel?.status]);
+
+  const uploadAttachment = async (file) => {
+    if (!file || !sel) return;
+    setAttachUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await authedFetch(`/results/${sel.id}/attachments`, { method:'POST', body: fd });
+      if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(apiErrorText(e.detail) || 'Upload failed'); }
+      loadAttachments(sel.id);
+    } catch (err) { alert(String(err.message || 'Upload failed')); }
+    setAttachUploading(false);
+  };
+
+  const deleteAttachment = async (attachmentId) => {
+    if (!sel) return;
+    if (!window.confirm('Remove this attachment?')) return;
+    try {
+      const res = await authedFetch(`/results/${sel.id}/attachments/${attachmentId}`, { method:'DELETE' });
+      if (!res.ok) throw new Error();
+      loadAttachments(sel.id);
+    } catch { alert('Delete failed'); }
+  };
+
   const downloadPDF = async (id, withHeader = true) => {
     setLoading(true);
     try {
@@ -99,19 +146,46 @@ export default function Results() {
   // every OTHER result (excluding the selected one) that shares the same barcode — for "combine" downloads
   const siblingResults = sel ? results.filter(r => r.id != null && r.barcode === sel.barcode) : [];
 
+  // Downloads a URL as its own file, without a page navigation. Used to
+  // trigger several separate downloads from one click (report + each
+  // outsourced attachment) — small delay between each so browsers don't
+  // treat it as spam and block it.
+  const triggerFileDownload = (blob, filename) => {
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename; a.click();
+    window.URL.revokeObjectURL(url);
+  };
+  const sleep = (ms) => new Promise(res => setTimeout(res, ms));
+
   const downloadCombinedPDF = async (withHeader = true) => {
     if (siblingResults.length < 2) return;
     setLoading(true);
     try {
-      const ids = siblingResults.map(r=>r.id).join(',');
-      const r = await authedFetch(`/results/combined-pdf?ids=${ids}&with_header=${withHeader}`);
-      if (!r.ok) { const e = await r.json().catch(()=>({})); throw new Error(apiErrorText(e.detail) || 'PDF not available'); }
-      const blob = await r.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url; a.download = `Healthycian_Combined_${sel.barcode}${withHeader?'':'_NoHeader'}.pdf`; a.click();
-      window.URL.revokeObjectURL(url);
-    } catch (err) { alert(String(err.message || 'Combined PDF failed')); }
+      const allIds = siblingResults.map(r=>r.id);
+      const normalIds = siblingResults.filter(r=>r.status !== 'outsource').map(r=>r.id);
+
+      // 1) the normal in-house report — completely unchanged, covers only
+      //    the non-outsourced tests in this batch, nothing merged into it.
+      if (normalIds.length > 0) {
+        const r = await authedFetch(`/results/combined-pdf?ids=${normalIds.join(',')}&with_header=${withHeader}`);
+        if (!r.ok) { const e = await r.json().catch(()=>({})); throw new Error(apiErrorText(e.detail) || 'PDF not available'); }
+        const blob = await r.blob();
+        triggerFileDownload(blob, `Healthycian_Combined_${sel.barcode}${withHeader?'':'_NoHeader'}.pdf`);
+      }
+
+      // 2) each outsourced test's attachment(s) — separate files, downloaded
+      //    alongside the report, never merged into it.
+      const ar = await authedFetch(`/results/attachments-for?ids=${allIds.join(',')}`);
+      const atts = ar.ok ? await ar.json() : [];
+      for (const att of atts) {
+        if (normalIds.length > 0 || atts.indexOf(att) > 0) await sleep(350);   // avoid the browser's multi-download popup-blocker
+        const fr = await fetch(att.url);
+        if (!fr.ok) continue;
+        const blob = await fr.blob();
+        triggerFileDownload(blob, att.filename);
+      }
+    } catch (err) { alert(String(err.message || 'Combined download failed')); }
     setLoading(false);
   };
 
@@ -191,7 +265,7 @@ export default function Results() {
                 {r.lifecycle_status && !['reported'].includes(r.lifecycle_status) && (
                   <span style={{ fontSize:'0.66rem', background:'rgba(245,158,11,0.15)', color:'#b45309', padding:'0.2rem 0.6rem', borderRadius:'20px', fontWeight:800, marginRight:'0.35rem' }}>⏳ PENDING</span>
                 )}
-                <span style={{ fontSize:'0.68rem', background:'rgba(34,197,94,0.1)', color:'#16a34a', padding:'0.2rem 0.65rem', borderRadius:'20px', fontWeight:700, border:'1px solid rgba(34,197,94,0.2)' }}>{r.status}</span>
+                <span style={{ fontSize:'0.68rem', background:resultStatusColor(r.status)+'1a', color:resultStatusColor(r.status), padding:'0.2rem 0.65rem', borderRadius:'20px', fontWeight:700, border:`1px solid ${resultStatusColor(r.status)}33`, textTransform: r.status==='outsource'?'uppercase':'none' }}>{r.status==='outsource'?'📤 Outsourced':r.status}</span>
                 {r.over_limit && <span title="This franchise is over its credit limit" style={{ marginLeft:'0.35rem', fontSize:'0.62rem', background:'rgba(220,38,38,0.12)', color:'#dc2626', padding:'0.2rem 0.5rem', borderRadius:'20px', fontWeight:800 }}>🔴 OVER LIMIT</span>}
                 {r.locked && <span style={{ marginLeft:'0.35rem', fontSize:'0.62rem', background:'rgba(220,38,38,0.12)', color:'#dc2626', padding:'0.2rem 0.5rem', borderRadius:'20px', fontWeight:800 }}>🔒</span>}
                 <div style={{ fontSize:'0.68rem', color:'#8892a4', marginTop:'0.3rem' }}>{new Date(r.created_at).toLocaleString('en-IN')}</div>
@@ -219,10 +293,18 @@ export default function Results() {
                   colors={{ bg:'#eef2ff', fg:'#4338ca', border:'#c7d2fe' }}
                 />
                 )}
-                {!sel.locked && !editing && (sel.parsed_data?.parameters?.length > 0) && CAN_EDIT_RESULTS.includes(auth.user()?.role) && (
+                {!sel.locked && !editing && sel.status !== 'outsource' && (sel.parsed_data?.parameters?.length > 0) && CAN_EDIT_RESULTS.includes(auth.user()?.role) && (
                 <button onClick={startEdit} style={{ background:'#fafbfc', border:'1px solid #e8ecf4', color:'#475569', borderRadius:'8px', padding:'0.5rem 0.9rem', cursor:'pointer', fontSize:'0.78rem', fontWeight:700, fontFamily:'Manrope,sans-serif' }}>✎ Edit</button>
                 )}
-                {!sel.locked && (
+                {!sel.locked && sel.status === 'outsource' ? (
+                <button
+                  onClick={()=>downloadPDF(sel.id, true)}
+                  disabled={loading || !isLabStaff || attachments.length === 0}
+                  title={attachments.length === 0 ? 'No attachment uploaded yet' : 'Download the uploaded attachment'}
+                  style={{ background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', border:'none', borderRadius:'8px', padding:'0.5rem 1rem', cursor:(loading||attachments.length===0)?'not-allowed':'pointer', fontSize:'0.78rem', fontWeight:700, fontFamily:'Manrope,sans-serif', boxShadow:'0 4px 12px rgba(249,115,22,0.3)', opacity:(attachments.length===0)?0.5:1 }}>
+                  {loading ? '⏳ Generating…' : '⬇ Download Attachment'}
+                </button>
+                ) : !sel.locked && (
                 <PdfSplitButton
                   label={loading ? '⏳ Generating...' : '📄 Download PDF'}
                   loading={loading}
@@ -261,6 +343,17 @@ export default function Results() {
               </div>
             )}
 
+            {!sel.locked && sel.status === 'outsource' ? (
+              <OutsourceAttachments
+                isLabStaff={isLabStaff}
+                attachments={attachments}
+                loading={attachLoading}
+                uploading={attachUploading}
+                onUpload={uploadAttachment}
+                onDelete={deleteAttachment}
+              />
+            ) : (
+              <>
             {!sel.locked && (
             <div style={{ fontSize:'0.68rem', color:'#8892a4', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:'0.8rem' }}>
               Parameters ({sel.parsed_data?.parameters?.length||0})
@@ -313,6 +406,8 @@ export default function Results() {
               ))}
             </div>
             )}
+              </>
+            )}
 
             {sel.parsed_data?.gh900_info && (
               <>
@@ -360,6 +455,57 @@ export default function Results() {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function OutsourceAttachments({ isLabStaff, attachments, loading, uploading, onUpload, onDelete }) {
+  const [drag, setDrag] = useState(false);
+  const inputRef = useRef(null);
+
+  return (
+    <div>
+      <div style={{ fontSize:'0.68rem', color:'#8892a4', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:'0.8rem' }}>
+        Attachments {attachments.length > 0 && `(${attachments.length})`}
+      </div>
+
+      {!isLabStaff && (
+        <div style={{ background:'#fafbfc', border:'1px dashed #e8ecf4', borderRadius:'10px', padding:'1.4rem', textAlign:'center', color:'#8892a4', fontSize:'0.85rem' }}>
+          📤 This test was sent to an external lab. Its report will appear here once uploaded by lab staff.
+        </div>
+      )}
+
+      {isLabStaff && (
+        <>
+          <div
+            onClick={()=>inputRef.current?.click()}
+            onDragOver={e=>{ e.preventDefault(); setDrag(true); }}
+            onDragLeave={()=>setDrag(false)}
+            onDrop={e=>{ e.preventDefault(); setDrag(false); const f = e.dataTransfer.files?.[0]; if (f) onUpload(f); }}
+            style={{ border:`1.5px dashed ${drag?'#f97316':'#e8ecf4'}`, borderRadius:'10px', padding:'1.1rem', textAlign:'center', cursor:'pointer', background: drag?'rgba(249,115,22,0.05)':'#fafbfc', marginBottom:'0.9rem' }}>
+            <div style={{ fontSize:'1.4rem', marginBottom:'0.3rem' }}>{uploading ? '⏳' : '📎'}</div>
+            <div style={{ fontSize:'0.82rem', fontWeight:700, color:'#0f1218' }}>{uploading ? 'Uploading…' : 'Click or drop the external lab\'s report here'}</div>
+            <div style={{ fontSize:'0.7rem', color:'#8892a4', marginTop:'0.2rem' }}>PDF, PNG, JPG or WEBP, up to 15 MB. Multiple files allowed.</div>
+          </div>
+          <input ref={inputRef} type="file" accept="application/pdf,image/png,image/jpeg,image/webp" style={{ display:'none' }}
+            onChange={e=>{ const f = e.target.files?.[0]; if (f) onUpload(f); e.target.value=''; }} />
+
+          {loading && <div style={{ color:'#8892a4', fontSize:'0.82rem', padding:'0.5rem' }}>Loading attachments…</div>}
+          {!loading && attachments.length === 0 && (
+            <div style={{ color:'#8892a4', fontSize:'0.82rem', padding:'0.5rem' }}>No files uploaded yet — this outsourced test's report won't be included in the PDF download until one is added.</div>
+          )}
+          <div style={{ display:'flex', flexDirection:'column', gap:'0.5rem' }}>
+            {attachments.map(a => (
+              <div key={a.id} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', background:'#fafbfc', border:'1px solid #e8ecf4', borderRadius:'9px', padding:'0.6rem 0.9rem' }}>
+                <a href={a.url} target="_blank" rel="noreferrer" style={{ fontSize:'0.82rem', fontWeight:600, color:'#2563eb', textDecoration:'none', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', flex:1 }}>
+                  📄 {a.filename}
+                </a>
+                <button onClick={()=>onDelete(a.id)} title="Remove" style={{ background:'transparent', border:'none', color:'#dc2626', cursor:'pointer', fontSize:'0.85rem', padding:'0.2rem 0.5rem' }}>✕</button>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 }
