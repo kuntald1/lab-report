@@ -286,43 +286,17 @@ def update_result(result_id: int, payload: ResultEdit, request: Request,
     return {"id": result.id, "parsed_data": result.parsed_data, "note": result.note}
 
 
-@router.get("/{result_id}")
-def get_result(result_id: int, db: Session = Depends(get_db),
-               user: User = Depends(get_current_user)):
-    result = db.query(LabResult).filter(LabResult.id == result_id).first()
-    if not result:
-        raise HTTPException(status_code=404, detail="Result not found")
-
-    # Franchise: only their own patients, and values withheld when over limit.
-    if user.role == Role.FRANCHISE:
-        patient = db.query(Patient).filter(Patient.id == result.patient_id).first()
-        if not patient or patient.organization_id != user.franchise_id:
-            raise HTTPException(status_code=403, detail="not your patient")
-        if is_franchise_locked(db, user.franchise_id):
-            return {
-                "id": result.id, "barcode": result.barcode, "status": result.status,
-                "created_at": result.created_at, "locked": True,
-                "parsed_data": None, "raw_data": None,
-                "patient": result.patient, "device": result.device,
-            }
-
-    return {
-        "id":          result.id,
-        "barcode":     result.barcode,
-        "accession_number": result.accession_number,
-        "test_name":   result.test_name,
-        "raw_data":    result.raw_data,
-        "parsed_data": result.parsed_data,
-        "note":        result.note,
-        "status":      result.status,
-        "created_at":  result.created_at,
-        "locked":      False,
-        "patient":     result.patient,
-        "device":      result.device,
-    }
-
-
 # ================================================================ outsourced-test attachments
+# IMPORTANT: /attachments-for is declared here — BEFORE the generic
+# GET /{result_id} route below — on purpose. Starlette matches routes by
+# declaration order, and a bare `{result_id}` path segment matches ANY
+# single path segment syntactically (the `int` type hint only gets checked
+# AFTER a route is selected, causing a 422 "not a valid integer" instead of
+# falling through to the next route if declared afterward). Learned this the
+# hard way: /attachments-for was 422'ing for every caller because
+# GET /{result_id} was grabbing it first and failing to parse "attachments-for"
+# as an int.
+#
 # The Attachments management section (list/upload/delete) is restricted to
 # LAB_STAFF_ROLES — not doctors/pathologists, not franchises, not patients.
 #
@@ -360,6 +334,42 @@ def attachments_for_results(ids: str, db: Session = Depends(get_db),
         for a in rows:
             out.append({"result_id": r.id, "test_name": r.test_name, **_attachment_dict(a)})
     return out
+
+
+@router.get("/{result_id}")
+def get_result(result_id: int, db: Session = Depends(get_db),
+               user: User = Depends(get_current_user)):
+    result = db.query(LabResult).filter(LabResult.id == result_id).first()
+    if not result:
+        raise HTTPException(status_code=404, detail="Result not found")
+
+    # Franchise: only their own patients, and values withheld when over limit.
+    if user.role == Role.FRANCHISE:
+        patient = db.query(Patient).filter(Patient.id == result.patient_id).first()
+        if not patient or patient.organization_id != user.franchise_id:
+            raise HTTPException(status_code=403, detail="not your patient")
+        if is_franchise_locked(db, user.franchise_id):
+            return {
+                "id": result.id, "barcode": result.barcode, "status": result.status,
+                "created_at": result.created_at, "locked": True,
+                "parsed_data": None, "raw_data": None,
+                "patient": result.patient, "device": result.device,
+            }
+
+    return {
+        "id":          result.id,
+        "barcode":     result.barcode,
+        "accession_number": result.accession_number,
+        "test_name":   result.test_name,
+        "raw_data":    result.raw_data,
+        "parsed_data": result.parsed_data,
+        "note":        result.note,
+        "status":      result.status,
+        "created_at":  result.created_at,
+        "locked":      False,
+        "patient":     result.patient,
+        "device":      result.device,
+    }
 
 
 @router.get("/{result_id}/attachments")
