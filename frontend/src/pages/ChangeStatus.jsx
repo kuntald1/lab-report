@@ -1,12 +1,12 @@
 import { useState, useRef, useEffect } from 'react';
 import { authedFetch } from '../services/auth';
 
-const STATUSES = ['collected', 'received', 'tested', 'validated', 'reported', 'sample_rejected'];
-const NEXT = ['received', 'tested', 'validated', 'reported'];
+const STATUSES = ['collected', 'received', 'tested', 'validated', 'reported', 'outsource', 'sample_rejected'];
+const NEXT = ['collected', 'received', 'tested', 'validated', 'reported'];
 const STATUS_COLOR = {
   collected:'#0ea5e9', received:'#8b5cf6',
   tested:'#f59e0b', validated:'#16a34a', reported:'#0f766e',
-  sample_rejected:'#dc2626',
+  outsource:'#7c3aed', sample_rejected:'#dc2626',
 };
 
 async function j(path, method = 'GET', body) {
@@ -189,7 +189,9 @@ export default function ChangeStatus() {
               <button key={s} onClick={() => advance(s)} disabled={busy || sel.size === 0}
                 style={{ ...btnStatus, background: STATUS_COLOR[s], opacity: sel.size === 0 ? 0.45 : 1 }}>{s}</button>
             ))}
-            <div style={{ marginLeft: 'auto' }}>
+            <div style={{ marginLeft: 'auto', display:'flex', gap:'0.5rem' }}>
+              <button onClick={() => advance('outsource')} disabled={busy || sel.size === 0}
+                style={{ ...btnStatus, background: STATUS_COLOR.outsource, opacity: sel.size === 0 ? 0.45 : 1, display:'flex', alignItems:'center', gap:'0.3rem' }} title="Send to an external/reference lab instead of testing in-house">📤 Outsource</button>
               <button onClick={() => advance('sample_rejected')} disabled={busy || sel.size === 0}
                 style={{ ...btnStatus, background: '#dc2626', opacity: sel.size === 0 ? 0.45 : 1, display:'flex', alignItems:'center', gap:'0.3rem' }}>⚠ Reject Sample</button>
             </div>
