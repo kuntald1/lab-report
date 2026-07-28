@@ -45,18 +45,18 @@ export default function Sidebar({ current, onChange, counts = {}, user = null, o
   const visible = (items) => items.filter(n => !hidden.includes(n.id));
 
   const s = {
-    aside: { position:'fixed', top:0, left:0, bottom:0, width:'235px', background:'#f2fbf9', borderRight:'1px solid #d9f0ea', display:'flex', flexDirection:'column', zIndex:50, boxShadow:'2px 0 16px rgba(15,18,24,0.05)' },
-    logoWrap: { padding:'1.4rem 1.3rem 1.2rem', borderBottom:'1px solid #e2f4ef' },
+    aside: { position:'fixed', top:0, left:0, bottom:0, width:'235px', background:'#e6f0ee', borderRight:'1px solid #cdddd9', display:'flex', flexDirection:'column', zIndex:50, boxShadow:'2px 0 16px rgba(15,18,24,0.06)' },
+    logoWrap: { padding:'1.4rem 1.3rem 1.2rem', borderBottom:'1px solid #d3e2de' },
     logoRow: { display:'flex', alignItems:'center', gap:'0.7rem' },
     logoIcon: { width:'38px', height:'38px', background:'linear-gradient(135deg,#f97316,#fbbf24)', borderRadius:'11px', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'1.15rem', boxShadow:'0 4px 16px rgba(249,115,22,0.28)', flexShrink:0 },
     logoText: { fontFamily:'Manrope,sans-serif', fontSize:'1.05rem', fontWeight:800, color:'#0f1218', letterSpacing:'-0.01em' },
-    logoSub: { fontSize:'0.6rem', color:'#7f9d95', marginTop:'0.1rem', letterSpacing:'0.04em' },
+    logoSub: { fontSize:'0.6rem', color:'#6b8a83', marginTop:'0.1rem', letterSpacing:'0.04em' },
     pill: { margin:'0.9rem 1rem', background:'rgba(249,115,22,0.07)', border:'1px solid rgba(249,115,22,0.18)', borderRadius:'8px', padding:'0.45rem 0.8rem', display:'flex', alignItems:'center', gap:'0.5rem' },
     pillDot: { width:'7px', height:'7px', borderRadius:'50%', background:'#f97316', boxShadow:'0 0 10px rgba(249,115,22,0.5)', flexShrink:0, animation:'pulse 2s infinite' },
     pillText: { fontSize:'0.68rem', color:'#c2410c', fontWeight:700, letterSpacing:'0.04em' },
     navSection: { flex:1, padding:'0.4rem 0.6rem', overflowY:'auto' },
-    navLabel: { fontSize:'0.58rem', color:'#8fada5', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.1em', padding:'0.8rem 0.7rem 0.3rem' },
-    footer: { padding:'1rem 1.3rem', borderTop:'1px solid #e2f4ef' },
+    navLabel: { fontSize:'0.58rem', color:'#719089', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.1em', padding:'0.8rem 0.7rem 0.3rem' },
+    footer: { padding:'1rem 1.3rem', borderTop:'1px solid #d3e2de' },
     userRow: { display:'flex', alignItems:'center', gap:'0.7rem' },
     avatar: { width:'34px', height:'34px', background:'linear-gradient(135deg,#f97316,#fbbf24)', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'0.75rem', fontWeight:800, color:'#fff', flexShrink:0 },
   };
@@ -69,7 +69,7 @@ export default function Sidebar({ current, onChange, counts = {}, user = null, o
       {/* Logo */}
       <div style={s.logoWrap}>
         <div style={s.logoRow}>
-          <div style={{ ...s.logoIcon, background:'#fff', padding:'4px', boxShadow:'none', border:'1px solid #d9f0ea' }}>
+          <div style={{ ...s.logoIcon, background:'#fff', padding:'4px', boxShadow:'none', border:'1px solid #cdddd9' }}>
             <img src={healthycianIcon} alt="Healthycian" style={{ width:'100%', height:'100%', objectFit:'contain' }} />
           </div>
           <div>
@@ -126,12 +126,12 @@ export default function Sidebar({ current, onChange, counts = {}, user = null, o
           <div style={s.avatar}>{initials(user)}</div>
           <div style={{ flex:1, minWidth:0 }}>
             <div style={{ fontSize:'0.8rem', fontWeight:700, color:'#0f1218', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{user?.full_name || user?.email || 'User'}</div>
-            <div style={{ fontSize:'0.62rem', color:'#7f9d95', marginTop:'0.05rem', textTransform:'capitalize' }}>{(user?.role || 'user').replace('_',' ')}</div>
+            <div style={{ fontSize:'0.62rem', color:'#6b8a83', marginTop:'0.05rem', textTransform:'capitalize' }}>{(user?.role || 'user').replace('_',' ')}</div>
           </div>
           <div onClick={onLogout} title="Sign out"
-            style={{ cursor:'pointer', color:'#9dbdb5', fontSize:'1rem', padding:'0.3rem', borderRadius:'7px' }}
+            style={{ cursor:'pointer', color:'#84a49c', fontSize:'1rem', padding:'0.3rem', borderRadius:'7px' }}
             onMouseEnter={e=>e.currentTarget.style.color='#f97316'}
-            onMouseLeave={e=>e.currentTarget.style.color='#9dbdb5'}>⏻</div>
+            onMouseLeave={e=>e.currentTarget.style.color='#84a49c'}>⏻</div>
         </div>
       </div>
     </aside>
@@ -155,15 +155,15 @@ function NavItem({ item, active, onClick, count }) {
         display:'flex', alignItems:'center', gap:'0.65rem',
         padding:'0.58rem 0.8rem', borderRadius:'10px', cursor:'pointer',
         margin:'0.1rem 0', transition:'all 0.15s',
-        background: active ? 'rgba(249,115,22,0.1)' : hov ? '#e8f5f1' : 'transparent',
-        color: active ? '#0f1218' : '#5f7a74',
+        background: active ? 'rgba(249,115,22,0.12)' : hov ? '#d7e8e4' : 'transparent',
+        color: active ? '#0f1218' : '#4a625d',
         fontWeight: active ? 700 : 500,
         borderLeft: active ? '3px solid #f97316' : '3px solid transparent',
         fontSize: '0.82rem',
       }}>
       <div style={{
         width:'26px', height:'26px', borderRadius:'7px', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'0.78rem', flexShrink:0,
-        background: active ? 'linear-gradient(135deg,#f97316,#fbbf24)' : '#e3f3ee',
+        background: active ? 'linear-gradient(135deg,#f97316,#fbbf24)' : '#d7e8e4',
         boxShadow: active ? '0 2px 10px rgba(249,115,22,0.35)' : 'none',
       }}>{item.icon}</div>
       {item.label}
