@@ -31,6 +31,8 @@ export default function Patients({ onBill = () => {} }) {
   const [newDocName, setNewDocName] = useState('');
   const [showForm, setShowForm]   = useState(false);
   const [branchWarning, setBranchWarning] = useState(false);
+  const [toast, setToast] = useState(null);   // { kind: 'error'|'success', msg }
+  const showToast = (kind, msg) => { setToast({ kind, msg }); setTimeout(()=>setToast(null), 3800); };
   const [saving, setSaving]       = useState(false);
   const [editingId, setEditingId] = useState(null);   // null = create mode
   const [form, setForm]           = useState(BLANK);
@@ -84,8 +86,8 @@ export default function Patients({ onBill = () => {} }) {
   };
 
   const submit = async () => {
-    if (!form.patient_name) return alert('Patient name required');
-    if (!form.age) return alert('Age is required');
+    if (!form.patient_name) return showToast('error', 'Patient name is required');
+    if (!form.age) return showToast('error', 'Age is required');
     // Franchise-role users have Branch/Franchise locked to their own
     // franchise automatically, so this only applies to lab-side staff who
     // can actually pick either field.
@@ -114,15 +116,16 @@ export default function Patients({ onBill = () => {} }) {
       if (editingId) {
         await authedFetch(`/patients/${editingId}`, { method:'PUT',
           headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+        showToast('success', `Updated ${payload.patient_name}`);
       } else {
         const res = await authedFetch('/patients/', { method:'POST',
           headers:{'Content-Type':'application/json'},
           body: JSON.stringify({ ...payload, barcode: form.barcode || undefined }) });
-        if (res.ok) { const created = await res.json(); setForm(BLANK); setEditingId(null); setShowForm(false); load(); setSaving(false); return created; }
+        if (res.ok) { const created = await res.json(); setForm(BLANK); setEditingId(null); setShowForm(false); load(); setSaving(false); showToast('success', `Registered ${payload.patient_name}`); return created; }
       }
       setForm(BLANK); setEditingId(null); setShowForm(false);
       load();
-    } catch { alert('Save failed'); }
+    } catch { showToast('error', 'Save failed'); }
     setSaving(false);
   };
 
@@ -142,11 +145,18 @@ export default function Patients({ onBill = () => {} }) {
       setRefDoctors(prev=>[...prev, doc]);
       setForm(f=>({...f, doctor_name: doc.name, referral_doctor_id: doc.id}));
       setAddingDoctor(false);
-    } catch { alert('Failed to add doctor'); }
+    } catch { showToast('error', 'Failed to add doctor'); }
   };
 
   return (
     <div>
+      {toast && (
+        <div style={{ position:'fixed', top:'1.5rem', right:'1.5rem', zIndex:9999, display:'flex', alignItems:'center', gap:'0.75rem', background:'#fff', borderRadius:'13px', padding:'0.9rem 1.2rem', minWidth:'260px', boxShadow:'0 12px 40px rgba(15,18,24,0.18)', border:'1px solid #eef1f6', borderLeft:`4px solid ${toast.kind==='success'?'#16a34a':'#dc2626'}` }}>
+          <div style={{ width:'30px', height:'30px', borderRadius:'9px', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center', fontSize:'1rem', background: toast.kind==='success'?'rgba(22,163,74,0.12)':'rgba(220,38,38,0.12)' }}>{toast.kind==='success'?'✓':'✕'}</div>
+          <div style={{ fontSize:'0.82rem', fontWeight:700, color:'#0f1218' }}>{toast.msg}</div>
+          <button onClick={()=>setToast(null)} style={{ background:'transparent', border:'none', color:'#c2c8d4', cursor:'pointer', fontSize:'0.9rem', marginLeft:'0.3rem' }}>✕</button>
+        </div>
+      )}
       {addingDoctor && (
         <div onClick={()=>setAddingDoctor(false)} style={{ position:'fixed', inset:0, zIndex:9999, background:'rgba(15,18,24,0.45)', display:'flex', alignItems:'center', justifyContent:'center' }}>
           <div onClick={e=>e.stopPropagation()} style={{ background:'#fff', borderRadius:'16px', padding:'1.8rem', width:'380px', maxWidth:'92vw', boxShadow:'0 20px 60px rgba(15,18,24,0.3)' }}>
