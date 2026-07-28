@@ -94,12 +94,15 @@ export default function Results() {
   const [attachUploading, setAttachUploading] = useState(false);
 
   const loadAttachments = (id) => {
-    if (!isLabStaff) return;
+    // Read-only, works for any non-patient role — download should be
+    // available to whoever can already see this result (franchise, doctors,
+    // ...), not just lab staff. Only upload/delete stay lab-staff-only,
+    // enforced both by the backend and by hiding those controls in the UI.
     setAttachLoading(true);
-    authedFetch(`/results/${id}/attachments`).then(r=>r.ok?r.json():[]).then(setAttachments).catch(()=>setAttachments([])).finally(()=>setAttachLoading(false));
+    authedFetch(`/results/attachments-for?ids=${id}`).then(r=>r.ok?r.json():[]).then(setAttachments).catch(()=>setAttachments([])).finally(()=>setAttachLoading(false));
   };
   useEffect(() => {
-    if (sel && sel.status === 'outsource' && isLabStaff) loadAttachments(sel.id);
+    if (sel && sel.status === 'outsource') loadAttachments(sel.id);
     else setAttachments([]);
   }, [sel?.id, sel?.status]);
 
@@ -299,7 +302,7 @@ export default function Results() {
                 {!sel.locked && sel.status === 'outsource' ? (
                 <button
                   onClick={()=>downloadPDF(sel.id, true)}
-                  disabled={loading || !isLabStaff || attachments.length === 0}
+                  disabled={loading || attachments.length === 0}
                   title={attachments.length === 0 ? 'No attachment uploaded yet' : 'Download the uploaded attachment'}
                   style={{ background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', border:'none', borderRadius:'8px', padding:'0.5rem 1rem', cursor:(loading||attachments.length===0)?'not-allowed':'pointer', fontSize:'0.78rem', fontWeight:700, fontFamily:'Manrope,sans-serif', boxShadow:'0 4px 12px rgba(249,115,22,0.3)', opacity:(attachments.length===0)?0.5:1 }}>
                   {loading ? '⏳ Generating…' : '⬇ Download Attachment'}
@@ -469,12 +472,6 @@ function OutsourceAttachments({ isLabStaff, attachments, loading, uploading, onU
         Attachments {attachments.length > 0 && `(${attachments.length})`}
       </div>
 
-      {!isLabStaff && (
-        <div style={{ background:'#fafbfc', border:'1px dashed #e8ecf4', borderRadius:'10px', padding:'1.4rem', textAlign:'center', color:'#8892a4', fontSize:'0.85rem' }}>
-          📤 This test was sent to an external lab. Its report will appear here once uploaded by lab staff.
-        </div>
-      )}
-
       {isLabStaff && (
         <>
           <div
@@ -489,23 +486,29 @@ function OutsourceAttachments({ isLabStaff, attachments, loading, uploading, onU
           </div>
           <input ref={inputRef} type="file" accept="application/pdf,image/png,image/jpeg,image/webp" style={{ display:'none' }}
             onChange={e=>{ const f = e.target.files?.[0]; if (f) onUpload(f); e.target.value=''; }} />
-
-          {loading && <div style={{ color:'#8892a4', fontSize:'0.82rem', padding:'0.5rem' }}>Loading attachments…</div>}
-          {!loading && attachments.length === 0 && (
-            <div style={{ color:'#8892a4', fontSize:'0.82rem', padding:'0.5rem' }}>No files uploaded yet — this outsourced test's report won't be included in the PDF download until one is added.</div>
-          )}
-          <div style={{ display:'flex', flexDirection:'column', gap:'0.5rem' }}>
-            {attachments.map(a => (
-              <div key={a.id} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', background:'#fafbfc', border:'1px solid #e8ecf4', borderRadius:'9px', padding:'0.6rem 0.9rem' }}>
-                <a href={a.url} target="_blank" rel="noreferrer" style={{ fontSize:'0.82rem', fontWeight:600, color:'#2563eb', textDecoration:'none', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', flex:1 }}>
-                  📄 {a.filename}
-                </a>
-                <button onClick={()=>onDelete(a.id)} title="Remove" style={{ background:'transparent', border:'none', color:'#dc2626', cursor:'pointer', fontSize:'0.85rem', padding:'0.2rem 0.5rem' }}>✕</button>
-              </div>
-            ))}
-          </div>
         </>
       )}
+
+      {loading && <div style={{ color:'#8892a4', fontSize:'0.82rem', padding:'0.5rem' }}>Loading attachments…</div>}
+      {!loading && attachments.length === 0 && (
+        <div style={{ background:'#fafbfc', border:'1px dashed #e8ecf4', borderRadius:'10px', padding:'1.2rem', textAlign:'center', color:'#8892a4', fontSize:'0.85rem' }}>
+          📤 This test was sent to an external lab.{isLabStaff ? '' : ' Its report will appear here once uploaded by lab staff.'}
+        </div>
+      )}
+      {/* Anyone who can see this result can view/download what's already uploaded — only
+          uploading and removing files is lab-staff-only (enforced server-side too). */}
+      <div style={{ display:'flex', flexDirection:'column', gap:'0.5rem' }}>
+        {attachments.map(a => (
+          <div key={a.id} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', background:'#fafbfc', border:'1px solid #e8ecf4', borderRadius:'9px', padding:'0.6rem 0.9rem' }}>
+            <a href={a.url} target="_blank" rel="noreferrer" style={{ fontSize:'0.82rem', fontWeight:600, color:'#2563eb', textDecoration:'none', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', flex:1 }}>
+              📄 {a.filename}
+            </a>
+            {isLabStaff && (
+              <button onClick={()=>onDelete(a.id)} title="Remove" style={{ background:'transparent', border:'none', color:'#dc2626', cursor:'pointer', fontSize:'0.85rem', padding:'0.2rem 0.5rem' }}>✕</button>
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
