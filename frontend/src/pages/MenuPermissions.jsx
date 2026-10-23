@@ -8,7 +8,6 @@ const S   = { card: { background:'#fff', border:'1px solid #e8ecf4', borderRadiu
 // add its id/label here too so it becomes configurable.
 const MENU_ITEMS = [
   { id:'dashboard', label:'Dashboard', group:'Main Menu' },
-  { id:'devices', label:'Your Devices', group:'Main Menu' },
   { id:'patients', label:'Patients', group:'Main Menu' },
   { id:'status', label:'Change Status', group:'Main Menu' },
   { id:'results', label:'Results', group:'Main Menu' },
@@ -26,8 +25,6 @@ const MENU_ITEMS = [
   { id:'bills', label:'Bills', group:'Master' },
   { id:'doctors', label:'Doctor Commission', group:'Master' },
   { id:'credit', label:'Manage Credit', group:'Master' },
-  { id:'simulator', label:'Simulator', group:'Tools' },
-  { id:'tcp', label:'Live Connect', group:'Tools' },
   { id:'reportvalidate', label:'Report Validate', group:'Reports (Doctor)' },
   { id:'validatehistory', label:'Validate History', group:'Reports (Doctor)' },
   { id:'mycommission', label:'My Commission', group:'Reports (Doctor)' },
