@@ -24,9 +24,14 @@ class Bill(Base):
     discount_amount = Column(Float, default=0.0)
     total           = Column(Float, default=0.0)
     paid            = Column(Float, default=0.0)
-    status          = Column(String, default="unpaid")  # unpaid|partial|paid|credit
+    status          = Column(String, default="unpaid")  # unpaid|partial|paid|credit|cancelled
     created_by      = Column(Integer, ForeignKey("users.id"), nullable=True)
     created_at      = Column(DateTime(timezone=True), server_default=func.now())
+    # cancellation (admin-only, unpaid bills only) — the bill row and its bill_no are kept
+    # so the numbering sequence stays unbroken and the audit trail survives.
+    cancelled_by    = Column(Integer, ForeignKey("users.id"), nullable=True)
+    cancelled_at    = Column(DateTime(timezone=True), nullable=True)
+    cancel_reason   = Column(String, nullable=True)
 
 
 class BillItem(Base):

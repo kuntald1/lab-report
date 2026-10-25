@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { authedFetch } from '../services/auth';
+import { authedFetch, auth } from '../services/auth';
 
 const inp = { background:'#fafbfc', border:'1.5px solid #e8ecf4', borderRadius:'9px', padding:'0.55rem 0.8rem', color:'#0f1218', fontFamily:'Manrope,sans-serif', fontSize:'0.82rem', outline:'none', width:'100%' };
 const lbl = { fontSize:'0.66rem', color:'#8892a4', fontWeight:600, textTransform:'uppercase', letterSpacing:'0.05em', display:'block', marginBottom:'0.3rem' };
@@ -7,7 +7,9 @@ const S   = { card: { background:'#fff', border:'1px solid #e8ecf4', borderRadiu
 const inr = (n) => '₹' + (Number(n)||0).toLocaleString('en-IN', { maximumFractionDigits:2 });
 const fmtDate = (d) => d ? new Date(d).toLocaleString('en-IN', { dateStyle:'medium', timeStyle:'short' }) : '—';
 
-const statusStyle = { paid:['#16a34a','Paid'], partial:['#f59e0b','Partial'], unpaid:['#dc2626','Unpaid'], credit:['#6366f1','On Credit'] };
+const statusStyle = { paid:['#16a34a','Paid'], partial:['#f59e0b','Partial'], unpaid:['#dc2626','Unpaid'], credit:['#6366f1','On Credit'], cancelled:['#64748b','Cancelled'] };
+// a bill can only be cancelled while every test is still at one of these stages
+const CANCELLABLE = ['collected','received'];
 
 export default function Bills() {
   const [bills, setBills]       = useState([]);
@@ -30,6 +32,11 @@ export default function Bills() {
   const [toast, setToast]       = useState(null);
   const [accEdit, setAccEdit]   = useState({});   // {item_id: draft value} while editing accession no.
   const [accBusy, setAccBusy]   = useState(null); // item_id currently saving
+  const [cancelOpen, setCancelOpen]     = useState(false);  // reason box visible
+  const [cancelReason, setCancelReason] = useState('');
+  const [cancelBusy, setCancelBusy]     = useState(false);
+
+  const isAdmin = ['super_admin','lab_admin'].includes((auth.user()?.role || '').toLowerCase());
 
   const showToast = (kind, msg) => { setToast({ kind, msg }); setTimeout(()=>setToast(null), 3200); };
 
@@ -139,7 +146,7 @@ export default function Bills() {
     authedFetch('/admin/branches').then(r=>r.ok?r.json():[]).then(setBranches).catch(()=>{});
   }, []);   // eslint-disable-line
 
-  const openBill = (b) => { setDetail(b); setPayAmt(String(Math.max(0,(b.total||0)-(b.paid||0)))); setPayMethod('cash'); setWaNumber(b.phone||''); setWaLink(true); setDiscType(b.discount_type||''); setDiscVal(b.discount_value?String(b.discount_value):''); };
+  const openBill = (b) => { setDetail(b); setPayAmt(String(Math.max(0,(b.total||0)-(b.paid||0)))); setPayMethod('cash'); setWaNumber(b.phone||''); setWaLink(true); setDiscType(b.discount_type||''); setDiscVal(b.discount_value?String(b.discount_value):''); setCancelOpen(false); setCancelReason(''); };
 
   const applyDiscount = async () => {
     if (!detail) return;
@@ -154,6 +161,22 @@ export default function Bills() {
       showToast('success', 'Discount applied');
     } catch (e) { showToast('error', String(e.message||'Discount failed')); }
     setDiscBusy(false);
+  };
+
+  const cancelBill = async () => {
+    if (!detail) return;
+    const reason = cancelReason.trim();
+    if (!reason) return showToast('error', 'Enter a reason for cancelling');
+    setCancelBusy(true);
+    try {
+      const res = await authedFetch(`/billing/bills/${detail.id}/cancel`, { method:'PUT',
+        headers:{'Content-Type':'application/json'}, body: JSON.stringify({ reason }) });
+      if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.detail||'failed'); }
+      const updated = await res.json();
+      setDetail(updated); setCancelOpen(false); setCancelReason(''); load();
+      showToast('success', `${updated.bill_no} cancelled`);
+    } catch (e) { showToast('error', String(e.message||'Cancel failed')); }
+    setCancelBusy(false);
   };
 
   const sendWhatsApp = async () => {
@@ -247,7 +270,8 @@ export default function Bills() {
     } catch { showToast('error', 'Receipt download failed'); }
   };
 
-  const due = (b) => Math.max(0, (b.total||0) - (b.paid||0));
+  // a cancelled bill owes nothing — it stays on record but is not outstanding
+  const due = (b) => (b.status === 'cancelled') ? 0 : Math.max(0, (b.total||0) - (b.paid||0));
 
   return (
     <div>
@@ -317,11 +341,12 @@ export default function Bills() {
             {bills.length === 0 && <tr><td colSpan={9} style={{ textAlign:'center', padding:'3rem', color:'#8892a4' }}>{loading?'Loading…':'No bills match.'}</td></tr>}
             {bills.map(b => {
               const [sc, slabel] = statusStyle[b.status] || ['#64748b', b.status];
+              const isCancelled = b.status === 'cancelled';
               return (
-                <tr key={b.id} style={{ borderBottom:'1px solid #f4f6fa' }}
+                <tr key={b.id} style={{ borderBottom:'1px solid #f4f6fa', opacity: isCancelled ? 0.55 : 1 }}
                   onMouseEnter={e=>e.currentTarget.style.background='#fafbfc'}
                   onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
-                  <td style={{ padding:'0.8rem 1.1rem', fontWeight:700, color:'#0f1218', fontSize:'0.82rem', fontFamily:'monospace' }}>{b.bill_no}</td>
+                  <td style={{ padding:'0.8rem 1.1rem', fontWeight:700, color:'#0f1218', fontSize:'0.82rem', fontFamily:'monospace', textDecoration: isCancelled ? 'line-through' : 'none' }}>{b.bill_no}</td>
                   <td style={{ padding:'0.8rem 1.1rem', fontSize:'0.83rem', color:'#0f1218' }}>{b.patient_name}<div style={{ color:'#8892a4', fontSize:'0.72rem', fontFamily:'monospace' }}>{b.barcode}</div></td>
                   <td style={{ padding:'0.8rem 1.1rem', fontSize:'0.82rem', color: b.organization_name?'#6366f1':'#8892a4' }}>{b.organization_name || 'Direct'}</td>
                   <td style={{ padding:'0.8rem 1.1rem', fontSize:'0.83rem', fontWeight:600 }}>{inr(b.total)}</td>
@@ -400,6 +425,24 @@ export default function Bills() {
               })()}
             </div>
 
+            {detail.status === 'cancelled' && (
+              <div style={{ marginBottom:'1rem', background:'rgba(100,116,139,0.08)', border:'1px solid rgba(100,116,139,0.25)', borderRadius:'10px', padding:'0.7rem 0.9rem' }}>
+                <div style={{ fontWeight:800, color:'#475569', fontSize:'0.82rem', fontFamily:'Manrope,sans-serif' }}>This bill was cancelled</div>
+                <div style={{ color:'#64748b', fontSize:'0.76rem', marginTop:'0.2rem' }}>
+                  {detail.cancel_reason || '—'}{detail.cancelled_at ? ` · ${fmtDate(detail.cancelled_at)}` : ''}
+                </div>
+                {(() => {
+                  const refund = (detail.payments||[]).filter(p => (Number(p.amount)||0) < 0)
+                                   .reduce((s,p) => s + Math.abs(Number(p.amount)||0), 0);
+                  return refund > 0 ? (
+                    <div style={{ color:'#b91c1c', fontSize:'0.76rem', marginTop:'0.3rem', fontWeight:700 }}>
+                      {inr(refund)} refunded
+                    </div>
+                  ) : null;
+                })()}
+              </div>
+            )}
+
             <div style={{ fontSize:'0.85rem' }}>
               <Row k="Subtotal" v={inr(detail.subtotal)} />
               {detail.discount_amount>0 && <Row k="Discount" v={'– '+inr(detail.discount_amount)} color="#dc2626" />}
@@ -415,7 +458,7 @@ export default function Bills() {
             )}
 
             {/* discount (admin, only before any payment) */}
-            {(detail.paid||0) <= 0 && detail.status !== 'credit' && (
+            {(detail.paid||0) <= 0 && detail.status !== 'credit' && detail.status !== 'cancelled' && (
               <div style={{ marginTop:'1rem', paddingTop:'1rem', borderTop:'1px dashed #e8ecf4' }}>
                 <label style={lbl}>Discount (admin only)</label>
                 <div style={{ display:'flex', gap:'0.5rem' }}>
@@ -431,7 +474,7 @@ export default function Bills() {
             )}
 
             {/* take payment */}
-            {Math.max(0,detail.total-detail.paid) > 0 && detail.status !== 'credit' && (
+            {Math.max(0,detail.total-detail.paid) > 0 && detail.status !== 'credit' && detail.status !== 'cancelled' && (
               <div style={{ marginTop:'1.2rem', paddingTop:'1rem', borderTop:'1px dashed #e8ecf4' }}>
                 <label style={lbl}>Take payment</label>
                 <div style={{ display:'flex', gap:'0.5rem' }}>
@@ -452,6 +495,7 @@ export default function Bills() {
             )}
 
             {/* send via WhatsApp */}
+            {detail.status !== 'cancelled' && (
             <div style={{ marginTop:'1.2rem', paddingTop:'1rem', borderTop:'1px dashed #e8ecf4' }}>
               <label style={lbl}>Send bill on WhatsApp</label>
               <div style={{ display:'flex', gap:'0.5rem', marginBottom:'0.5rem' }}>
@@ -476,8 +520,59 @@ export default function Bills() {
                 </div>
               )}
             </div>
+            )}
 
             <button onClick={()=>downloadReceipt(detail)} style={{ width:'100%', marginTop:'1.2rem', background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', border:'none', borderRadius:'10px', padding:'0.7rem', fontWeight:700, cursor:'pointer', fontFamily:'Manrope,sans-serif' }}>⬇ Download Money Receipt</button>
+
+            {/* cancel bill — admin only, allowed up to and including 'received' */}
+            {isAdmin && detail.status !== 'cancelled' && (() => {
+              const blocking = (detail.items||[]).filter(it => !CANCELLABLE.includes(it.status || 'collected'));
+              const paidNow  = Number(detail.paid)||0;
+              return (
+                <div style={{ marginTop:'1.2rem', paddingTop:'1rem', borderTop:'1px dashed #e8ecf4' }}>
+                  {blocking.length > 0 ? (
+                    <div style={{ background:'#fafbfc', border:'1px solid #e8ecf4', borderRadius:'10px', padding:'0.7rem 0.9rem' }}>
+                      <div style={{ fontWeight:700, color:'#475569', fontSize:'0.78rem' }}>This bill can no longer be cancelled</div>
+                      <div style={{ color:'#8892a4', fontSize:'0.73rem', marginTop:'0.25rem', lineHeight:1.5 }}>
+                        Work has already started on {blocking.length === 1 ? 'this test' : 'these tests'}:{' '}
+                        {blocking.slice(0,4).map(it => `${it.package_name ? `${it.package_name} (${it.test_name})` : it.test_name} — ${it.status}`).join('; ')}
+                        {blocking.length > 4 ? ` and ${blocking.length-4} more` : ''}.
+                      </div>
+                    </div>
+                  ) : !cancelOpen ? (
+                    <button onClick={()=>setCancelOpen(true)}
+                      style={{ width:'100%', background:'transparent', color:'#dc2626', border:'1px solid rgba(220,38,38,0.3)', borderRadius:'10px', padding:'0.6rem', fontWeight:700, cursor:'pointer', fontFamily:'Manrope,sans-serif', fontSize:'0.82rem' }}>
+                      Cancel this bill
+                    </button>
+                  ) : (
+                    <div>
+                      <label style={lbl}>Reason for cancelling (required)</label>
+                      <input style={inp} autoFocus placeholder="e.g. duplicate bill — same tests already billed in B000122"
+                        value={cancelReason} onChange={e=>setCancelReason(e.target.value)}
+                        onKeyDown={e=>{ if (e.key==='Enter') cancelBill(); if (e.key==='Escape') { setCancelOpen(false); setCancelReason(''); } }} />
+                      {paidNow > 0 && (
+                        <div style={{ marginTop:'0.5rem', background:'rgba(220,38,38,0.06)', border:'1px solid rgba(220,38,38,0.2)', borderRadius:'8px', padding:'0.5rem 0.7rem', color:'#b91c1c', fontSize:'0.74rem', lineHeight:1.5 }}>
+                          <strong>{inr(paidNow)}</strong> has been collected on this bill. Cancelling records a refund of {inr(paidNow)} and sets the bill to ₹0 — hand the money back at the counter.
+                        </div>
+                      )}
+                      <div style={{ color:'#8892a4', fontSize:'0.72rem', margin:'0.4rem 0 0.6rem' }}>
+                        The bill stays on record as cancelled — it is not deleted, and {detail.bill_no} is not reused.
+                      </div>
+                      <div style={{ display:'flex', gap:'0.5rem' }}>
+                        <button onClick={cancelBill} disabled={cancelBusy}
+                          style={{ flex:1, background:'#dc2626', color:'#fff', border:'none', borderRadius:'9px', padding:'0.6rem', fontWeight:700, cursor:'pointer', fontFamily:'Manrope,sans-serif' }}>
+                          {cancelBusy ? 'Cancelling…' : (paidNow > 0 ? `Confirm cancel & refund ${inr(paidNow)}` : 'Confirm cancel')}
+                        </button>
+                        <button onClick={()=>{ setCancelOpen(false); setCancelReason(''); }}
+                          style={{ background:'transparent', color:'#8892a4', border:'1px solid #e8ecf4', borderRadius:'9px', padding:'0.6rem 1.1rem', cursor:'pointer', fontFamily:'Manrope,sans-serif' }}>
+                          Keep bill
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </div>
         </div>
       )}

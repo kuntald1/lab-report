@@ -16,6 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Query
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional, List
+from datetime import datetime
 
 from database import get_db
 from auth.deps import get_current_user, get_scope, Scope
@@ -273,10 +274,11 @@ def _bill_dict(db: Session, b: Bill) -> dict:
         "discount_value": b.discount_value, "discount_amount": b.discount_amount,
         "total": b.total, "paid": b.paid, "status": b.status,
         "created_at": b.created_at,
+        "cancelled_at": b.cancelled_at, "cancel_reason": b.cancel_reason,
         "items": [{"id": i.id, "test_id": i.test_id, "test_name": i.test_name, "mrp": i.mrp,
                    "price": i.price, "price_source": i.price_source,
                    "package_id": i.package_id, "package_name": i.package_name,
-                   "accession_number": i.accession_number} for i in its],
+                   "accession_number": i.accession_number, "status": i.status} for i in its],
         "payments": [{"id": p.id, "method": p.method, "amount": p.amount,
                       "status": p.status, "created_at": p.created_at} for p in pays],
     }
@@ -381,6 +383,92 @@ def update_discount(bill_id: int, payload: DiscountIn, request: Request,
     db.commit()
     write_audit(db, action="discount", user=user, entity="bill", entity_id=bill.id,
                 after={"type": d_type, "value": d_value, "amount": d_amount, "total": bill.total}, ip=_ip(request))
+    return _bill_dict(db, bill)
+
+
+# ----------------------------------------------------------------- cancel bill
+# A bill may be cancelled only while every one of its tests is still at the very
+# start of the pipeline. Once ANY test has been tested/validated/reported — or has
+# gone out-of-band as sample_rejected/outsource — work has been done on the sample
+# and the bill must stand.
+CANCELLABLE_ITEM_STATUSES = ("collected", "received")
+
+
+class CancelIn(BaseModel):
+    reason: str
+
+
+@router.put("/bills/{bill_id}/cancel")
+def cancel_bill(bill_id: int, payload: CancelIn, request: Request,
+                db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Cancel a bill (admin-only), allowed up to and including the 'received' stage.
+
+    This is a soft cancel, never a delete: the bill row, its items and its bill_no
+    all stay, so the numbering sequence has no gaps and the audit trail survives.
+    Accession numbers are deliberately left untouched (they derive from the patient
+    barcode and may already be printed on tubes).
+
+    Money already collected is refunded by writing a NEGATIVE reversal Payment row
+    rather than editing or deleting the original payment — so the original receipt
+    stays on record and the two rows net to zero. The cash is handed back at the
+    counter; no gateway refund is attempted here even for online payments.
+    """
+    if user.role not in ADMIN_ROLES:
+        raise HTTPException(403, "cancel is admin-only")
+    bill = db.query(Bill).filter(Bill.id == bill_id).first()
+    if not bill:
+        raise HTTPException(404, "bill not found")
+    if bill.status == "cancelled":
+        raise HTTPException(400, "bill is already cancelled")
+    reason = (payload.reason or "").strip()
+    if not reason:
+        raise HTTPException(400, "a reason is required to cancel a bill")
+
+    # every test must still be at collected/received
+    items = db.query(BillItem).filter(BillItem.bill_id == bill.id).all()
+    blocking = [it for it in items
+                if (it.status or "collected") not in CANCELLABLE_ITEM_STATUSES]
+    if blocking:
+        def _label(it):
+            name = f"{it.package_name} ({it.test_name})" if it.package_name else it.test_name
+            return f"{name} — {it.status}"
+        shown = "; ".join(_label(it) for it in blocking[:4])
+        more = f" and {len(blocking) - 4} more" if len(blocking) > 4 else ""
+        raise HTTPException(
+            400, f"cannot cancel — these tests have already moved past Received: {shown}{more}")
+
+    before_status = bill.status
+    refunded = round(bill.paid or 0.0, 2)
+    if refunded > 0:
+        db.add(Payment(tenant_id=bill.tenant_id, bill_id=bill.id, method="refund",
+                       amount=-refunded, status="success",
+                       note=f"refund on bill cancellation — {reason}", created_by=user.id))
+        db.flush()
+
+    # undo whatever this bill posted to the org's running statement: the original
+    # 'bill' entry (which raised the outstanding) and any 'payment' entries against
+    # it (which lowered it). One netting 'adjustment' puts the balance back.
+    if bill.organization_id:
+        posted = (db.query(OrgLedger)
+                    .filter(OrgLedger.organization_id == bill.organization_id,
+                            OrgLedger.ref == bill.bill_no).all())
+        net = sum((e.amount or 0.0) if e.entry_type == "bill" else -(e.amount or 0.0)
+                  for e in posted if e.entry_type in ("bill", "payment"))
+        if abs(net) > 0.005:
+            new_balance = _org_outstanding(db, bill.organization_id) - net
+            db.add(OrgLedger(organization_id=bill.organization_id, entry_type="adjustment",
+                             amount=-net, balance_after=new_balance, ref=bill.bill_no))
+
+    _recompute_bill(db, bill)      # paid now nets to 0 via the reversal row
+    bill.status = "cancelled"      # set last — _recompute_bill would otherwise say 'unpaid'
+    bill.cancelled_by = user.id
+    bill.cancelled_at = datetime.utcnow()
+    bill.cancel_reason = reason
+    db.commit(); db.refresh(bill)
+    write_audit(db, action="cancel", user=user, entity="bill", entity_id=bill.id,
+                before={"status": before_status, "paid": refunded},
+                after={"status": "cancelled", "reason": reason,
+                       "total": bill.total, "refunded": refunded}, ip=_ip(request))
     return _bill_dict(db, bill)
 
 

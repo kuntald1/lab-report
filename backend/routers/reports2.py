@@ -9,6 +9,7 @@ Mounted under /api/reports2 (separate from the clinical /api/reports router).
 """
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
+from sqlalchemy import or_
 from typing import Optional
 from datetime import datetime
 
@@ -249,6 +250,8 @@ def dashboard(
     """CurryCloud-style revenue dashboard. Shows BOTH billed (bill totals) and
     collected (payments received). Filters: franchise, branch, from, to."""
     q = db.query(Bill)
+    # cancelled bills are kept as records but must never count as revenue
+    q = q.filter(or_(Bill.status.is_(None), Bill.status != "cancelled"))
     if franchise_id:
         q = q.filter(Bill.organization_id == franchise_id)
     if branch_id:
