@@ -35,6 +35,12 @@ ADVANCE_VALID = STATUS_ORDER + ["sample_rejected", "outsource"]
 REJECTION_VALID = ADVANCE_VALID   # kept as an alias — some older code/tests may still reference this name
 
 
+def _not_cancelled(q):
+    """Keep tests belonging to cancelled bills out of the lab worklist entirely —
+    a cancelled bill's samples must not be collectable, receivable or testable."""
+    return q.filter(or_(Bill.status.is_(None), Bill.status != "cancelled"))
+
+
 def _test_label(it) -> str:
     """'lipid profile (Total Cholesterol)' for a group member, plain 'Triglycerides' for a standalone test."""
     return f"{it.package_name} ({it.test_name})" if it.package_name else it.test_name
@@ -50,6 +56,7 @@ def search_samples(db: Session = Depends(get_db), scope: Scope = Depends(get_sco
            .join(Bill, Bill.id == BillItem.bill_id)
            .join(Patient, Patient.id == Bill.patient_id)
            .filter(BillItem.accession_number.isnot(None)))   # only test lines that actually have a sample label
+    q = _not_cancelled(q)
 
     if scope.tenant_id is not None:
         q = q.filter(Bill.tenant_id == scope.tenant_id)
@@ -126,6 +133,14 @@ def advance_status(p: AdvanceIn, request: Request,
     if not rows:
         raise HTTPException(status_code=404, detail="no matching samples in your scope")
 
+    # all-or-nothing: if any selected sample sits on a cancelled bill, change nothing
+    cancelled_bills = sorted({b.bill_no or f"#{b.id}" for _, b, _ in rows
+                              if (b.status or "") == "cancelled"})
+    if cancelled_bills:
+        raise HTTPException(
+            status_code=400,
+            detail=f"these samples belong to cancelled bill(s): {', '.join(cancelled_bills)}")
+
     now = datetime.utcnow()
     for it, b, patient in rows:
         it.status = p.status
@@ -194,6 +209,7 @@ def scan_receive(p: ScanIn, request: Request,
     base_q = (db.query(BillItem, Bill, Patient)
                 .join(Bill, Bill.id == BillItem.bill_id)
                 .join(Patient, Patient.id == Bill.patient_id))
+    base_q = _not_cancelled(base_q)
     if scope.tenant_id is not None:
         base_q = base_q.filter(Bill.tenant_id == scope.tenant_id)
     if scope.role == "franchise" and scope.franchise_id is not None:

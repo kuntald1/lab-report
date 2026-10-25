@@ -81,8 +81,11 @@ def sample_details(
     except Exception:
         branches = {}
 
-    # --- bills + items for these patients ---
-    bills = db.query(Bill).filter(Bill.patient_id.in_(pids)).all()
+    # --- bills + items for these patients (cancelled bills are left out entirely:
+    #     their money was never earned and their tests are not lab work) ---
+    bills = (db.query(Bill)
+               .filter(Bill.patient_id.in_(pids))
+               .filter(or_(Bill.status.is_(None), Bill.status != "cancelled")).all())
     bills_by_patient = {}
     bill_ids = []
     for b in bills:
