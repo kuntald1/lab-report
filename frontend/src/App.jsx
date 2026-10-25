@@ -39,12 +39,13 @@ export default function App() {
   const role = (me?.role || '').toLowerCase();
   const isLab = ['super_admin','lab_admin','technician','receptionist'].includes(role);
   const isDoctor = role === 'pathologist';
+  const isAdminRole = ['super_admin','lab_admin'].includes(role);
   const [page, setPage] = useState(isDoctor ? 'reportvalidate' : 'dashboard');
   const [billPatientId, setBillPatientId] = useState('');
 
   if (!authed) return <Login onLogin={() => setAuthed(true)} />;
 
-  const pages = { dashboard:<Dashboard />, devices:<Devices />, patients:<Patients onBill={(id)=>{ setBillPatientId(String(id)); setPage('billing'); }} />, results:<Results />, simulator:<Simulator />, tcp:<TCPLive />, tat:<TAT />, status:<ChangeStatus />,tubes:<SampleTubes />, orggroups:<OrgGroups />, organizations:<Organizations />, pricing:<Pricing />, testscatalog:<TestsCatalog />, users:<Users />, billing:<Billing initialPatientId={billPatientId} onManageCredit={()=>setPage('credit')} />, bills:<Bills />, reportvalidate:<ReportValidate />, validatehistory:<ValidateHistory />, historyneeded:<HistoryNeeded />, samplereport:<SampleReport />, credit:<ManageCredit onManageCredit={()=>setPage('credit')} />, branches:<Branches />, doctors:<Doctors />, mycommission:<MyCommission />, departments:<Departments />, menupermissions:<MenuPermissions />, reportsettings:<ReportSettings />  };
+  const pages = { dashboard:<Dashboard />, devices:<Devices />, patients:<Patients onBill={(id)=>{ setBillPatientId(String(id)); setPage('billing'); }} />, results:<Results />, simulator:<Simulator />, tcp:<TCPLive />, tat:<TAT />, status:<ChangeStatus />,tubes:<SampleTubes />, orggroups:<OrgGroups />, organizations:<Organizations />, pricing:<Pricing />, testscatalog:<TestsCatalog />, users:<Users />, billing:<Billing isAdmin={isAdminRole} initialPatientId={billPatientId} onManageCredit={()=>setPage('credit')} />, bills:<Bills />, reportvalidate:<ReportValidate />, validatehistory:<ValidateHistory />, historyneeded:<HistoryNeeded />, samplereport:<SampleReport />, credit:<ManageCredit onManageCredit={()=>setPage('credit')} />, branches:<Branches />, doctors:<Doctors />, mycommission:<MyCommission />, departments:<Departments />, menupermissions:<MenuPermissions />, reportsettings:<ReportSettings />  };
   // sidebar/nav handler: opening "New Bill" from the menu starts fresh (no pre-filled patient)
   const handleNav = (p) => { if (p === 'billing') setBillPatientId(''); setPage(p); };
   const logout = () => { auth.logout(); setAuthed(false); setPage('dashboard'); };
