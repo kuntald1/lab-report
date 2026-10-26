@@ -15,7 +15,7 @@ export default function Bills() {
   const [bills, setBills]       = useState([]);
   const [orgs, setOrgs]         = useState([]);
   const [branches, setBranches] = useState([]);
-  const [f, setF]               = useState({ organization_id:'', branch_id:'', barcode:'', patient_id:'', date_from:'', date_to:'' });
+  const [f, setF]               = useState({ organization_id:'', branch_id:'', barcode:'', patient_name:'', patient_id:'', date_from:'', date_to:'' });
   const [loading, setLoading]   = useState(false);
   const [detail, setDetail]     = useState(null);     // bill open in modal
   const [payAmt, setPayAmt]     = useState('');
@@ -305,7 +305,7 @@ export default function Bills() {
 
       {/* filters */}
       <div style={{ ...S.card, marginBottom:'1.2rem' }}>
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(6, 1fr)', gap:'0.7rem', alignItems:'end' }}>
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(160px, 1fr))', gap:'0.7rem', alignItems:'end' }}>
           <div><label style={lbl}>Organization</label>
             <select style={inp} value={f.organization_id} onChange={e=>setF({...f,organization_id:e.target.value})}>
               <option value="">All</option>
@@ -318,12 +318,13 @@ export default function Bills() {
             </select></div>
           <div><label style={lbl}>From</label><input style={inp} type="date" value={f.date_from} onChange={e=>setF({...f,date_from:e.target.value})} /></div>
           <div><label style={lbl}>To</label><input style={inp} type="date" value={f.date_to} onChange={e=>setF({...f,date_to:e.target.value})} /></div>
+          <div><label style={lbl}>Patient Name</label><input style={inp} placeholder="name" value={f.patient_name} onChange={e=>setF({...f,patient_name:e.target.value})} onKeyDown={e=>{ if (e.key==='Enter') load(); }} /></div>
           <div><label style={lbl}>Patient ID</label><input style={inp} type="number" placeholder="id" value={f.patient_id} onChange={e=>setF({...f,patient_id:e.target.value})} /></div>
-          <div><label style={lbl}>Barcode</label><input style={inp} placeholder="barcode" value={f.barcode} onChange={e=>setF({...f,barcode:e.target.value})} /></div>
+          <div><label style={lbl}>Barcode</label><input style={inp} placeholder="barcode" value={f.barcode} onChange={e=>setF({...f,barcode:e.target.value})} onKeyDown={e=>{ if (e.key==='Enter') load(); }} /></div>
         </div>
         <div style={{ display:'flex', gap:'0.6rem', marginTop:'1rem' }}>
           <button onClick={load} style={{ background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', border:'none', borderRadius:'9px', padding:'0.6rem 1.4rem', fontWeight:700, cursor:'pointer', fontFamily:'Manrope,sans-serif' }}>Apply Filters</button>
-          <button onClick={()=>{ setF({ organization_id:'', branch_id:'', barcode:'', patient_id:'', date_from:'', date_to:'' }); setTimeout(load,0); }} style={{ background:'transparent', color:'#8892a4', border:'1px solid #e8ecf4', borderRadius:'9px', padding:'0.6rem 1.2rem', cursor:'pointer', fontFamily:'Manrope,sans-serif' }}>Clear</button>
+          <button onClick={()=>{ setF({ organization_id:'', branch_id:'', barcode:'', patient_name:'', patient_id:'', date_from:'', date_to:'' }); setTimeout(load,0); }} style={{ background:'transparent', color:'#8892a4', border:'1px solid #e8ecf4', borderRadius:'9px', padding:'0.6rem 1.2rem', cursor:'pointer', fontFamily:'Manrope,sans-serif' }}>Clear</button>
         </div>
       </div>
 

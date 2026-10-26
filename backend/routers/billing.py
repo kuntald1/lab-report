@@ -326,6 +326,7 @@ def _bill_dict(db: Session, b: Bill) -> dict:
 def list_bills(db: Session = Depends(get_db), scope: Scope = Depends(get_scope),
                organization_id: Optional[int] = None, patient_id: Optional[int] = None,
                branch_id: Optional[int] = None, barcode: Optional[str] = None,
+               patient_name: Optional[str] = None,
                date_from: Optional[str] = None, date_to: Optional[str] = None):
     q = db.query(Bill)
     if scope.tenant_id is not None:
@@ -341,6 +342,10 @@ def list_bills(db: Session = Depends(get_db), scope: Scope = Depends(get_scope),
         q = q.filter(Bill.branch_id == branch_id)
     if barcode:
         ids = [p.id for p in db.query(Patient.id).filter(Patient.barcode.ilike(f"%{barcode}%")).all()]
+        q = q.filter(Bill.patient_id.in_(ids or [-1]))
+    if patient_name and patient_name.strip():
+        ids = [p.id for p in db.query(Patient.id)
+                 .filter(Patient.patient_name.ilike(f"%{patient_name.strip()}%")).all()]
         q = q.filter(Bill.patient_id.in_(ids or [-1]))
     if date_from:
         q = q.filter(Bill.created_at >= date_from)

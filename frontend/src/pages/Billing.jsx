@@ -41,6 +41,7 @@ export default function Billing({ isAdmin = true, initialPatientId = '', onManag
   const [toast, setToast]       = useState(null);
   const [lastBill, setLastBill] = useState(null);
   const [payingMethod, setPayingMethod] = useState(null);   // 'cash'|'upi'|'razorpay'|null
+  const [payAmt, setPayAmt]     = useState('');             // how much to collect now — defaults to the full due, editable for part payment
   const [waPhone, setWaPhone]   = useState('');
   const [waBusy, setWaBusy]     = useState(false);
   const [waiting, setWaiting]   = useState(false);   // waiting for customer payment
@@ -263,6 +264,14 @@ export default function Billing({ isAdmin = true, initialPatientId = '', onManag
     document.body.appendChild(s);
   }, []);
 
+  // the amount box always starts at the full remaining due — for a new bill, and
+  // again after each part payment, so the next instalment is pre-filled.
+  useEffect(() => {
+    if (!lastBill) { setPayAmt(''); return; }
+    const d = Math.max(0, (lastBill.total||0) - (lastBill.paid||0));
+    setPayAmt(d > 0 ? String(d) : '');
+  }, [lastBill?.id, lastBill?.paid, lastBill?.total]);
+
   const refreshBill = async (id) => {
     const b = await authedFetch(`/billing/bills/${id}`).then(r=>r.ok?r.json():null).catch(()=>null);
     if (b) setLastBill(b);
@@ -342,14 +351,19 @@ export default function Billing({ isAdmin = true, initialPatientId = '', onManag
     if (!lastBill) return;
     const due = Math.max(0, (lastBill.total||0) - (lastBill.paid||0));
     if (due <= 0) return;
+    // part payment: collect whatever was typed, never more than what's actually due
+    const amount = Math.round(Math.min(Number(payAmt) || 0, due) * 100) / 100;
+    if (amount <= 0) return showToast('error', 'Enter an amount to collect');
     setPayingMethod(method);
     try {
       const res = await authedFetch(`/billing/bills/${lastBill.id}/payments`, { method:'POST',
-        headers:{'Content-Type':'application/json'}, body: JSON.stringify({ method, amount: due }) });
+        headers:{'Content-Type':'application/json'}, body: JSON.stringify({ method, amount }) });
       if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.detail||'failed'); }
       const updated = await res.json();
       setLastBill(updated);
-      showToast('success', `Paid ${inr(due)} · receipt ready`);
+      const left = Math.max(0, (updated.total||0) - (updated.paid||0));
+      showToast('success', left > 0 ? `Paid ${inr(amount)} · ${inr(left)} still due`
+                                    : `Paid ${inr(amount)} · receipt ready`);
       downloadReceipt(updated);
       sendReceiptWA(updated);
     } catch (e) { showToast('error', String(e.message||'Payment failed')); }
@@ -697,10 +711,21 @@ export default function Billing({ isAdmin = true, initialPatientId = '', onManag
           {!paid && lastBill.status !== 'credit' && !isFranchise && (
             <div style={{ marginTop:'1rem', paddingTop:'1rem', borderTop:'1px dashed #e8ecf4' }}>
               <div style={{ fontSize:'0.72rem', color:'#8892a4', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:'0.6rem' }}>Collect Payment</div>
+              {/* amount is pre-filled with the full due — lower it to take a part payment */}
+              <div style={{ display:'flex', gap:'0.5rem', alignItems:'center', marginBottom:'0.6rem', flexWrap:'wrap' }}>
+                <input style={{ ...inp, width:'140px' }} type="number" min="0" max={due} step="0.01"
+                  value={payAmt} onChange={e=>setPayAmt(e.target.value)} placeholder="₹ amount" />
+                <button onClick={()=>setPayAmt(String(due))} style={{ background:'transparent', color:'#8892a4', border:'1px solid #e8ecf4', borderRadius:'8px', padding:'0.45rem 0.8rem', cursor:'pointer', fontFamily:'Manrope,sans-serif', fontSize:'0.78rem', fontWeight:600 }}>Full {inr(due)}</button>
+                {Number(payAmt) > 0 && Number(payAmt) < due && (
+                  <span style={{ fontSize:'0.75rem', color:'#f97316', fontWeight:600 }}>
+                    Part payment · {inr(due - Number(payAmt))} will stay due
+                  </span>
+                )}
+              </div>
               <div style={{ display:'flex', gap:'0.6rem', flexWrap:'wrap' }}>
                 <button onClick={()=>payCashUpi('cash')} disabled={!!payingMethod} style={payBtn('#16a34a')}>{payingMethod==='cash'?'…':'💵 Cash'}</button>
                 <button onClick={()=>payCashUpi('upi')} disabled={!!payingMethod} style={payBtn('#8b5cf6')}>{payingMethod==='upi'?'…':'📲 UPI'}</button>
-                <button onClick={payRazorpay} disabled={!!payingMethod} style={payBtn('#3b82f6')}>{payingMethod==='razorpay'?'…':'💳 Razorpay (Online)'}</button>
+                <button onClick={payRazorpay} disabled={!!payingMethod} style={payBtn('#3b82f6')} title={`Razorpay always collects the full ${inr(due)}`}>{payingMethod==='razorpay'?'…':'💳 Razorpay (Online)'}</button>
               </div>
 
               {/* WhatsApp: send payment link */}
