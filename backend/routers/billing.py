@@ -46,11 +46,32 @@ def _suffix(idx: int) -> str:
     return s
 
 
-def _accession_taken(db: Session, value: str, exclude_item_id: Optional[int] = None) -> bool:
+def _accession_taken(db: Session, value: str, exclude_item_id: Optional[int] = None,
+                     exclude_item_ids: Optional[List[int]] = None) -> bool:
     q = db.query(BillItem).filter(BillItem.accession_number == value)
+    skip = set(exclude_item_ids or [])
     if exclude_item_id is not None:
-        q = q.filter(BillItem.id != exclude_item_id)
+        skip.add(exclude_item_id)
+    if skip:
+        q = q.filter(~BillItem.id.in_(list(skip)))
     return q.first() is not None
+
+
+def _tube_key_map(db: Session, test_ids: List[int]) -> dict:
+    """test_id -> the key its accession number is allocated against.
+
+    One physical tube can only carry ONE barcode, so every test drawn into the
+    same sample tube shares a single accession number (e.g. HDL + LDL + Total
+    Cholesterol all on one Serum tube = one label). Tests with no sample tube
+    set in the catalog can't be grouped, so each of those keeps its own."""
+    ids = list({t for t in test_ids if t})
+    tube_of = {}
+    if ids:
+        for tid, stid in db.query(TestCatalog.id, TestCatalog.sample_tube_id).filter(
+                TestCatalog.id.in_(ids)).all():
+            tube_of[tid] = stid
+    return {tid: (("tube", tube_of[tid]) if tube_of.get(tid) else ("test", tid))
+            for tid in test_ids}
 
 
 def _next_accessions(db: Session, base_barcode: str, count: int) -> List[str]:
@@ -224,26 +245,43 @@ def create_bill(payload: BillCreate, request: Request,
     db.add(bill); db.flush()                # get bill.id
     bill.bill_no = f"B{bill.id:06d}"
     base_barcode = patient.barcode or ""
+
+    # One accession number per SAMPLE TUBE, not per test: tests collected into the
+    # same tube share one number and therefore one printed label/barcode.
+    key_of = _tube_key_map(db, [it.test_id for it in items])
+    order, members = [], {}          # tube keys in line order -> the items on that tube
+    for it in items:
+        k = key_of.get(it.test_id, ("test", it.test_id))
+        if k not in members:
+            members[k] = []
+            order.append(k)
+        members[k].append(it)
+
     used_this_bill = set()   # guards against duplicates within THIS bill too, not just against the DB
-    for idx, it in enumerate(items):
-        it.bill_id = bill.id
-        override = (payload.accessions or {}).get(str(it.test_id))
-        if override and override.strip():
+    n = 0
+    for k in order:
+        group = members[k]
+        # the client sends {test_id: accession} — any member carries this tube's value
+        override = next((v for v in ((payload.accessions or {}).get(str(m.test_id)) for m in group)
+                         if v and v.strip()), None)
+        if override:
             candidate = override.strip()
             if candidate in used_this_bill or _accession_taken(db, candidate):
                 db.rollback()
                 raise HTTPException(400, f"Accession number '{candidate}' is already in use — "
-                                          f"please choose a different one for {it.test_name}")
+                                          f"please choose a different one for {group[0].test_name}")
         else:
             # auto-generate: walk the suffix sequence, skipping anything already taken (by any bill/patient)
-            n = idx
             candidate = f"{base_barcode}{_suffix(n)}"
             while candidate in used_this_bill or _accession_taken(db, candidate):
                 n += 1
                 candidate = f"{base_barcode}{_suffix(n)}"
-        it.accession_number = candidate
+            n += 1
         used_this_bill.add(candidate)
-        db.add(it)
+        for m in group:
+            m.bill_id = bill.id
+            m.accession_number = candidate
+            db.add(m)
 
     # B2B credit -> add to the org ledger
     if payload.on_credit and org_id:
@@ -341,13 +379,21 @@ def update_accession_number(bill_id: int, item_id: int, payload: AccessionIn, re
     new_value = payload.accession_number.strip()
     if not new_value:
         raise HTTPException(400, "accession number cannot be blank")
-    if _accession_taken(db, new_value, exclude_item_id=it.id):
-        raise HTTPException(400, f"Accession number '{new_value}' is already in use by another test")
     before = it.accession_number
-    it.accession_number = new_value
+    # The number belongs to a tube, not to one test — every test on this bill sharing
+    # it is on that same tube, so they all move together (and none of them counts as
+    # the number being "already in use").
+    siblings = [it] if not before else (
+        db.query(BillItem).filter(BillItem.bill_id == bill_id,
+                                  BillItem.accession_number == before).all() or [it])
+    if _accession_taken(db, new_value, exclude_item_ids=[s.id for s in siblings]):
+        raise HTTPException(400, f"Accession number '{new_value}' is already in use by another test")
+    for s in siblings:
+        s.accession_number = new_value
     db.commit()
-    write_audit(db, action="update", user=user, entity="bill_item", entity_id=it.id,
-                before={"accession_number": before}, after={"accession_number": it.accession_number}, ip=_ip(request))
+    write_audit(db, action="update", user=user, entity="bill_item",
+                entity_id=",".join(str(s.id) for s in siblings),
+                before={"accession_number": before}, after={"accession_number": new_value}, ip=_ip(request))
     b = db.query(Bill).filter(Bill.id == bill_id).first()
     return _bill_dict(db, b)
 

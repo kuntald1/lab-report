@@ -23,8 +23,8 @@ export default function Billing({ isAdmin = true, initialPatientId = '', onManag
   const [tubes, setTubes]       = useState([]);
   const [pfDraft, setPfDraft]   = useState({ barcode:'' });   // what's typed
   const [pf, setPf]             = useState({ barcode:'' });   // what's actually applied (via Search)
-  const [accessions, setAccessions] = useState({});           // {test_id: accession_number} preview, editable pre-save
-  const [manualAcc, setManualAcc]   = useState({});           // {test_id: true} once the user hand-edits it (protects it from auto-renumbering)
+  const [accessions, setAccessions] = useState({});           // {tube_key: accession_number} preview, editable pre-save — one number per tube, not per test
+  const [manualAcc, setManualAcc]   = useState({});           // {tube_key: true} once the user hand-edits it (protects it from auto-renumbering)
   const [tests, setTests]       = useState([]);
   const [groups, setGroups]     = useState([]);     // test groups / panels
   const [catalogPrices, setCatalogPrices] = useState({});      // test_id -> resolved {price,mrp,source} for the CURRENT patient's org, shown in the browsing list
@@ -80,6 +80,14 @@ export default function Billing({ isAdmin = true, initialPatientId = '', onManag
     const t = tests.find(x => x.id === tid);
     if (!t || !t.sample_tube_id) return null;
     return tubes.find(tb => tb.id === t.sample_tube_id) || null;
+  };
+
+  // Accession numbers are allocated per TUBE, not per test: one physical tube carries
+  // one barcode, so every test drawn into it shares a single number. Must mirror the
+  // backend's own grouping (routers/billing.py _tube_key_map) or the preview won't match.
+  const tubeKeyForTest = (tid) => {
+    const t = tests.find(x => x.id === tid);
+    return (t && t.sample_tube_id) ? `tube:${t.sample_tube_id}` : `test:${tid}`;
   };
 
   const patient = patients.find(p => String(p.id) === String(patientId));
@@ -184,13 +192,32 @@ export default function Billing({ isAdmin = true, initialPatientId = '', onManag
     return ids;
   }, [pickedGroups, picked]); // eslint-disable-line
 
+  const nameForTest = (tid) => picked[tid]?.name
+    || Object.values(pickedGroups).flatMap(g=>g.tests||[]).find(t=>t.id===tid)?.name
+    || `#${tid}`;
+
+  // the physical tubes this bill needs — one row per tube, carrying the tests drawn into it.
+  // This is the unit an accession number, a label and a barcode belong to.
+  const sampleGroups = useMemo(() => {
+    const byKey = new Map();
+    orderedLineIds.forEach(tid => {
+      const k = tubeKeyForTest(tid);
+      if (!byKey.has(k)) byKey.set(k, { key:k, tube: tubeForTest(tid), testIds: [], names: [] });
+      const g = byKey.get(k);
+      g.testIds.push(tid);
+      g.names.push(nameForTest(tid));
+    });
+    return [...byKey.values()];
+  }, [orderedLineIds, tests, tubes, picked, pickedGroups]); // eslint-disable-line
+
   // keep the accession-number preview in sync: ask the backend for the next unique suggestions for this
   // barcode (it knows about every accession already issued across ALL bills, not just this one), assign
-  // them to every line, but never overwrite a value the user hand-edited (tracked in manualAcc).
+  // one per tube, but never overwrite a value the user hand-edited (tracked in manualAcc).
+  const sampleKeys = sampleGroups.map(g => g.key);
   useEffect(() => {
-    if (!patient || orderedLineIds.length === 0) return;
+    if (!patient || sampleKeys.length === 0) return;
     let cancelled = false;
-    authedFetch(`/billing/next-accessions?barcode=${encodeURIComponent(patient.barcode)}&count=${orderedLineIds.length}`)
+    authedFetch(`/billing/next-accessions?barcode=${encodeURIComponent(patient.barcode)}&count=${sampleKeys.length}`)
       .then(r=>r.ok?r.json():{accessions:[]})
       .then(d => {
         if (cancelled) return;
@@ -198,8 +225,8 @@ export default function Billing({ isAdmin = true, initialPatientId = '', onManag
         let si = 0;
         setAccessions(prev => {
           const next = {};
-          orderedLineIds.forEach((tid) => {
-            next[tid] = (manualAcc[tid] && prev[tid]) ? prev[tid] : (suggestions[si++] || `${patient.barcode}${suffixFor(si)}`);
+          sampleKeys.forEach((k) => {
+            next[k] = (manualAcc[k] && prev[k]) ? prev[k] : (suggestions[si++] || `${patient.barcode}${suffixFor(si)}`);
           });
           return next;
         });
@@ -208,14 +235,15 @@ export default function Billing({ isAdmin = true, initialPatientId = '', onManag
         if (cancelled) return;
         setAccessions(prev => {
           const next = {};
-          orderedLineIds.forEach((tid, idx) => { next[tid] = (manualAcc[tid] && prev[tid]) ? prev[tid] : `${patient.barcode}${suffixFor(idx)}`; });
+          sampleKeys.forEach((k, idx) => { next[k] = (manualAcc[k] && prev[k]) ? prev[k] : `${patient.barcode}${suffixFor(idx)}`; });
           return next;
         });
       });
     return () => { cancelled = true; };
-  }, [orderedLineIds.join(','), patient?.barcode]); // eslint-disable-line
+  }, [sampleKeys.join(','), patient?.barcode]); // eslint-disable-line
 
-  const setAccession = (tid, val) => { setAccessions(prev => ({ ...prev, [tid]: val })); setManualAcc(prev => ({ ...prev, [tid]: true })); };
+  const setAccession = (k, val) => { setAccessions(prev => ({ ...prev, [k]: val })); setManualAcc(prev => ({ ...prev, [k]: true })); };
+  const accForTest = (tid) => accessions[tubeKeyForTest(tid)] || '';
   const discAmount = useMemo(() => {
     if (!allowDiscount || !discType || !discVal) return 0;
     const v = Number(discVal)||0;
@@ -390,20 +418,21 @@ export default function Billing({ isAdmin = true, initialPatientId = '', onManag
     w.document.close();
   };
 
+  // one label per tube — a tube carrying several tests is still one sticker
+  const labelFor = (g) => ({
+    patientName: patient.patient_name,
+    testName: (g.tube?.name ? `${g.tube.name} · ` : '') + g.names.join(', '),
+    code: accessions[g.key] || '',
+  });
+
   const printAllSamples = () => {
     if (!patient) return;
-    const lines = orderedLineIds.map(tid => {
-      const testName = picked[tid]?.name
-        || Object.values(pickedGroups).flatMap(g=>g.tests||[]).find(t=>t.id===tid)?.name
-        || `#${tid}`;
-      return { patientName: patient.patient_name, testName, code: accessions[tid] || '' };
-    }).filter(l => l.code);
-    printLabels(lines);
+    printLabels(sampleGroups.map(labelFor).filter(l => l.code));
   };
 
-  const printOneSample = (tid, testName) => {
-    if (!patient || !accessions[tid]) return;
-    printLabels([{ patientName: patient.patient_name, testName, code: accessions[tid] }]);
+  const printOneSample = (g) => {
+    if (!patient || !accessions[g.key]) return;
+    printLabels([labelFor(g)]);
   };
 
   const generate = async () => {
@@ -418,7 +447,9 @@ export default function Billing({ isAdmin = true, initialPatientId = '', onManag
       discount_type: allowDiscount ? (discType || null) : null,
       discount_value: allowDiscount ? (Number(discVal)||0) : 0,
       on_credit: isFranchise ? !!orgId : (onCredit && !!orgId),
-      accessions: accessions,
+      // the API still takes {test_id: accession}; every test on a tube carries that tube's number
+      accessions: Object.fromEntries(sampleGroups.flatMap(g =>
+        (accessions[g.key] ? g.testIds.map(tid => [String(tid), accessions[g.key]]) : []))),
     };
     try {
       const res = await authedFetch('/billing/bills', { method:'POST',
@@ -530,7 +561,7 @@ export default function Billing({ isAdmin = true, initialPatientId = '', onManag
             <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'0.8rem' }}>
               <div style={{ fontWeight:800, color:'#0f1218', fontFamily:'Manrope,sans-serif' }}>Bill items</div>
               {(pickedIds.length > 0 || pickedGroupIds.length > 0) && (
-                <button onClick={printAllSamples} title="Print sample labels for every line" style={{ background:'rgba(37,99,235,0.1)', color:'#2563eb', border:'1px solid rgba(37,99,235,0.25)', borderRadius:'8px', padding:'0.35rem 0.65rem', fontWeight:700, cursor:'pointer', fontSize:'0.7rem', fontFamily:'Manrope,sans-serif', whiteSpace:'nowrap' }}>🖨 Print all Samples</button>
+                <button onClick={printAllSamples} title="Print one label per sample tube" style={{ background:'rgba(37,99,235,0.1)', color:'#2563eb', border:'1px solid rgba(37,99,235,0.25)', borderRadius:'8px', padding:'0.35rem 0.65rem', fontWeight:700, cursor:'pointer', fontSize:'0.7rem', fontFamily:'Manrope,sans-serif', whiteSpace:'nowrap' }}>🖨 Print all Samples</button>
               )}
             </div>
             {pickedIds.length === 0 && pickedGroupIds.length === 0 && <div style={{ color:'#8892a4', fontSize:'0.85rem', padding:'1rem 0' }}>Click tests or groups on the left to add them.</div>}
@@ -552,7 +583,7 @@ export default function Billing({ isAdmin = true, initialPatientId = '', onManag
                       <span style={{ fontSize:'0.72rem', color:'#8892a4', display:'inline-flex', alignItems:'center', gap:'0.6rem' }}>
                         • {t.name} <TubeTag tube={tubeForTest(t.id)} />
                       </span>
-                      <AccessionCell tid={t.id} value={accessions[t.id]||''} onChange={setAccession} onPrint={()=>printOneSample(t.id, t.name)} />
+                      <AccRef value={accForTest(t.id)} />
                     </div>
                   ))}
                 </div>
@@ -570,10 +601,32 @@ export default function Billing({ isAdmin = true, initialPatientId = '', onManag
                   <span style={{ fontSize:'0.85rem', fontWeight:600, color:'#0f1218' }}>{inr(picked[id].price)}</span>
                 </div>
                 <div style={{ display:'flex', justifyContent:'flex-end', marginTop:'0.2rem' }}>
-                  <AccessionCell tid={id} value={accessions[id]||''} onChange={setAccession} onPrint={()=>printOneSample(id, picked[id].name)} />
+                  <AccRef value={accForTest(id)} />
                 </div>
               </div>
             ))}
+
+            {/* one row per physical tube — this is what actually gets drawn, labelled and scanned */}
+            {sampleGroups.length > 0 && (
+              <div style={{ marginTop:'1rem', paddingTop:'0.9rem', borderTop:'1px dashed #e8ecf4' }}>
+                <label style={lbl}>Samples to collect ({sampleGroups.length})</label>
+                <div style={{ display:'flex', flexDirection:'column', gap:'0.4rem' }}>
+                  {sampleGroups.map(g => (
+                    <div key={g.key} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:'0.75rem' }}>
+                      <span style={{ fontSize:'0.74rem', color:'#475569', display:'inline-flex', alignItems:'center', gap:'0.4rem', minWidth:0 }}>
+                        {g.tube
+                          ? <TubeTag tube={g.tube} />
+                          : <span style={{ fontSize:'0.66rem', color:'#b45309' }}>No tube set</span>}
+                        <span style={{ color:'#8892a4', fontSize:'0.68rem', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                          {g.names.join(', ')}
+                        </span>
+                      </span>
+                      <AccessionCell tid={g.key} value={accessions[g.key]||''} onChange={setAccession} onPrint={()=>printOneSample(g)} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
 
             {/* discount (admin only) */}
@@ -700,6 +753,15 @@ function TubeTag({ tube }) {
       <span style={{ width:'9px', height:'9px', borderRadius:'50%', background:tube.color||'#e5e7eb', border:'1px solid rgba(0,0,0,0.12)', display:'inline-block', flexShrink:0 }} />
       {tube.name}
     </span>
+  );
+}
+
+// read-only echo of the tube's accession number next to a test line — the editable
+// copy lives once per tube in "Samples to collect", so one tube can't drift into two numbers
+function AccRef({ value }) {
+  if (!value) return null;
+  return (
+    <span style={{ fontFamily:'monospace', fontSize:'0.66rem', color:'#94a3b8' }}>{value}</span>
   );
 }
 
