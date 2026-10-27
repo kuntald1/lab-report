@@ -940,6 +940,20 @@ def generate_combined_pdf(results: list, db: Session, with_header: bool = True) 
         else:
             section_flow.append(Paragraph('No parameters found in this result.', normal_style))
 
+        # ── CHROMATOGRAM (GH-900 HbA1c) ──────────────────────────
+        # The absorbance curve is part of the HbA1c result the analyser sends
+        # and is shown on the Results page, so the printed report carries it
+        # too. Only GH-900 results have one; every other panel skips this.
+        chromatogram = parsed.get('chromatogram')
+        if chromatogram:
+            try:
+                chart_buf = _render_chromatogram(chromatogram, '#5c7370')
+                section_flow.append(Spacer(1, 0.3*cm))
+                section_flow.append(Paragraph('<u>CHROMATOGRAM</u>', section_style))
+                section_flow.append(Image(chart_buf, width=16*cm, height=5.5*cm))
+            except Exception:
+                pass   # a chart that won't render must never cost us the report
+
         if r.note:
             section_flow.append(Spacer(1, 0.2*cm))
             section_flow.append(HRFlowable(width='100%', thickness=0.5, color=BORDER))
