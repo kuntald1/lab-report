@@ -256,7 +256,7 @@ function iconBtn(color) {
 // ─────────────────────────────────────────────────────────────────────────────
 const BLANK_RANGE = { param:'', test_id:'', sex:'A', age_min:'', age_max:'',
                       age_min_months:'', age_max_months:'', low:'', high:'',
-                      critical_low:'', critical_high:'', unit:'', text:'' };
+                      critical_low:'', critical_high:'', unit:'', text:'', method:'' };
 
 const SEX_LABEL = { M:'Male', F:'Female', A:'Any' };
 
@@ -279,8 +279,8 @@ function ReferenceRanges({ tests, showToast }) {
   const num = (v) => (v === '' || v === null || v === undefined) ? null : Number(v);
   const save = async () => {
     if (!form.param.trim()) { showToast('error', 'Parameter is required'); return; }
-    if (form.low === '' && form.high === '' && !form.text.trim()) {
-      showToast('error', 'Give a low, a high, or a text range'); return;
+    if (form.low === '' && form.high === '' && !form.text.trim() && !form.method.trim()) {
+      showToast('error', 'Give a low, a high, a text range, or a method'); return;
     }
     setSaving(true);
     const payload = {
@@ -291,6 +291,7 @@ function ReferenceRanges({ tests, showToast }) {
       low: num(form.low), high: num(form.high),
       critical_low: num(form.critical_low), critical_high: num(form.critical_high),
       unit: form.unit.trim() || null, text: form.text.trim() || null,
+      method: form.method.trim() || null,
     };
     try {
       const res = await authedFetch(
@@ -387,6 +388,7 @@ function ReferenceRanges({ tests, showToast }) {
                 <th style={{ textAlign:'left',  padding:'0.4rem 0.5rem' }}>Age</th>
                 <th style={{ textAlign:'left',  padding:'0.4rem 0.5rem' }}>Range</th>
                 <th style={{ textAlign:'left',  padding:'0.4rem 0.5rem' }}>Critical</th>
+                <th style={{ textAlign:'left',  padding:'0.4rem 0.5rem' }}>Method</th>
                 <th style={{ textAlign:'right', padding:'0.4rem 0.5rem' }}></th>
               </tr>
             </thead>
@@ -404,6 +406,7 @@ function ReferenceRanges({ tests, showToast }) {
                     {r.critical_low != null || r.critical_high != null
                       ? `${r.critical_low ?? '—'} / ${r.critical_high ?? '—'}` : '—'}
                   </td>
+                  <td style={{ padding:'0.5rem', color:'#8892a4' }}>{r.method || '—'}</td>
                   <td style={{ padding:'0.5rem', textAlign:'right', whiteSpace:'nowrap' }}>
                     <span onClick={()=>setForm({ ...BLANK_RANGE, ...Object.fromEntries(
                             Object.entries(r).map(([k,v]) => [k, v == null ? '' : v])) })}
@@ -525,6 +528,15 @@ function ReferenceRanges({ tests, showToast }) {
                 <label style={lbl}>Critical high</label>
                 <input style={inp} type="number" step="any" value={form.critical_high}
                        onChange={e=>setForm({ ...form, critical_high:e.target.value })} placeholder="optional" />
+              </div>
+            </div>
+
+            <div style={{ marginBottom:'0.9rem' }}>
+              <label style={lbl}>Method (optional)</label>
+              <input style={inp} value={form.method}
+                     onChange={e=>setForm({ ...form, method:e.target.value })} placeholder='e.g. "Impedance"' />
+              <div style={{ fontSize:'0.72rem', color:'#8892a4', marginTop:'0.3rem' }}>
+                Printed under METHODOLOGY on the report. Leave the range blank to set only the method.
               </div>
             </div>
 

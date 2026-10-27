@@ -153,6 +153,15 @@ def apply_catalog_ranges(db, parameters, test_ids, patient) -> list:
             continue
 
         q = dict(p)
+        if row.method:
+            q["method"] = row.method
+
+        # A row that only names a method (no low, high or text) leaves the
+        # range and the flag exactly as the analyser reported them.
+        if row.low is None and row.high is None and not row.text:
+            out.append(q)
+            continue
+
         q["ref_min"] = "" if row.low is None else row.low
         q["ref_max"] = "" if row.high is None else row.high
         if row.unit:

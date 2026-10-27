@@ -133,6 +133,8 @@ class ReferenceRange(Base):
     critical_high = Column(Float, nullable=True)   # above this = critical alert
     unit      = Column(String, nullable=True)
     text      = Column(String, nullable=True)   # qualitative ranges ("Negative")
+    # Methodology printed in the report's METHODOLOGY column for this parameter.
+    method    = Column(String, nullable=True)
 
 
 # --------------------------------------------------------------------------- orders

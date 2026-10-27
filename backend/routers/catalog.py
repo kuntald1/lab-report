@@ -99,11 +99,13 @@ class RangeIn(BaseModel):
     critical_high: Optional[float] = None
     unit: Optional[str] = None
     text: Optional[str] = None           # qualitative, e.g. "Negative"
+    method: Optional[str] = None         # printed under METHODOLOGY
 
 
 def _clean_range(p: RangeIn) -> dict:
     d = p.model_dump()
     d["param"] = (d.get("param") or "").strip() or None
+    d["method"] = (d.get("method") or "").strip() or None
     d["sex"] = (d.get("sex") or "A").strip()[:1].upper()
     if d["sex"] not in ("M", "F", "A"):
         d["sex"] = "A"
