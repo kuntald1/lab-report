@@ -13,7 +13,8 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.lib.units import cm
 from reportlab.platypus import (SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer,
-                                 HRFlowable, Image, PageBreak, KeepTogether, Flowable)
+                                 HRFlowable, Image, PageBreak, KeepTogether, Flowable,
+                                 CondPageBreak)
 from reportlab.platypus.doctemplate import FrameBreak
 from reportlab.platypus.flowables import _listWrapOn, _flowableSublist
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -712,6 +713,11 @@ def generate_pdf(result: LabResult) -> bytes:
     return buffer.read()
 
 
+# A panel with more rows than this is allowed to break across pages rather than
+# being held together — see where it is used below for why.
+LONG_PANEL_ROWS = 12
+
+
 def generate_combined_pdf(results: list, db: Session, with_header: bool = True) -> bytes:
     """The official letterhead-style sample report: one shared header +
     patient-info block, then one dynamic section per test/panel (any number
@@ -937,7 +943,10 @@ def generate_combined_pdf(results: list, db: Session, with_header: bool = True) 
                     Paragraph(str(p.get('method', '') or '\u2014'), ParagraphStyle('tm', fontName='Helvetica', fontSize=8.5, textColor=MUTED, alignment=TA_LEFT, leading=11)),
                 ])
 
-            result_table = Table(table_data, colWidths=['30%', '13%', '12%', '25%', '20%'])
+            # repeatRows keeps the column headings on top of the continuation
+            # page when a long panel (a 26-parameter CBC) runs over.
+            result_table = Table(table_data, colWidths=['30%', '13%', '12%', '25%', '20%'],
+                                 repeatRows=1)
             result_table.setStyle(TableStyle([
                 ('LINEBELOW',     (0,0),(-1,0),  1, BLACK),
                 ('LINEBELOW',     (0,1),(-1,-1), 0.4, BORDER),
@@ -977,10 +986,22 @@ def generate_combined_pdf(results: list, db: Session, with_header: bool = True) 
                 section_flow.append(Spacer(1, 0.15*cm))
                 section_flow.append(Paragraph(f'<u><b>{label}:</b></u> {text_val}'.replace(chr(10), "<br/>"), comments_style))
 
-        # Keep each panel's title, table, and comments glued together so a
-        # page break never splits them apart. Signatures are collected below
-        # and shown together at the end of the report, not per panel.
-        story.append(KeepTogether(section_flow))
+        # Keep each panel's title, table, and comments glued together so a page
+        # break never splits them apart.
+        #
+        # A long panel is the exception. A 26-parameter CBC is taller than the
+        # space left under the patient box, so gluing it would push the whole
+        # thing to the next page and leave the first one two-thirds empty —
+        # then the sign-off, which always sits at the foot of its page, would
+        # be pushed on again to a page of its own. Letting a long table break
+        # across pages instead fills the report from the top; repeatRows above
+        # carries the column headings over, and CondPageBreak stops the panel
+        # title being stranded alone at the bottom of a page.
+        if len(parameters) > LONG_PANEL_ROWS:
+            story.append(CondPageBreak(4 * cm))
+            story.extend(section_flow)
+        else:
+            story.append(KeepTogether(section_flow))
 
         # Track who validated this specific panel — deduplicated afterwards
         # so each distinct doctor appears once at the end, in the order
