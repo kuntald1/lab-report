@@ -2,6 +2,7 @@
 see the menu); writes are restricted to lab_admin / super_admin."""
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy import func as sqlfunc
 from pydantic import BaseModel
 from typing import Optional, List
 
@@ -83,26 +84,76 @@ def list_tests(db: Session = Depends(get_db), scope: Scope = Depends(get_scope))
 
 # --------------------------------------------------------------------------- reference ranges
 class RangeIn(BaseModel):
-    test_id: int
-    sex: str = "A"
-    age_min: Optional[int] = None
+    # NULL test_id = a default used wherever this parameter is reported, so a
+    # lab can set HGB once rather than on every panel that includes it.
+    test_id: Optional[int] = None
+    param: Optional[str] = None          # WBC, HGB, NEUT% ... NULL = whole test
+    sex: str = "A"                       # 'M' | 'F' | 'A'
+    age_min: Optional[int] = None        # years
     age_max: Optional[int] = None
+    age_min_months: Optional[int] = None # infants; used only once a patient's
+    age_max_months: Optional[int] = None # age is known in months
     low: Optional[float] = None
     high: Optional[float] = None
+    critical_low: Optional[float] = None
+    critical_high: Optional[float] = None
     unit: Optional[str] = None
-    text: Optional[str] = None
+    text: Optional[str] = None           # qualitative, e.g. "Negative"
+
+
+def _clean_range(p: RangeIn) -> dict:
+    d = p.model_dump()
+    d["param"] = (d.get("param") or "").strip() or None
+    d["sex"] = (d.get("sex") or "A").strip()[:1].upper()
+    if d["sex"] not in ("M", "F", "A"):
+        d["sex"] = "A"
+    return d
 
 
 @router.post("/reference-ranges", dependencies=[Depends(WRITE)])
 def create_range(p: RangeIn, db: Session = Depends(get_db)):
-    r = ReferenceRange(**p.model_dump())
+    r = ReferenceRange(**_clean_range(p))
     db.add(r); db.commit(); db.refresh(r)
     return r
 
 
+@router.put("/reference-ranges/{range_id}", dependencies=[Depends(WRITE)])
+def update_range(range_id: int, p: RangeIn, db: Session = Depends(get_db)):
+    r = db.query(ReferenceRange).filter(ReferenceRange.id == range_id).first()
+    if not r:
+        raise HTTPException(status_code=404, detail="Reference range not found")
+    for k, v in _clean_range(p).items():
+        setattr(r, k, v)
+    db.commit(); db.refresh(r)
+    return r
+
+
+@router.delete("/reference-ranges/{range_id}", dependencies=[Depends(WRITE)])
+def delete_range(range_id: int, db: Session = Depends(get_db)):
+    r = db.query(ReferenceRange).filter(ReferenceRange.id == range_id).first()
+    if not r:
+        raise HTTPException(status_code=404, detail="Reference range not found")
+    db.delete(r); db.commit()
+    return {"deleted": range_id}
+
+
+@router.get("/reference-ranges")
+def list_all_ranges(param: Optional[str] = None, db: Session = Depends(get_db)):
+    """Every range, or just the rows for one parameter.
+
+    The catalog-wide defaults (test_id NULL) live here too, which is why this
+    exists alongside the per-test listing below.
+    """
+    q = db.query(ReferenceRange)
+    if param:
+        q = q.filter(sqlfunc.upper(ReferenceRange.param) == param.strip().upper())
+    return q.order_by(ReferenceRange.param, ReferenceRange.id).all()
+
+
 @router.get("/reference-ranges/{test_id}")
 def list_ranges(test_id: int, db: Session = Depends(get_db)):
-    return db.query(ReferenceRange).filter(ReferenceRange.test_id == test_id).all()
+    return db.query(ReferenceRange).filter(ReferenceRange.test_id == test_id)\
+             .order_by(ReferenceRange.param, ReferenceRange.id).all()
 
 
 # --------------------------------------------------------------------------- packages

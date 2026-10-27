@@ -6,6 +6,7 @@ from auth.deps import get_scope, apply_scope, Scope, get_current_user
 from auth.audit import write_audit
 from models.org import User, Role, Franchise
 from services.credit import is_franchise_locked
+from services.ranges import apply_catalog_ranges, test_ids_for_result
 from parsers.astm_parser import auto_parse
 from pydantic import BaseModel
 from typing import Optional, List, Any
@@ -44,6 +45,27 @@ class RawDataSubmit(BaseModel):
     device_id:   Optional[int] = None
     barcode:     Optional[str] = None
     device_type: Optional[str] = "Hematology"
+
+
+def _with_catalog_ranges(db: Session, result: LabResult):
+    """The result's parsed_data with the lab's own reference ranges applied.
+
+    Done on the way out rather than when the sample was run, so a range the lab
+    corrects shows up on results that already exist. What the analyser said is
+    left untouched in the stored row. A failure here must never cost the caller
+    their results, so it falls back to the stored data.
+    """
+    parsed = result.parsed_data
+    if not parsed or not parsed.get("parameters"):
+        return parsed
+    try:
+        params = apply_catalog_ranges(db, parsed["parameters"],
+                                      test_ids_for_result(db, result), result.patient)
+        if params is parsed["parameters"]:
+            return parsed
+        return {**parsed, "parameters": params}
+    except Exception:
+        return parsed
 
 @router.get("/")
 def get_all_results(db: Session = Depends(get_db), scope: Scope = Depends(get_scope),
@@ -154,7 +176,7 @@ def get_all_results(db: Session = Depends(get_db), scope: Scope = Depends(get_sc
             "test_name":    r.test_name,
             "status":       r.status,
             "lifecycle_status": r.patient.status if r.patient else None,
-            "parsed_data":  None if fr_locked else r.parsed_data,
+            "parsed_data":  None if fr_locked else _with_catalog_ranges(db, r),
             "note":         None if fr_locked else r.note,
             "created_at":   r.created_at,
             "patient_name": r.patient.patient_name if r.patient else "Unknown",
@@ -245,11 +267,16 @@ def parse_raw_data(payload: RawDataSubmit, db: Session = Depends(get_db)):
 
 class ParameterEdit(BaseModel):
     name: Optional[str] = None
+    param: Optional[str] = None
     value: Any = None
     unit: Optional[str] = None
     ref_min: Any = None
     ref_max: Any = None
     flag: Optional[str] = None   # 'H' | 'L' | None/'N'
+    # Set by the server, not the caller: marks a flag a person chose, which the
+    # catalog-range lookup then leaves alone. Accepted here so an unchanged
+    # parameter keeps its mark when the page saves the whole list back.
+    flag_manual: Optional[bool] = None
 
 
 class ResultEdit(BaseModel):
@@ -271,7 +298,30 @@ def update_result(result_id: int, payload: ResultEdit, request: Request,
 
     parsed = dict(result.parsed_data or {})
     before_params = parsed.get("parameters")
-    parsed["parameters"] = [p.model_dump() for p in payload.parameters]
+
+    # A flag someone changed here is a human judgement — a doctor marking a
+    # value abnormal has seen something the numbers alone don't carry. Mark it
+    # so the catalog-range lookup doesn't quietly recompute it away later. The
+    # comparison is against what was last stored, matched by parameter, since
+    # the page saves every row back whether or not it touched them.
+    prev_flags = {}
+    for old in (before_params or []):
+        key = (old.get("param") or old.get("name") or "").strip().upper()
+        if key:
+            prev_flags[key] = (old.get("flag") or "N", bool(old.get("flag_manual")))
+
+    new_params = []
+    for p in payload.parameters:
+        d = p.model_dump()
+        key = (d.get("param") or d.get("name") or "").strip().upper()
+        was_flag, was_manual = prev_flags.get(key, (None, False))
+        changed = was_flag is not None and (d.get("flag") or "N") != was_flag
+        d["flag_manual"] = True if (changed or was_manual) else None
+        if d["flag_manual"] is None:
+            d.pop("flag_manual")
+        new_params.append(d)
+
+    parsed["parameters"] = new_params
     result.parsed_data = parsed
     before_note = result.note
     if payload.note is not None:
@@ -362,7 +412,7 @@ def get_result(result_id: int, db: Session = Depends(get_db),
         "accession_number": result.accession_number,
         "test_name":   result.test_name,
         "raw_data":    result.raw_data,
-        "parsed_data": result.parsed_data,
+        "parsed_data": _with_catalog_ranges(db, result),
         "note":        result.note,
         "status":      result.status,
         "created_at":  result.created_at,

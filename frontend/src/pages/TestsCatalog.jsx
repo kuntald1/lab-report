@@ -125,12 +125,13 @@ export default function TestsCatalog() {
       </div>
 
       <div style={{ display:'flex', gap:'0.4rem', marginBottom:'1.2rem', borderBottom:'1.5px solid #e8ecf4' }}>
-        {[['tests','Tests'],['groups','Test Groups']].map(([id,label]) => (
+        {[['tests','Tests'],['groups','Test Groups'],['ranges','Reference Ranges']].map(([id,label]) => (
           <button key={id} onClick={()=>setTab(id)} style={{ background:'transparent', border:'none', cursor:'pointer', padding:'0.6rem 1.1rem', fontFamily:'Manrope,sans-serif', fontWeight:700, fontSize:'0.88rem', color: tab===id?'#f97316':'#8892a4', borderBottom: tab===id?'2.5px solid #f97316':'2.5px solid transparent', marginBottom:'-1.5px' }}>{label}</button>
         ))}
       </div>
 
-      {tab === 'groups' ? <TestGroups tests={tests} showToast={showToast} /> : (<>
+      {tab === 'ranges' ? <ReferenceRanges tests={tests} showToast={showToast} /> :
+       tab === 'groups' ? <TestGroups tests={tests} showToast={showToast} /> : (<>
       <div style={{ ...S.card, marginBottom:'1.2rem', padding:'1rem 1.5rem' }}>
         <input style={{ ...inp, maxWidth:'360px' }} placeholder="Search tests…" value={search} onChange={e=>setSearch(e.target.value)} />
       </div>
@@ -245,6 +246,306 @@ export default function TestsCatalog() {
 function iconBtn(color) {
   return { display:'inline-flex', alignItems:'center', justifyContent:'center', width:'30px', height:'30px',
            borderRadius:'8px', cursor:'pointer', background:color+'12', color, border:'1px solid '+color+'33' };
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Reference ranges — what the report prints beside each value, and what decides
+// whether it reads HIGH or LOW. Edited here rather than in code, because they
+// differ by lab, and because a correction applies to reports already issued.
+// ─────────────────────────────────────────────────────────────────────────────
+const BLANK_RANGE = { param:'', test_id:'', sex:'A', age_min:'', age_max:'',
+                      age_min_months:'', age_max_months:'', low:'', high:'',
+                      critical_low:'', critical_high:'', unit:'', text:'' };
+
+const SEX_LABEL = { M:'Male', F:'Female', A:'Any' };
+
+function ReferenceRanges({ tests, showToast }) {
+  const [rows, setRows]     = useState([]);
+  const [loading, setLoad]  = useState(true);
+  const [search, setSearch] = useState('');
+  const [form, setForm]     = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [del, setDel]       = useState(null);
+
+  const load = () => authedFetch('/catalog/reference-ranges')
+    .then(r => r.ok ? r.json() : [])
+    .then(d => { setRows(Array.isArray(d) ? d : []); setLoad(false); })
+    .catch(() => setLoad(false));
+  useEffect(load, []);
+
+  const testName = (id) => tests.find(t => t.id === id)?.name || null;
+
+  const num = (v) => (v === '' || v === null || v === undefined) ? null : Number(v);
+  const save = async () => {
+    if (!form.param.trim()) { showToast('error', 'Parameter is required'); return; }
+    if (form.low === '' && form.high === '' && !form.text.trim()) {
+      showToast('error', 'Give a low, a high, or a text range'); return;
+    }
+    setSaving(true);
+    const payload = {
+      param: form.param.trim(), test_id: form.test_id ? Number(form.test_id) : null,
+      sex: form.sex,
+      age_min: num(form.age_min), age_max: num(form.age_max),
+      age_min_months: num(form.age_min_months), age_max_months: num(form.age_max_months),
+      low: num(form.low), high: num(form.high),
+      critical_low: num(form.critical_low), critical_high: num(form.critical_high),
+      unit: form.unit.trim() || null, text: form.text.trim() || null,
+    };
+    try {
+      const res = await authedFetch(
+        form.id ? `/catalog/reference-ranges/${form.id}` : '/catalog/reference-ranges',
+        { method: form.id ? 'PUT' : 'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify(payload) });
+      if (!res.ok) throw new Error();
+      setForm(null); load();
+      showToast('success', form.id ? 'Range updated' : 'Range added');
+    } catch { showToast('error', 'Save failed'); }
+    finally { setSaving(false); }
+  };
+
+  const doDelete = async () => {
+    const r = del; if (!r) return;
+    try {
+      const res = await authedFetch(`/catalog/reference-ranges/${r.id}`, { method:'DELETE' });
+      if (!res.ok) throw new Error();
+      setDel(null); load(); showToast('success', 'Range deleted');
+    } catch { setDel(null); showToast('error', 'Delete failed'); }
+  };
+
+  // How a row's age band reads on screen — months win when they're filled,
+  // since that's the band the lookup will use for an infant.
+  const ageText = (r) => {
+    if (r.age_min_months != null || r.age_max_months != null)
+      return `${r.age_min_months ?? 0}–${r.age_max_months ?? '∞'} mo`;
+    if (r.age_min != null || r.age_max != null)
+      return `${r.age_min ?? 0}–${r.age_max ?? '∞'} yr`;
+    return 'Any age';
+  };
+  const rangeText = (r) => {
+    if (r.text) return r.text;
+    if (r.low != null && r.high != null) return `${r.low} – ${r.high}`;
+    if (r.high != null) return `< ${r.high}`;
+    if (r.low != null) return `> ${r.low}`;
+    return '—';
+  };
+
+  const q = search.trim().toLowerCase();
+  const shown = rows.filter(r => !q || (r.param||'').toLowerCase().includes(q)
+                                   || (testName(r.test_id)||'').toLowerCase().includes(q));
+  // Grouped by parameter, so every variant of HGB sits together and a gap in
+  // the set (a sex or an age band nobody filled in) is obvious at a glance.
+  const groups = [];
+  shown.forEach(r => {
+    const key = (r.param || '').toUpperCase();
+    let g = groups.find(x => x.key === key);
+    if (!g) { g = { key, rows: [] }; groups.push(g); }
+    g.rows.push(r);
+  });
+  groups.sort((a,b) => a.key.localeCompare(b.key));
+
+  return (
+    <>
+      <div style={{ ...S.card, marginBottom:'1.2rem', padding:'1rem 1.5rem', display:'flex',
+                    gap:'0.8rem', alignItems:'center', flexWrap:'wrap' }}>
+        <input style={{ ...inp, maxWidth:'320px' }} placeholder="Search parameter or test…"
+               value={search} onChange={e=>setSearch(e.target.value)} />
+        <div style={{ flex:1 }} />
+        <button onClick={()=>setForm({ ...BLANK_RANGE })}
+                style={{ background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', border:'none',
+                         borderRadius:'10px', padding:'0.7rem 1.3rem', fontWeight:700, cursor:'pointer',
+                         fontFamily:'Manrope,sans-serif', whiteSpace:'nowrap',
+                         boxShadow:'0 4px 14px rgba(249,115,22,0.3)' }}>+ Add Range</button>
+      </div>
+
+      <div style={{ ...S.card, marginBottom:'1.2rem', padding:'0.9rem 1.2rem', background:'#fffbeb',
+                    border:'1px solid #fde68a', color:'#92400e', fontSize:'0.8rem', lineHeight:1.6 }}>
+        These decide the reference range printed on the report and whether a value reads HIGH or LOW.
+        A range with no test applies wherever that parameter is reported; adding one for a specific test
+        overrides it. Where several could apply, the one matching the patient's age wins, then sex, then test.
+        A parameter with no range here keeps whatever the analyser sent.
+      </div>
+
+      {loading ? (
+        <div style={{ ...S.card, textAlign:'center', color:'#8892a4', padding:'2.5rem' }}>Loading…</div>
+      ) : groups.length === 0 ? (
+        <div style={{ ...S.card, textAlign:'center', color:'#8892a4', padding:'2.5rem' }}>
+          {rows.length === 0 ? 'No reference ranges yet — reports use whatever each analyser sends.'
+                             : 'Nothing matches that search.'}
+        </div>
+      ) : groups.map(g => (
+        <div key={g.key} style={{ ...S.card, marginBottom:'0.9rem', padding:'1.1rem 1.4rem' }}>
+          <div style={{ fontFamily:'Manrope,sans-serif', fontWeight:800, fontSize:'0.95rem',
+                        color:'#0f1218', marginBottom:'0.7rem' }}>
+            {g.key} <span style={{ color:'#8892a4', fontWeight:600, fontSize:'0.78rem' }}>· {g.rows.length} range{g.rows.length>1?'s':''}</span>
+          </div>
+          <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'0.82rem' }}>
+            <thead>
+              <tr style={{ color:'#8892a4', fontSize:'0.68rem', textTransform:'uppercase', letterSpacing:'0.06em' }}>
+                <th style={{ textAlign:'left',  padding:'0.4rem 0.5rem' }}>Applies to</th>
+                <th style={{ textAlign:'left',  padding:'0.4rem 0.5rem' }}>Sex</th>
+                <th style={{ textAlign:'left',  padding:'0.4rem 0.5rem' }}>Age</th>
+                <th style={{ textAlign:'left',  padding:'0.4rem 0.5rem' }}>Range</th>
+                <th style={{ textAlign:'left',  padding:'0.4rem 0.5rem' }}>Critical</th>
+                <th style={{ textAlign:'right', padding:'0.4rem 0.5rem' }}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {g.rows.map(r => (
+                <tr key={r.id} style={{ borderTop:'1px solid #f1f4f9' }}>
+                  <td style={{ padding:'0.5rem' }}>
+                    {r.test_id ? (testName(r.test_id) || `Test #${r.test_id}`)
+                               : <span style={{ color:'#8892a4' }}>All tests</span>}
+                  </td>
+                  <td style={{ padding:'0.5rem' }}>{SEX_LABEL[(r.sex||'A').toUpperCase()] || r.sex}</td>
+                  <td style={{ padding:'0.5rem', color:'#8892a4' }}>{ageText(r)}</td>
+                  <td style={{ padding:'0.5rem', fontWeight:700 }}>{rangeText(r)} {r.unit || ''}</td>
+                  <td style={{ padding:'0.5rem', color:'#dc2626' }}>
+                    {r.critical_low != null || r.critical_high != null
+                      ? `${r.critical_low ?? '—'} / ${r.critical_high ?? '—'}` : '—'}
+                  </td>
+                  <td style={{ padding:'0.5rem', textAlign:'right', whiteSpace:'nowrap' }}>
+                    <span onClick={()=>setForm({ ...BLANK_RANGE, ...Object.fromEntries(
+                            Object.entries(r).map(([k,v]) => [k, v == null ? '' : v])) })}
+                          style={{ ...iconBtn('#f97316'), marginRight:'0.4rem' }} title="Edit">✎</span>
+                    <span onClick={()=>setDel(r)} style={iconBtn('#dc2626')} title="Delete">✕</span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ))}
+
+      {del && (
+        <div onClick={()=>setDel(null)} style={{ position:'fixed', inset:0, zIndex:9998, background:'rgba(15,18,24,0.45)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+          <div onClick={e=>e.stopPropagation()} style={{ background:'#fff', borderRadius:'16px', padding:'1.8rem', width:'400px', maxWidth:'90vw', boxShadow:'0 20px 60px rgba(15,18,24,0.3)' }}>
+            <div style={{ fontFamily:'Manrope,sans-serif', fontSize:'1.15rem', fontWeight:800, color:'#0f1218', marginBottom:'0.4rem' }}>Delete this range?</div>
+            <div style={{ color:'#8892a4', fontSize:'0.85rem', marginBottom:'1.5rem', lineHeight:1.5 }}>
+              <strong style={{ color:'#0f1218' }}>{del.param}</strong> · {SEX_LABEL[(del.sex||'A').toUpperCase()]} · {ageText(del)}.
+              Reports will fall back to the next range that fits, or to whatever the analyser sent.
+            </div>
+            <div style={{ display:'flex', gap:'0.6rem', justifyContent:'flex-end' }}>
+              <button onClick={()=>setDel(null)} style={{ background:'transparent', color:'#8892a4', border:'1px solid #e8ecf4', borderRadius:'10px', padding:'0.65rem 1.3rem', cursor:'pointer', fontWeight:600, fontFamily:'Manrope,sans-serif' }}>Cancel</button>
+              <button onClick={doDelete} style={{ background:'#dc2626', color:'#fff', border:'none', borderRadius:'10px', padding:'0.65rem 1.5rem', cursor:'pointer', fontWeight:700, fontFamily:'Manrope,sans-serif' }}>Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {form && (
+        <div onClick={()=>setForm(null)} style={{ position:'fixed', inset:0, zIndex:9997, background:'rgba(15,18,24,0.45)', display:'flex', alignItems:'center', justifyContent:'center', padding:'1rem', overflowY:'auto' }}>
+          <div onClick={e=>e.stopPropagation()} style={{ background:'#fff', borderRadius:'16px', padding:'1.8rem', width:'640px', maxWidth:'95vw', maxHeight:'92vh', overflowY:'auto', boxShadow:'0 20px 60px rgba(15,18,24,0.3)' }}>
+            <div style={{ fontFamily:'Manrope,sans-serif', fontSize:'1.2rem', fontWeight:800, color:'#0f1218', marginBottom:'1.2rem' }}>
+              {form.id ? 'Edit reference range' : 'Add reference range'}
+            </div>
+
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.9rem', marginBottom:'0.9rem' }}>
+              <div>
+                <label style={lbl}>Parameter *</label>
+                <input style={inp} value={form.param} placeholder="HGB, WBC, NEUT%, TSH II…"
+                       onChange={e=>setForm({ ...form, param:e.target.value })} />
+                <div style={{ fontSize:'0.72rem', color:'#8892a4', marginTop:'0.3rem' }}>
+                  Exactly as the analyser reports it. Capitals don't matter.
+                </div>
+              </div>
+              <div>
+                <label style={lbl}>Applies to</label>
+                <select style={inp} value={form.test_id}
+                        onChange={e=>setForm({ ...form, test_id:e.target.value })}>
+                  <option value="">All tests reporting this parameter</option>
+                  {tests.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </select>
+              </div>
+            </div>
+
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'0.9rem', marginBottom:'0.9rem' }}>
+              <div>
+                <label style={lbl}>Sex</label>
+                <select style={inp} value={form.sex} onChange={e=>setForm({ ...form, sex:e.target.value })}>
+                  <option value="A">Any</option><option value="M">Male</option><option value="F">Female</option>
+                </select>
+              </div>
+              <div>
+                <label style={lbl}>Age from (years)</label>
+                <input style={inp} type="number" value={form.age_min}
+                       onChange={e=>setForm({ ...form, age_min:e.target.value })} placeholder="any" />
+              </div>
+              <div>
+                <label style={lbl}>Age to (years)</label>
+                <input style={inp} type="number" value={form.age_max}
+                       onChange={e=>setForm({ ...form, age_max:e.target.value })} placeholder="any" />
+              </div>
+            </div>
+
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.9rem', marginBottom:'0.3rem' }}>
+              <div>
+                <label style={lbl}>Age from (months)</label>
+                <input style={inp} type="number" value={form.age_min_months}
+                       onChange={e=>setForm({ ...form, age_min_months:e.target.value })} placeholder="—" />
+              </div>
+              <div>
+                <label style={lbl}>Age to (months)</label>
+                <input style={inp} type="number" value={form.age_max_months}
+                       onChange={e=>setForm({ ...form, age_max_months:e.target.value })} placeholder="—" />
+              </div>
+            </div>
+            <div style={{ fontSize:'0.72rem', color:'#92400e', background:'#fffbeb', border:'1px solid #fde68a',
+                          borderRadius:'8px', padding:'0.5rem 0.7rem', marginBottom:'1rem', lineHeight:1.5 }}>
+              For infants. Patient registration records age in whole years at the moment, so a month band
+              will not match anyone until age in months is captured — leave these blank for now and use the
+              year fields above.
+            </div>
+
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'0.9rem', marginBottom:'0.9rem' }}>
+              <div>
+                <label style={lbl}>Low</label>
+                <input style={inp} type="number" step="any" value={form.low}
+                       onChange={e=>setForm({ ...form, low:e.target.value })} placeholder="e.g. 12" />
+              </div>
+              <div>
+                <label style={lbl}>High</label>
+                <input style={inp} type="number" step="any" value={form.high}
+                       onChange={e=>setForm({ ...form, high:e.target.value })} placeholder="e.g. 15" />
+              </div>
+              <div>
+                <label style={lbl}>Unit</label>
+                <input style={inp} value={form.unit}
+                       onChange={e=>setForm({ ...form, unit:e.target.value })} placeholder="keep analyser's" />
+              </div>
+            </div>
+
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.9rem', marginBottom:'0.9rem' }}>
+              <div>
+                <label style={lbl}>Critical low</label>
+                <input style={inp} type="number" step="any" value={form.critical_low}
+                       onChange={e=>setForm({ ...form, critical_low:e.target.value })} placeholder="optional" />
+              </div>
+              <div>
+                <label style={lbl}>Critical high</label>
+                <input style={inp} type="number" step="any" value={form.critical_high}
+                       onChange={e=>setForm({ ...form, critical_high:e.target.value })} placeholder="optional" />
+              </div>
+            </div>
+
+            <div style={{ marginBottom:'1.4rem' }}>
+              <label style={lbl}>Text range</label>
+              <input style={inp} value={form.text}
+                     onChange={e=>setForm({ ...form, text:e.target.value })} placeholder='e.g. "Negative"' />
+              <div style={{ fontSize:'0.72rem', color:'#8892a4', marginTop:'0.3rem' }}>
+                For results that aren't a number. Printed instead of low–high when filled.
+              </div>
+            </div>
+
+            <div style={{ display:'flex', gap:'0.6rem', justifyContent:'flex-end' }}>
+              <button onClick={()=>setForm(null)} style={{ background:'transparent', color:'#8892a4', border:'1px solid #e8ecf4', borderRadius:'10px', padding:'0.65rem 1.3rem', cursor:'pointer', fontWeight:600, fontFamily:'Manrope,sans-serif' }}>Cancel</button>
+              <button onClick={save} disabled={saving} style={{ background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', border:'none', borderRadius:'10px', padding:'0.65rem 1.6rem', cursor:'pointer', fontWeight:700, fontFamily:'Manrope,sans-serif' }}>{saving?'Saving…':(form.id?'Save changes':'Add Range')}</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
 }
 
 function TestGroups({ tests, showToast }) {

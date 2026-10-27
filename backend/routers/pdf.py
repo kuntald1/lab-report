@@ -8,6 +8,7 @@ from models.org import Tenant, ReferralDoctor, Franchise, User
 from models.billing import BillItem
 from models.clinical import SampleEvent, EventType, TestCatalog
 from models.commission import DoctorCommission
+from services.ranges import apply_catalog_ranges, test_ids_for_result
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.lib.units import cm
@@ -886,6 +887,14 @@ def generate_combined_pdf(results: list, db: Session, with_header: bool = True) 
     for idx, r in enumerate(results):
         parsed = r.parsed_data or {}
         parameters = parsed.get('parameters', [])
+        # The lab's catalog decides the printed range — by sex and age where it
+        # says so — and the Results page resolves it the same way, so screen and
+        # paper never disagree. Falls back to what the analyser stored.
+        try:
+            parameters = apply_catalog_ranges(db, parameters, test_ids_for_result(db, r),
+                                              r.patient or patient)
+        except Exception:
+            pass
 
         section_flow = [Paragraph(f'<u>{(r.test_name or f"Result #{r.id}").upper()}</u>', section_style)]
 

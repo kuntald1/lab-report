@@ -112,10 +112,21 @@ class PackageTest(Base):
 class ReferenceRange(Base):
     __tablename__ = "reference_ranges"
     id        = Column(Integer, primary_key=True, index=True)
-    test_id   = Column(Integer, ForeignKey("test_catalog.id"), nullable=False, index=True)
+    # NULL test_id = a default for this parameter wherever it is reported, so a
+    # lab can set HGB once instead of per panel; a row naming a test wins over it.
+    test_id   = Column(Integer, ForeignKey("test_catalog.id"), nullable=True, index=True)
+    # Which analyser parameter this row is for (WBC, HGB, NEUT% ...), matched
+    # case-insensitively. NULL = the test as a whole, which is how the rows
+    # written before per-parameter ranges existed still behave.
+    param     = Column(String, nullable=True, index=True)
     sex       = Column(String, default="A")    # 'M', 'F', 'A' (any)
     age_min   = Column(Integer, nullable=True)  # years
     age_max   = Column(Integer, nullable=True)
+    # Infant ranges move month to month, so they get their own band. It is used
+    # only when the patient's age is known in months; otherwise the year band
+    # above applies, and a row carrying only a month band is skipped.
+    age_min_months = Column(Integer, nullable=True)
+    age_max_months = Column(Integer, nullable=True)
     low       = Column(Float, nullable=True)
     high      = Column(Float, nullable=True)
     critical_low  = Column(Float, nullable=True)   # below this = critical alert
