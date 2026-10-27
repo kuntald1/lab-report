@@ -107,8 +107,14 @@ def _specificity(row, test_ids) -> tuple:
     return (aged, sexed, named_test, -(row.id or 0))
 
 
-def best_rows(db, params, test_ids, patient) -> dict:
-    """{PARAM: ReferenceRange} — the row to use for each parameter asked for."""
+def matching_rows(db, params, test_ids, patient) -> dict:
+    """{PARAM: [ReferenceRange]} — every row that applies to this patient.
+
+    More than one can apply at once, and they are not interchangeable: one row
+    may carry the range while another carries only the methodology. Choosing a
+    single winner here would silently drop the other, so the callers pick a
+    winner per field instead.
+    """
     wanted = {_norm(p) for p in params if _norm(p)}
     if not wanted:
         return {}
@@ -122,14 +128,29 @@ def best_rows(db, params, test_ids, patient) -> dict:
 
     sex, years, months = patient_sex(patient), patient_age_years(patient), patient_age_months(patient)
 
-    best = {}
+    found = {}
     for row in q.all():
         key = _norm(row.param)
         if key not in wanted or not _row_matches(row, sex, years, months):
             continue
-        if key not in best or _specificity(row, test_ids) > _specificity(best[key], test_ids):
-            best[key] = row
-    return best
+        found.setdefault(key, []).append(row)
+    return found
+
+
+def _best(rows, test_ids):
+    """The most specific of a set of rows, or None when the set is empty."""
+    return max(rows, key=lambda r: _specificity(r, test_ids)) if rows else None
+
+
+def _has_range(row) -> bool:
+    return row.low is not None or row.high is not None or bool(row.text)
+
+
+def best_rows(db, params, test_ids, patient) -> dict:
+    """{PARAM: ReferenceRange} — the row whose range applies to each parameter."""
+    return {k: _best([r for r in v if _has_range(r)], test_ids)
+            for k, v in matching_rows(db, params, test_ids, patient).items()
+            if any(_has_range(r) for r in v)}
 
 
 def apply_catalog_ranges(db, parameters, test_ids, patient) -> list:
@@ -141,24 +162,31 @@ def apply_catalog_ranges(db, parameters, test_ids, patient) -> list:
     if not parameters:
         return parameters or []
 
-    rows = best_rows(db, [p.get("param") or p.get("name") for p in parameters], test_ids, patient)
-    if not rows:
+    matches = matching_rows(db, [p.get("param") or p.get("name") for p in parameters],
+                            test_ids, patient)
+    if not matches:
         return parameters
 
     out = []
     for p in parameters:
-        row = rows.get(_norm(p.get("param") or p.get("name")))
-        if row is None:
+        rows = matches.get(_norm(p.get("param") or p.get("name")))
+        if not rows:
             out.append(p)
             continue
 
         q = dict(p)
-        if row.method:
-            q["method"] = row.method
 
-        # A row that only names a method (no low, high or text) leaves the
-        # range and the flag exactly as the analyser reported them.
-        if row.low is None and row.high is None and not row.text:
+        # The methodology and the range are resolved separately, because a lab
+        # records the methodology once per parameter while the range is split by
+        # sex and age. Were they resolved together, the sex-specific row would
+        # win and the methodology row would be thrown away with it.
+        m = _best([r for r in rows if r.method], test_ids)
+        if m is not None:
+            q["method"] = m.method
+
+        row = _best([r for r in rows if _has_range(r)], test_ids)
+        if row is None:
+            # Methodology only: the analyser's own range and flag stand.
             out.append(q)
             continue
 
