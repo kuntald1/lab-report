@@ -945,7 +945,12 @@ def generate_combined_pdf(results: list, db: Session, with_header: bool = True) 
 
             # repeatRows keeps the column headings on top of the continuation
             # page when a long panel (a 26-parameter CBC) runs over.
-            result_table = Table(table_data, colWidths=['30%', '13%', '12%', '25%', '20%'],
+            # METHODOLOGY carries phrases, not numbers ("Flow cytometry
+            # (laser scatter)"), so at 20% nearly every row wrapped onto a
+            # second line and a 34-parameter panel grew tall enough to push
+            # the sign-off onto a page of its own. The width it gains comes
+            # from the three numeric columns, which never needed it.
+            result_table = Table(table_data, colWidths=['30%', '12%', '11%', '22%', '25%'],
                                  repeatRows=1)
             result_table.setStyle(TableStyle([
                 ('LINEBELOW',     (0,0),(-1,0),  1, BLACK),
@@ -1062,7 +1067,12 @@ def generate_combined_pdf(results: list, db: Session, with_header: bool = True) 
             ('TOPPADDING',  (0,1),(-1,-1), 16),   # gap between rows when there's more than one
             ('BOTTOMPADDING',(0,0),(-1,-1), 0),
         ]))
-        footer_flow.append(Spacer(1, 1*cm))
+        # No spacer above the signature: the block is pinned to the bottom
+        # margin, so the gap over it is whatever is left on the page anyway.
+        # A fixed gap inside the block would only add to that gap invisibly
+        # while making the block 1 cm taller — and a taller block is one that
+        # stops fitting under a long table sooner, which is what sends the
+        # sign-off onto a page of its own.
         footer_flow.append(sig_table)
 
     footer_flow.append(Spacer(1, 0.3*cm))
