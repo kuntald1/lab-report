@@ -62,7 +62,11 @@ def test_ids_for_result(db, result) -> list:
     return [t for (t,) in rows if t]
 
 
-def _row_matches(row, sex, years, months) -> bool:
+def _row_matches(row, sex, years, months, device_id) -> bool:
+    # A row naming an analyser is only for results that analyser produced.
+    if row.device_id is not None and row.device_id != device_id:
+        return False
+
     if (row.sex or "A").upper() not in ("A", sex):
         return False
 
@@ -88,14 +92,16 @@ def _row_matches(row, sex, years, months) -> bool:
     return True
 
 
-def _specificity(row, test_ids) -> tuple:
-    """How closely a matching row is aimed at this particular patient.
+def _specificity(row, test_ids, device_id=None) -> tuple:
+    """How closely a matching row is aimed at this particular result.
 
-    The row that pins down the most about them wins, and the order is
-    deliberate: age band first, then sex, then a row written for this one test.
-    Age leads because handing a child an adult range is a real clinical error,
-    while a test-level override losing to an age band is only a configuration
-    nuance — the lab can always add the age band to that test too.
+    The row that pins down the most wins. A row naming this analyser leads,
+    because a methodology belongs to the machine and nothing else can stand in
+    for it. After that comes the age band, then sex, then a row written for
+    this one test.
+    Among the rest, age leads because handing a child an adult range is a real
+    clinical error, while a test-level override losing to an age band is only a
+    configuration nuance — the lab can always add the age band to that test too.
 
     Ties go to the row entered first, so the outcome never depends on the order
     rows come back from the database.
@@ -104,10 +110,12 @@ def _specificity(row, test_ids) -> tuple:
                     (row.age_min, row.age_max, row.age_min_months, row.age_max_months)) else 0
     sexed = 1 if (row.sex or "A").upper() in ("M", "F") else 0
     named_test = 1 if (row.test_id is not None and row.test_id in test_ids) else 0
-    return (aged, sexed, named_test, -(row.id or 0))
+    # A row written for this analyser outranks one written for all of them.
+    named_device = 1 if (row.device_id is not None and row.device_id == device_id) else 0
+    return (named_device, aged, sexed, named_test, -(row.id or 0))
 
 
-def matching_rows(db, params, test_ids, patient) -> dict:
+def matching_rows(db, params, test_ids, patient, device_id=None) -> dict:
     """{PARAM: [ReferenceRange]} — every row that applies to this patient.
 
     More than one can apply at once, and they are not interchangeable: one row
@@ -131,29 +139,29 @@ def matching_rows(db, params, test_ids, patient) -> dict:
     found = {}
     for row in q.all():
         key = _norm(row.param)
-        if key not in wanted or not _row_matches(row, sex, years, months):
+        if key not in wanted or not _row_matches(row, sex, years, months, device_id):
             continue
         found.setdefault(key, []).append(row)
     return found
 
 
-def _best(rows, test_ids):
+def _best(rows, test_ids, device_id=None):
     """The most specific of a set of rows, or None when the set is empty."""
-    return max(rows, key=lambda r: _specificity(r, test_ids)) if rows else None
+    return max(rows, key=lambda r: _specificity(r, test_ids, device_id)) if rows else None
 
 
 def _has_range(row) -> bool:
     return row.low is not None or row.high is not None or bool(row.text)
 
 
-def best_rows(db, params, test_ids, patient) -> dict:
+def best_rows(db, params, test_ids, patient, device_id=None) -> dict:
     """{PARAM: ReferenceRange} — the row whose range applies to each parameter."""
-    return {k: _best([r for r in v if _has_range(r)], test_ids)
-            for k, v in matching_rows(db, params, test_ids, patient).items()
+    return {k: _best([r for r in v if _has_range(r)], test_ids, device_id)
+            for k, v in matching_rows(db, params, test_ids, patient, device_id).items()
             if any(_has_range(r) for r in v)}
 
 
-def apply_catalog_ranges(db, parameters, test_ids, patient) -> list:
+def apply_catalog_ranges(db, parameters, test_ids, patient, device_id=None) -> list:
     """Return the parameters with the lab's ranges applied, as a new list.
 
     A parameter the catalog says nothing about is passed through untouched, so
@@ -163,7 +171,7 @@ def apply_catalog_ranges(db, parameters, test_ids, patient) -> list:
         return parameters or []
 
     matches = matching_rows(db, [p.get("param") or p.get("name") for p in parameters],
-                            test_ids, patient)
+                            test_ids, patient, device_id)
     if not matches:
         return parameters
 
@@ -180,11 +188,11 @@ def apply_catalog_ranges(db, parameters, test_ids, patient) -> list:
         # records the methodology once per parameter while the range is split by
         # sex and age. Were they resolved together, the sex-specific row would
         # win and the methodology row would be thrown away with it.
-        m = _best([r for r in rows if r.method], test_ids)
+        m = _best([r for r in rows if r.method], test_ids, device_id)
         if m is not None:
             q["method"] = m.method
 
-        row = _best([r for r in rows if _has_range(r)], test_ids)
+        row = _best([r for r in rows if _has_range(r)], test_ids, device_id)
         if row is None:
             # Methodology only: the analyser's own range and flag stand.
             out.append(q)
@@ -220,4 +228,5 @@ def apply_to_result(db, result, patient) -> list:
     """apply_catalog_ranges for one LabResult, resolving its tests first."""
     parsed = result.parsed_data or {}
     return apply_catalog_ranges(db, parsed.get("parameters") or [],
-                                test_ids_for_result(db, result), patient)
+                                test_ids_for_result(db, result), patient,
+                                getattr(result, "device_id", None))

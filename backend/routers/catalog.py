@@ -100,6 +100,7 @@ class RangeIn(BaseModel):
     unit: Optional[str] = None
     text: Optional[str] = None           # qualitative, e.g. "Negative"
     method: Optional[str] = None         # printed under METHODOLOGY
+    device_id: Optional[int] = None      # NULL = whichever analyser reported it
 
 
 def _clean_range(p: RangeIn) -> dict:

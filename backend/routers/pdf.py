@@ -898,7 +898,7 @@ def generate_combined_pdf(results: list, db: Session, with_header: bool = True) 
         # paper never disagree. Falls back to what the analyser stored.
         try:
             parameters = apply_catalog_ranges(db, parameters, test_ids_for_result(db, r),
-                                              r.patient or patient)
+                                              r.patient or patient, r.device_id)
         except Exception:
             pass
 

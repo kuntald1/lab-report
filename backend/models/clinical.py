@@ -134,6 +134,10 @@ class ReferenceRange(Base):
     unit      = Column(String, nullable=True)
     text      = Column(String, nullable=True)   # qualitative ranges ("Negative")
     # Methodology printed in the report's METHODOLOGY column for this parameter.
+    # Unlike a range, a method belongs to the analyser that produced the value:
+    # two machines reporting HGB share the normal range but not the technique.
+    # NULL = applies whichever analyser reported it.
+    device_id = Column(Integer, ForeignKey("devices.id"), nullable=True, index=True)
     method    = Column(String, nullable=True)
 
 

@@ -60,7 +60,8 @@ def _with_catalog_ranges(db: Session, result: LabResult):
         return parsed
     try:
         params = apply_catalog_ranges(db, parsed["parameters"],
-                                      test_ids_for_result(db, result), result.patient)
+                                      test_ids_for_result(db, result), result.patient,
+                                      result.device_id)
         if params is parsed["parameters"]:
             return parsed
         return {**parsed, "parameters": params}

@@ -256,7 +256,7 @@ function iconBtn(color) {
 // ─────────────────────────────────────────────────────────────────────────────
 const BLANK_RANGE = { param:'', test_id:'', sex:'A', age_min:'', age_max:'',
                       age_min_months:'', age_max_months:'', low:'', high:'',
-                      critical_low:'', critical_high:'', unit:'', text:'', method:'' };
+                      critical_low:'', critical_high:'', unit:'', text:'', method:'', device_id:'' };
 
 const SEX_LABEL = { M:'Male', F:'Female', A:'Any' };
 
@@ -267,6 +267,14 @@ function ReferenceRanges({ tests, showToast }) {
   const [form, setForm]     = useState(null);
   const [saving, setSaving] = useState(false);
   const [del, setDel]       = useState(null);
+  const [devices, setDevices] = useState([]);
+
+  // The analyser list, so a methodology can be pinned to the machine that
+  // actually produced the value rather than to every machine reporting it.
+  useEffect(() => { authedFetch('/devices/')
+    .then(r => r.ok ? r.json() : [])
+    .then(d => setDevices(Array.isArray(d) ? d : []))
+    .catch(() => {}); }, []);
 
   const load = () => authedFetch('/catalog/reference-ranges')
     .then(r => r.ok ? r.json() : [])
@@ -274,7 +282,8 @@ function ReferenceRanges({ tests, showToast }) {
     .catch(() => setLoad(false));
   useEffect(load, []);
 
-  const testName = (id) => tests.find(t => t.id === id)?.name || null;
+  const testName   = (id) => tests.find(t => t.id === id)?.name || null;
+  const deviceName = (id) => devices.find(d => d.id === id)?.name || (id ? `Device #${id}` : null);
 
   const num = (v) => (v === '' || v === null || v === undefined) ? null : Number(v);
   const save = async () => {
@@ -292,6 +301,7 @@ function ReferenceRanges({ tests, showToast }) {
       critical_low: num(form.critical_low), critical_high: num(form.critical_high),
       unit: form.unit.trim() || null, text: form.text.trim() || null,
       method: form.method.trim() || null,
+      device_id: form.device_id ? Number(form.device_id) : null,
     };
     try {
       const res = await authedFetch(
@@ -364,7 +374,7 @@ function ReferenceRanges({ tests, showToast }) {
         These decide the reference range printed on the report and whether a value reads HIGH or LOW.
         A range with no test applies wherever that parameter is reported; adding one for a specific test
         overrides it. Where several could apply, the one matching the patient's age wins, then sex, then test.
-        A parameter with no range here keeps whatever the analyser sent.
+        A parameter with no range here keeps whatever the analyser sent. A methodology can be pinned to one analyser; a row naming yours beats one that names none.
       </div>
 
       {loading ? (
@@ -406,7 +416,12 @@ function ReferenceRanges({ tests, showToast }) {
                     {r.critical_low != null || r.critical_high != null
                       ? `${r.critical_low ?? '—'} / ${r.critical_high ?? '—'}` : '—'}
                   </td>
-                  <td style={{ padding:'0.5rem', color:'#8892a4' }}>{r.method || '—'}</td>
+                  <td style={{ padding:'0.5rem', color:'#8892a4' }}>
+                    {r.method || '—'}
+                    {r.method && r.device_id ? (
+                      <div style={{ fontSize:'0.68rem', color:'#f97316' }}>{deviceName(r.device_id)}</div>
+                    ) : null}
+                  </td>
                   <td style={{ padding:'0.5rem', textAlign:'right', whiteSpace:'nowrap' }}>
                     <span onClick={()=>setForm({ ...BLANK_RANGE, ...Object.fromEntries(
                             Object.entries(r).map(([k,v]) => [k, v == null ? '' : v])) })}
@@ -531,12 +546,25 @@ function ReferenceRanges({ tests, showToast }) {
               </div>
             </div>
 
-            <div style={{ marginBottom:'0.9rem' }}>
-              <label style={lbl}>Method (optional)</label>
-              <input style={inp} value={form.method}
-                     onChange={e=>setForm({ ...form, method:e.target.value })} placeholder='e.g. "Impedance"' />
-              <div style={{ fontSize:'0.72rem', color:'#8892a4', marginTop:'0.3rem' }}>
-                Printed under METHODOLOGY on the report. Leave the range blank to set only the method.
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.9rem', marginBottom:'0.9rem' }}>
+              <div>
+                <label style={lbl}>Method (optional)</label>
+                <input style={inp} value={form.method}
+                       onChange={e=>setForm({ ...form, method:e.target.value })} placeholder='e.g. "Impedance"' />
+                <div style={{ fontSize:'0.72rem', color:'#8892a4', marginTop:'0.3rem' }}>
+                  Printed under METHODOLOGY. Leave the range blank to set only the method.
+                </div>
+              </div>
+              <div>
+                <label style={lbl}>Analyser</label>
+                <select style={inp} value={form.device_id}
+                        onChange={e=>setForm({ ...form, device_id:e.target.value })}>
+                  <option value="">Any analyser</option>
+                  {devices.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                </select>
+                <div style={{ fontSize:'0.72rem', color:'#8892a4', marginTop:'0.3rem' }}>
+                  Pick one where two machines report this parameter by different techniques.
+                </div>
               </div>
             </div>
 
