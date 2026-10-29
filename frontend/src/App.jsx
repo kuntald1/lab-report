@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import Sidebar from './components/Sidebar';
+import { useState, useEffect } from 'react';
+import Sidebar, { NAV_ITEMS } from './components/Sidebar';
 import Dashboard from './pages/Dashboard';
 import Devices from './pages/Devices';
 import Patients from './pages/Patients';
@@ -9,7 +9,7 @@ import TCPLive from './pages/TCPLive';
 import TAT from './pages/TAT';
 import ChangeStatus from './pages/ChangeStatus';
 import Login from './pages/Login';
-import { auth } from './services/auth';
+import { auth, authedFetch } from './services/auth';
 import SampleTubes from './pages/SampleTubes';
 import OrgGroups from './pages/OrgGroups';
 import Organizations from './pages/Organizations';
@@ -43,6 +43,24 @@ export default function App() {
   const [page, setPage] = useState(isDoctor ? 'reportvalidate' : 'dashboard');
   const [billPatientId, setBillPatientId] = useState('');
 
+  // Which menu items this role may NOT see (Menu Permissions page). null = not
+  // resolved yet. Page content waits for it so a role whose Dashboard is hidden
+  // never sees it flash up before being moved on.
+  const [hiddenMenu, setHiddenMenu] = useState(isAdminRole ? [] : null);
+  useEffect(() => {
+    if (!authed || isAdminRole) { setHiddenMenu(isAdminRole ? [] : null); return; }
+    authedFetch('/admin/my-menu-hidden').then(r=>r.ok?r.json():{hidden_keys:[]})
+      .then(d=>setHiddenMenu(d.hidden_keys||[])).catch(()=>setHiddenMenu([]));
+  }, [authed, isAdminRole]);
+
+  // Land on the first page this role can actually open — the default is
+  // Dashboard, which most non-admin roles have hidden.
+  useEffect(() => {
+    if (!hiddenMenu || !hiddenMenu.includes(page)) return;
+    const first = NAV_ITEMS.find(n => !n.adminOnly && !hiddenMenu.includes(n.id));
+    if (first && first.id !== page) setPage(first.id);
+  }, [hiddenMenu, page]);
+
   if (!authed) return <Login onLogin={() => setAuthed(true)} />;
 
   const pages = { dashboard:<Dashboard />, devices:<Devices />, patients:<Patients onBill={(id)=>{ setBillPatientId(String(id)); setPage('billing'); }} />, results:<Results />, simulator:<Simulator />, tcp:<TCPLive />, tat:<TAT />, status:<ChangeStatus />,tubes:<SampleTubes />, orggroups:<OrgGroups />, organizations:<Organizations />, pricing:<Pricing />, testscatalog:<TestsCatalog />, users:<Users />, billing:<Billing isAdmin={isAdminRole} initialPatientId={billPatientId} onManageCredit={()=>setPage('credit')} />, bills:<Bills />, reportvalidate:<ReportValidate />, validatehistory:<ValidateHistory />, historyneeded:<HistoryNeeded />, samplereport:<SampleReport />, credit:<ManageCredit onManageCredit={()=>setPage('credit')} />, branches:<Branches />, doctors:<Doctors />, mycommission:<MyCommission />, departments:<Departments />, menupermissions:<MenuPermissions />, reportsettings:<ReportSettings />  };
@@ -51,7 +69,7 @@ export default function App() {
   const logout = () => { auth.logout(); setAuthed(false); setPage('dashboard'); };
   return (
     <div style={{ display:'flex', minHeight:'100vh', background:'#f4f6fa' }}>
-      <Sidebar current={page} onChange={handleNav} user={auth.user()} onLogout={logout} />
+      <Sidebar current={page} onChange={handleNav} user={auth.user()} onLogout={logout} hidden={hiddenMenu} />
       <main style={{ flex:1, marginLeft:'235px', minHeight:'100vh', display:'flex', flexDirection:'column' }}>
         {/* Top bar */}
         <div style={{ background:'#fff', borderBottom:'1px solid #e8ecf4', padding:'0.85rem 2rem', display:'flex', alignItems:'center', justifyContent:'space-between', position:'sticky', top:0, zIndex:40, boxShadow:'0 1px 8px rgba(15,18,24,0.05)' }}>
@@ -70,9 +88,13 @@ export default function App() {
         </div>
         {/* Page content */}
         <div style={{ flex:1, padding:'2rem', maxWidth:'100%' }}>
-          {(isDoctor && !['reportvalidate','validatehistory','mycommission'].includes(page))
-            ? pages['reportvalidate']
-            : (pages[page] || <Dashboard />)}
+          {hiddenMenu === null
+            ? null
+            : (isDoctor && !['reportvalidate','validatehistory','mycommission'].includes(page))
+              ? pages['reportvalidate']
+              : hiddenMenu.includes(page)
+                ? null
+                : (pages[page] || <Dashboard />)}
         </div>
       </main>
     </div>

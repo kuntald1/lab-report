@@ -334,6 +334,13 @@ def list_bills(db: Session = Depends(get_db), scope: Scope = Depends(get_scope),
     # org-login sees only its own bills
     if scope.role == Role.FRANCHISE and scope.franchise_id is not None:
         q = q.filter(Bill.organization_id == scope.franchise_id)
+    # Branch-scoped staff (technician / receptionist / phlebotomist / pathologist)
+    # see only the bills raised at their own branch — a bill inherits its branch
+    # from the patient it was raised for. super_admin / lab_admin carry no
+    # branch_id on their scope, so they still see every branch, and a franchise
+    # login carries none either, so org visibility above is untouched.
+    if scope.branch_id is not None:
+        q = q.filter(Bill.branch_id == scope.branch_id)
     if organization_id is not None:
         q = q.filter(Bill.organization_id == organization_id)
     if patient_id is not None:
@@ -360,6 +367,9 @@ def get_bill(bill_id: int, db: Session = Depends(get_db), scope: Scope = Depends
     b = db.query(Bill).filter(Bill.id == bill_id).first()
     if not b:
         raise HTTPException(404, "bill not found")
+    # same branch rule as the list above, so a bill can't be opened by id either
+    if scope.branch_id is not None and b.branch_id != scope.branch_id:
+        raise HTTPException(403, "not your branch's bill")
     if scope.role == Role.FRANCHISE and scope.franchise_id is not None:
         if b.organization_id != scope.franchise_id:
             # also allow if patient is registered under this franchise
