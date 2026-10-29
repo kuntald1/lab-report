@@ -950,13 +950,13 @@ def generate_combined_pdf(results: list, db: Session, with_header: bool = True) 
             # second line and a 34-parameter panel grew tall enough to push
             # the sign-off onto a page of its own. The width it gains comes
             # from the three numeric columns, which never needed it.
-            # Row breathing room: a roomy gap (9) between rows reads better, but
+            # Row breathing room: a roomy gap (10) between rows reads better, but
             # it would (a) push a 13-16 row panel that fits one page today onto a
             # second page holding nothing but the sign-off, and (b) spill a very
             # long panel (34-parameter H560) onto a third page. Those sizes keep
-            # the tighter gap (6); everything else gets the roomy one.
+            # a tighter gap (6 / 6.5); everything else gets the roomy one.
             _n_rows = len(parameters)
-            row_pad = 6 if (13 <= _n_rows <= 16 or _n_rows > 28) else 9
+            row_pad = 6 if 13 <= _n_rows <= 16 else (6.5 if _n_rows > 28 else 10)
             result_table = Table(table_data, colWidths=['30%', '12%', '11%', '22%', '25%'],
                                  repeatRows=1)
             result_table.setStyle(TableStyle([
