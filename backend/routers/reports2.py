@@ -43,6 +43,7 @@ def sample_details(
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     patient_id: Optional[str] = None,
+    patient_name: Optional[str] = None,
     barcode: Optional[str] = None,
     status: Optional[str] = None,        # dispatched|received|tested|validated|reported
     db: Session = Depends(get_db),
@@ -57,6 +58,8 @@ def sample_details(
         q = q.filter(Patient.branch_id == branch_id)
     if patient_id:
         q = q.filter(Patient.id == int(patient_id)) if patient_id.isdigit() else q
+    if patient_name and patient_name.strip():
+        q = q.filter(Patient.patient_name.ilike(f"%{patient_name.strip()}%"))
     if barcode:
         q = q.filter(Patient.barcode.ilike(f"%{barcode}%"))
     if status:

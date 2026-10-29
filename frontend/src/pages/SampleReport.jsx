@@ -12,7 +12,7 @@ export default function SampleReport() {
   const me = auth.user ? auth.user() : null;
   const isFranchise = (me?.role || '').toLowerCase() === 'franchise';
   const myFranchiseId = isFranchise ? String(me?.franchise_id || '') : '';
-  const [f, setF] = useState({ franchise_id: myFranchiseId, branch_id:'', date_from:'', date_to:'', patient_id:'', barcode:'', status:'' });
+  const [f, setF] = useState({ franchise_id: myFranchiseId, branch_id:'', date_from:'', date_to:'', patient_id:'', patient_name:'', barcode:'', status:'' });
   const [data, setData] = useState({ rows:[], totals:{} });
   const [loading, setLoading] = useState(false);
   const [franchises, setFranchises] = useState([]);
@@ -89,6 +89,7 @@ export default function SampleReport() {
           <div><label style={lbl}>From</label><input style={inp} type="date" value={f.date_from} onChange={e=>set('date_from',e.target.value)} /></div>
           <div><label style={lbl}>To</label><input style={inp} type="date" value={f.date_to} onChange={e=>set('date_to',e.target.value)} /></div>
           <div><label style={lbl}>Patient ID</label><input style={inp} value={f.patient_id} onChange={e=>set('patient_id',e.target.value)} /></div>
+          <div><label style={lbl}>Patient Name</label><input style={inp} value={f.patient_name} onChange={e=>set('patient_name',e.target.value)} onKeyDown={e=>{ if (e.key==='Enter') load(); }} placeholder="e.g. Sujit" /></div>
           <div><label style={lbl}>Barcode</label><input style={inp} value={f.barcode} onChange={e=>set('barcode',e.target.value)} /></div>
           <div><label style={lbl}>Status</label>
             <select style={inp} value={f.status} onChange={e=>set('status',e.target.value)}>
@@ -97,7 +98,7 @@ export default function SampleReport() {
           </div>
           <div style={{ display:'flex', gap:'0.5rem' }}>
             <button onClick={load} style={{ flex:1, background:'linear-gradient(135deg,#6366f1,#818cf8)', color:'#fff', border:'none', borderRadius:'9px', padding:'0.6rem 1rem', fontWeight:700, cursor:'pointer', fontFamily:'Manrope,sans-serif' }}>Apply</button>
-            <button onClick={()=>{ setF({ franchise_id:'', branch_id:'', date_from:'', date_to:'', patient_id:'', barcode:'', status:'' }); setTimeout(load,0); }} style={{ background:'transparent', color:'#8892a4', border:'1px solid #e8ecf4', borderRadius:'9px', padding:'0.6rem 0.9rem', cursor:'pointer', fontFamily:'Manrope,sans-serif' }}>Clear</button>
+            <button onClick={()=>{ setF({ franchise_id:'', branch_id:'', date_from:'', date_to:'', patient_id:'', patient_name:'', barcode:'', status:'' }); setTimeout(load,0); }} style={{ background:'transparent', color:'#8892a4', border:'1px solid #e8ecf4', borderRadius:'9px', padding:'0.6rem 0.9rem', cursor:'pointer', fontFamily:'Manrope,sans-serif' }}>Clear</button>
           </div>
         </div>
       </div>
