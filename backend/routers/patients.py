@@ -60,8 +60,15 @@ def _clean_abha(v: Optional[str]) -> Optional[str]:
     return digits or None
 
 
-def _serialize(p: Patient, tests_summary: Optional[list] = None) -> dict:
+def _serialize(p: Patient, tests_summary: Optional[list] = None, names: Optional[dict] = None) -> dict:
+    """`names` (optional) carries the pre-resolved franchise / branch / collected-by
+    labels for the list page, built once per request so there's no N+1."""
+    names = names or {}
     return {
+        "collected_by": p.collected_by,
+        "collected_by_name": names.get("collected_by_name"),
+        "branch_name": names.get("branch_name"),
+        "franchise_name": names.get("franchise_name"),
         "id": p.id, "barcode": p.barcode, "patient_name": p.patient_name,
         "age": p.age, "gender": p.gender, "doctor_name": p.doctor_name,
         "referral_doctor_id": p.referral_doctor_id,
@@ -74,6 +81,29 @@ def _serialize(p: Patient, tests_summary: Optional[list] = None) -> dict:
         "needs_history": p.needs_history,
         "tests_summary": tests_summary or [],
     }
+
+
+def _label_map(db: Session, patients: list) -> dict:
+    """patient_id -> {franchise_name, branch_name, collected_by_name} for the list
+    page's "Franchise / Branch / Collected by" column. Three queries, no N+1."""
+    if not patients:
+        return {}
+    from models.org import Branch, Franchise
+    fr_ids = {p.organization_id for p in patients} | {p.registered_franchise_id for p in patients}
+    fr_ids = {i for i in fr_ids if i}
+    br_ids = {p.branch_id for p in patients if p.branch_id}
+    us_ids = {p.collected_by for p in patients if p.collected_by}
+    fr = {f.id: f.name for f in db.query(Franchise).filter(Franchise.id.in_(fr_ids)).all()} if fr_ids else {}
+    br = {b.id: b.name for b in db.query(Branch).filter(Branch.id.in_(br_ids)).all()} if br_ids else {}
+    us = {}
+    if us_ids:
+        for u in db.query(User).filter(User.id.in_(us_ids)).all():
+            us[u.id] = getattr(u, "full_name", None) or getattr(u, "name", None) or u.email
+    return {p.id: {
+        "franchise_name": fr.get(p.organization_id) or fr.get(p.registered_franchise_id) or "Direct / Walk-in",
+        "branch_name": br.get(p.branch_id),
+        "collected_by_name": us.get(p.collected_by),
+    } for p in patients}
 
 
 def _tests_summary_map(db: Session, patient_ids: list) -> dict:
@@ -109,7 +139,8 @@ def get_patients(db: Session = Depends(get_db), scope: Scope = Depends(get_scope
         q = q.filter(Patient.is_active.is_(True))
     rows = q.order_by(Patient.created_at.desc()).limit(500).all()
     tmap = _tests_summary_map(db, [p.id for p in rows])
-    return [_serialize(p, tmap.get(p.id)) for p in rows]
+    nmap = _label_map(db, rows)
+    return [_serialize(p, tmap.get(p.id), nmap.get(p.id)) for p in rows]
 
 
 @router.post("/")
@@ -135,6 +166,7 @@ def create_patient(patient: PatientCreate, request: Request,
         organization_id=patient.organization_id,
         clinical_history=patient.clinical_history,
         history_checklist=patient.history_checklist,
+        collected_by=user.id,          # registering == collecting the sample
         is_active=True,
     )
     db.add(db_patient)

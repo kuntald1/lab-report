@@ -43,6 +43,9 @@ class Patient(Base):
     clinical_history       = Column(Text, nullable=True)                 # filled history (free text)
     history_checklist      = Column(JSON, nullable=True)                 # filled history (checklist)
     assigned_doctor_id     = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    # Who registered this patient = who collected the sample. Set from the logged-in
+    # user at registration; NULL on rows that predate this column.
+    collected_by           = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     validated_by           = Column(Integer, ForeignKey("users.id"), nullable=True)
     validated_at           = Column(DateTime(timezone=True), nullable=True)
     is_active    = Column(Boolean, default=True, nullable=False, index=True)  # soft delete

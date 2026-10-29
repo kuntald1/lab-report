@@ -49,6 +49,11 @@ TENANT_WIDE_ROLES = {Role.LAB_ADMIN}
 # Roles scoped to a single branch they belong to.
 BRANCH_SCOPED_ROLES = {Role.PATHOLOGIST, Role.TECHNICIAN, Role.RECEPTIONIST, Role.PHLEBOTOMIST}
 
+# Roles narrowed further still, to the records they themselves created — a
+# phlebotomist's dashboard, patient list and bills are their own collections,
+# not the whole branch's.
+OWN_RECORDS_ROLES = {Role.PHLEBOTOMIST}
+
 
 class Tenant(Base):
     """One lab business (the SaaS tenant). Super Admin sits above all tenants."""

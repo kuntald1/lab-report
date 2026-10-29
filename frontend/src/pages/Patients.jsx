@@ -298,7 +298,7 @@ export default function Patients({ onBill = () => {} }) {
         <table style={{ width:'100%', borderCollapse:'collapse' }}>
           <thead>
             <tr style={{ background:'#fafbfc', borderBottom:'1.5px solid #e8ecf4' }}>
-              {['Barcode','Patient Name','Age','Gender','Doctor','ABHA','Tests','Status','Registered','Actions'].map(h => (
+              {['Barcode','Patient Name','Age','Gender','Doctor','Franchise / Branch / Collected by','Tests','Status','Registered','Actions'].map(h => (
                 <th key={h} style={{ textAlign:'left', padding:'0.8rem 1.3rem', fontSize:'0.65rem', color:'#8892a4', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.07em' }}>{h}</th>
               ))}
             </tr>
@@ -321,7 +321,11 @@ export default function Patients({ onBill = () => {} }) {
                 <td style={{ padding:'0.9rem 1.3rem', color:'#8892a4', fontSize:'0.85rem' }}>{p.age||'—'}</td>
                 <td style={{ padding:'0.9rem 1.3rem', color:'#8892a4', fontSize:'0.85rem' }}>{p.gender}</td>
                 <td style={{ padding:'0.9rem 1.3rem', color:'#8892a4', fontSize:'0.85rem' }}>{p.doctor_name||'—'}</td>
-                <td style={{ padding:'0.9rem 1.3rem', color:'#475569', fontSize:'0.78rem', fontFamily:'monospace' }}>{fmtAbha(p.abha_number)}</td>
+                <td style={{ padding:'0.9rem 1.3rem', color:'#475569', fontSize:'0.78rem' }}>
+                  {p.franchise_name || '—'}
+                  {p.branch_name && <div style={{ color:'#8892a4', fontSize:'0.72rem' }}>{p.branch_name}</div>}
+                  {p.collected_by_name && <div style={{ color:'#0d9488', fontSize:'0.72rem' }}>🧑‍🔬 {p.collected_by_name}</div>}
+                </td>
                 <td style={{ padding:'0.9rem 1.3rem' }}>
                   {(p.tests_summary && p.tests_summary.length > 0) ? (
                     <div style={{ display:'flex', flexWrap:'wrap', gap:'0.25rem', maxWidth:'220px' }}>

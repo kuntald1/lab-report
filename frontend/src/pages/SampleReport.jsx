@@ -56,11 +56,11 @@ export default function SampleReport() {
   const toggle = (id) => { setExpanded(e=>({ ...e, [id]:!e[id] })); setTab(t=>({ ...t, [id]: t[id]||'tests' })); };
 
   const exportCsv = () => {
-    const head = ['Patient ID','Barcode','Patient','Status','Franchise','Branch','Ref Doctor','Tests','Billed','Collected','Balance','Payment Modes'];
+    const head = ['Patient ID','Barcode','Patient','Status','Franchise','Branch','Collected By','Ref Doctor','Tests','Billed','Collected','Balance','Payment Modes'];
     const lines = [head.join(',')];
     data.rows.forEach(r => {
       const tests = r.tests.map(t=>t.test_name).join(' | ');
-      lines.push([r.patient_id, r.barcode, `"${r.patient_name}"`, r.status, `"${r.franchise}"`, `"${r.branch}"`, `"${r.referring_doctor||''}"`, `"${tests}"`, r.billed, r.collected, r.balance, `"${r.payment_modes.join(' ')}"`].join(','));
+      lines.push([r.patient_id, r.barcode, `"${r.patient_name}"`, r.status, `"${r.franchise}"`, `"${r.branch}"`, `"${r.collected_by||''}"`, `"${r.referring_doctor||''}"`, `"${tests}"`, r.billed, r.collected, r.balance, `"${r.payment_modes.join(' ')}"`].join(','));
     });
     const blob = new Blob([lines.join('\n')], { type:'text/csv' });
     const url = URL.createObjectURL(blob); const a = document.createElement('a');
@@ -121,7 +121,7 @@ export default function SampleReport() {
         <table style={{ width:'100%', borderCollapse:'collapse' }}>
           <thead>
             <tr style={{ background:'#fafbfc', borderBottom:'1.5px solid #e8ecf4' }}>
-              {['','Barcode','Patient','Status','Franchise / Branch','Tests','Billed','Collected','Balance'].map((h,i) => (
+              {['','Barcode','Patient','Status','Franchise / Branch / Collected by','Tests','Billed','Collected','Balance'].map((h,i) => (
                 <th key={i} style={{ textAlign: i>5?'right':'left', padding:'0.7rem 1rem', fontSize:'0.62rem', color:'#8892a4', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.05em' }}>{h}</th>
               ))}
             </tr>
@@ -135,7 +135,7 @@ export default function SampleReport() {
                   <td style={{ padding:'0.7rem 1rem', fontFamily:'monospace', fontWeight:700, color:'#6366f1', fontSize:'0.8rem' }}>{r.barcode}</td>
                   <td style={{ padding:'0.7rem 1rem', fontWeight:600, color:'#0f1218', fontSize:'0.84rem' }}>{r.patient_name}<div style={{ color:'#8892a4', fontSize:'0.72rem' }}>#{r.patient_id} · {r.age||'—'}/{r.gender||'—'}</div></td>
                   <td style={{ padding:'0.7rem 1rem' }}><span style={{ background:`${statusColor(r.status)}22`, color:statusColor(r.status), padding:'0.2rem 0.6rem', borderRadius:'20px', fontSize:'0.68rem', fontWeight:700 }}>{r.status||'—'}</span></td>
-                  <td style={{ padding:'0.7rem 1rem', fontSize:'0.8rem', color:'#475569' }}>{r.franchise}<div style={{ color:'#8892a4', fontSize:'0.72rem' }}>{r.branch}</div></td>
+                  <td style={{ padding:'0.7rem 1rem', fontSize:'0.8rem', color:'#475569' }}>{r.franchise}<div style={{ color:'#8892a4', fontSize:'0.72rem' }}>{r.branch}</div>{r.collected_by && <div style={{ color:'#0d9488', fontSize:'0.72rem' }}>🧑‍🔬 {r.collected_by}</div>}</td>
                   <td style={{ padding:'0.7rem 1rem', fontSize:'0.8rem', color:'#475569' }}>{r.tests.length} test(s)</td>
                   <td style={{ padding:'0.7rem 1rem', textAlign:'right', fontWeight:700, color:'#0f1218', fontSize:'0.82rem' }}>{money(r.billed)}</td>
                   <td style={{ padding:'0.7rem 1rem', textAlign:'right', fontWeight:700, color:'#16a34a', fontSize:'0.82rem' }}>{money(r.collected)}</td>

@@ -333,13 +333,13 @@ export default function Bills() {
         <table style={{ width:'100%', borderCollapse:'collapse' }}>
           <thead>
             <tr style={{ background:'#fafbfc', borderBottom:'1.5px solid #e8ecf4' }}>
-              {['Bill No','Patient','Billed To','Total','Paid','Due','Status','Date','Actions'].map(h => (
+              {['Bill No','Patient','Billed To','Collected By','Total','Paid','Due','Status','Date','Actions'].map(h => (
                 <th key={h} style={{ textAlign:'left', padding:'0.75rem 1.1rem', fontSize:'0.64rem', color:'#8892a4', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.06em' }}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {bills.length === 0 && <tr><td colSpan={9} style={{ textAlign:'center', padding:'3rem', color:'#8892a4' }}>{loading?'Loading…':'No bills match.'}</td></tr>}
+            {bills.length === 0 && <tr><td colSpan={10} style={{ textAlign:'center', padding:'3rem', color:'#8892a4' }}>{loading?'Loading…':'No bills match.'}</td></tr>}
             {bills.map(b => {
               const [sc, slabel] = statusStyle[b.status] || ['#64748b', b.status];
               const isCancelled = b.status === 'cancelled';
@@ -350,6 +350,7 @@ export default function Bills() {
                   <td style={{ padding:'0.8rem 1.1rem', fontWeight:700, color:'#0f1218', fontSize:'0.82rem', fontFamily:'monospace', textDecoration: isCancelled ? 'line-through' : 'none' }}>{b.bill_no}</td>
                   <td style={{ padding:'0.8rem 1.1rem', fontSize:'0.83rem', color:'#0f1218' }}>{b.patient_name}<div style={{ color:'#8892a4', fontSize:'0.72rem', fontFamily:'monospace' }}>{b.barcode}</div></td>
                   <td style={{ padding:'0.8rem 1.1rem', fontSize:'0.82rem', color: b.organization_name?'#6366f1':'#8892a4' }}>{b.organization_name || 'Direct'}</td>
+                  <td style={{ padding:'0.8rem 1.1rem', fontSize:'0.8rem', color:'#475569' }}>{b.collected_by_name || '—'}<div style={{ color:'#8892a4', fontSize:'0.72rem' }}>{b.branch_name || ''}</div></td>
                   <td style={{ padding:'0.8rem 1.1rem', fontSize:'0.83rem', fontWeight:600 }}>{inr(b.total)}</td>
                   <td style={{ padding:'0.8rem 1.1rem', fontSize:'0.83rem', color:'#16a34a' }}>{inr(b.paid)}</td>
                   <td style={{ padding:'0.8rem 1.1rem', fontSize:'0.83rem', color: due(b)>0?'#dc2626':'#8892a4', fontWeight:600 }}>{inr(due(b))}</td>

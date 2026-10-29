@@ -26,7 +26,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.orm.query import Query
 
 from database import get_db
-from models.org import User, Role, TENANT_WIDE_ROLES, BRANCH_SCOPED_ROLES
+from models.org import User, Role, TENANT_WIDE_ROLES, BRANCH_SCOPED_ROLES, OWN_RECORDS_ROLES
 from auth.security import decode_access_token
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
@@ -58,6 +58,9 @@ class Scope:
     branch_id: Optional[int] = None
     franchise_id: Optional[int] = None
     patient_id: Optional[int] = None
+    # Set only for OWN_RECORDS_ROLES — the user id whose own records are the
+    # whole of their visibility (currently the phlebotomist).
+    own_user_id: Optional[int] = None
 
     @property
     def is_super_admin(self) -> bool:
@@ -73,7 +76,8 @@ def get_scope(user: User = Depends(get_current_user)) -> Scope:
         return Scope(role=user.role, tenant_id=user.tenant_id)
 
     if user.role in BRANCH_SCOPED_ROLES:
-        return Scope(role=user.role, tenant_id=user.tenant_id, branch_id=user.branch_id)
+        return Scope(role=user.role, tenant_id=user.tenant_id, branch_id=user.branch_id,
+                     own_user_id=user.id if user.role in OWN_RECORDS_ROLES else None)
 
     if user.role == Role.FRANCHISE:
         return Scope(role=user.role, tenant_id=user.tenant_id, franchise_id=user.franchise_id)
@@ -108,6 +112,12 @@ def apply_scope(query: Query, model, scope: Scope) -> Query:
             query = query.filter(model.franchise_id == scope.franchise_id)
         elif hasattr(model, "registered_franchise_id"):
             query = query.filter(model.registered_franchise_id == scope.franchise_id)
+
+    # Own-records roles (phlebotomist) see only what they collected themselves.
+    # Only the patients table carries `collected_by`, so nothing else narrows here;
+    # bills are filtered on their own `created_by` in the billing router.
+    if scope.own_user_id is not None and hasattr(model, "collected_by"):
+        query = query.filter(model.collected_by == scope.own_user_id)
 
     # Patient users only see their own patient row / their own results.
     if scope.patient_id is not None:

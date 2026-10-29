@@ -14,7 +14,7 @@ from typing import Optional
 from datetime import datetime
 
 from database import get_db
-from auth.deps import get_current_user
+from auth.deps import get_current_user, get_scope, Scope
 from models.org import User, Franchise
 from models.models import Patient, LabResult
 from models.billing import Bill, BillItem, Payment
@@ -70,6 +70,13 @@ def sample_details(
         return {"rows": [], "totals": {"patients": 0, "billed": 0.0, "collected": 0.0}}
 
     pids = [p.id for p in patients]
+
+    # --- who collected each sample (the user who registered the patient) ---
+    collector_ids = {p.collected_by for p in patients if p.collected_by}
+    collectors = {}
+    if collector_ids:
+        for u in db.query(User).filter(User.id.in_(collector_ids)).all():
+            collectors[u.id] = getattr(u, "full_name", None) or getattr(u, "name", None) or u.email
 
     # --- franchise + branch name maps ---
     fr_ids = {p.organization_id for p in patients} | {p.registered_franchise_id for p in patients}
@@ -201,6 +208,7 @@ def sample_details(
             "age": p.age, "gender": p.gender, "status": p.status,
             "franchise": franchises.get(p.organization_id) or franchises.get(p.registered_franchise_id) or "Direct / Walk-in",
             "branch": branches.get(p.branch_id) or (str(p.branch_id) if p.branch_id else "—"),
+            "collected_by": collectors.get(p.collected_by),
             "referring_doctor": p.doctor_name,
             "registered_at": p.created_at,
             "tests": tests,
@@ -249,12 +257,25 @@ def dashboard(
     date_to: Optional[str] = None,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
+    scope: Scope = Depends(get_scope),
 ):
     """CurryCloud-style revenue dashboard. Shows BOTH billed (bill totals) and
     collected (payments received). Filters: franchise, branch, from, to."""
     q = db.query(Bill)
     # cancelled bills are kept as records but must never count as revenue
     q = q.filter(or_(Bill.status.is_(None), Bill.status != "cancelled"))
+    # Same visibility rules as the Bills list, so the figures on this page always
+    # add up to the bills the caller can actually open: an org login sees its own
+    # organization, branch staff their own branch, and a phlebotomist only the
+    # bills they raised themselves. Admin roles carry none of these and see all.
+    if scope.tenant_id is not None:
+        q = q.filter(Bill.tenant_id == scope.tenant_id)
+    if scope.franchise_id is not None:
+        q = q.filter(Bill.organization_id == scope.franchise_id)
+    if scope.branch_id is not None:
+        q = q.filter(Bill.branch_id == scope.branch_id)
+    if scope.own_user_id is not None:
+        q = q.filter(Bill.created_by == scope.own_user_id)
     if franchise_id:
         q = q.filter(Bill.organization_id == franchise_id)
     if branch_id:

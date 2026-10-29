@@ -297,12 +297,34 @@ def create_bill(payload: BillCreate, request: Request,
 
 
 # ----------------------------------------------------------------- read
+def _collected_label(db: Session, b: Bill, patient) -> tuple:
+    """(who collected, which branch) for the Bills list.
+    "Collected by" is the person who registered the patient — that's the sample
+    collection. Older patients have no collected_by, so the bill's own creator
+    stands in for them rather than showing a blank."""
+    from models.org import Branch
+    uid = getattr(patient, "collected_by", None) or b.created_by
+    name = None
+    if uid:
+        u = db.query(User).filter(User.id == uid).first()
+        if u:
+            name = getattr(u, "full_name", None) or getattr(u, "name", None) or u.email
+    branch = None
+    if b.branch_id:
+        br = db.query(Branch).filter(Branch.id == b.branch_id).first()
+        branch = br.name if br else None
+    return name, branch
+
+
 def _bill_dict(db: Session, b: Bill) -> dict:
     its = db.query(BillItem).filter(BillItem.bill_id == b.id).all()
     pays = db.query(Payment).filter(Payment.bill_id == b.id).all()
     patient = db.query(Patient).filter(Patient.id == b.patient_id).first()
     org = db.query(Franchise).filter(Franchise.id == b.organization_id).first() if b.organization_id else None
+    collected_by_name, branch_name = _collected_label(db, b, patient)
     return {
+        "collected_by_name": collected_by_name,
+        "branch_id": b.branch_id, "branch_name": branch_name,
         "id": b.id, "bill_no": b.bill_no, "patient_id": b.patient_id,
         "patient_name": patient.patient_name if patient else None,
         "barcode": patient.barcode if patient else None,
@@ -341,6 +363,9 @@ def list_bills(db: Session = Depends(get_db), scope: Scope = Depends(get_scope),
     # login carries none either, so org visibility above is untouched.
     if scope.branch_id is not None:
         q = q.filter(Bill.branch_id == scope.branch_id)
+    # A phlebotomist's bills are the ones they raised themselves, not the branch's.
+    if scope.own_user_id is not None:
+        q = q.filter(Bill.created_by == scope.own_user_id)
     if organization_id is not None:
         q = q.filter(Bill.organization_id == organization_id)
     if patient_id is not None:
@@ -370,6 +395,8 @@ def get_bill(bill_id: int, db: Session = Depends(get_db), scope: Scope = Depends
     # same branch rule as the list above, so a bill can't be opened by id either
     if scope.branch_id is not None and b.branch_id != scope.branch_id:
         raise HTTPException(403, "not your branch's bill")
+    if scope.own_user_id is not None and b.created_by != scope.own_user_id:
+        raise HTTPException(403, "not your bill")
     if scope.role == Role.FRANCHISE and scope.franchise_id is not None:
         if b.organization_id != scope.franchise_id:
             # also allow if patient is registered under this franchise
