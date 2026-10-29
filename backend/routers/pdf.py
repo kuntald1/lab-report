@@ -961,7 +961,7 @@ def generate_combined_pdf(results: list, db: Session, with_header: bool = True) 
                                  repeatRows=1)
             result_table.setStyle(TableStyle([
                 ('LINEBELOW',     (0,0),(-1,0),  1, BLACK),
-                ('LINEBELOW',     (0,1),(-1,-1), 0.4, BORDER),
+                # no rule between result rows — only the heading underline above
                 ('TOPPADDING',    (0,0),(-1,-1), row_pad), ('BOTTOMPADDING', (0,0),(-1,-1), row_pad),
                 ('LEFTPADDING',   (0,0),(-1,-1), 4), ('RIGHTPADDING',  (0,0),(-1,-1), 4),
                 ('VALIGN',        (0,0),(-1,-1), 'MIDDLE'),
@@ -1091,7 +1091,9 @@ def generate_combined_pdf(results: list, db: Session, with_header: bool = True) 
     # ── PAGE CHROME: faint logo watermark behind the body + repeating
     #    letterhead footer band (drawn once per page, before the page's
     #    flowables render, so both sit BEHIND the report content) ────────
-    watermark_path = asset_path(cfg['logo_filename']) if cfg.get('logo_filename') else _ICON_PATH
+    # Always the Healthycian H+C icon — even when the lab has uploaded its own
+    # logo for the header, the watermark behind the body stays the icon.
+    watermark_path = _ICON_PATH
 
     def _draw_page_chrome(canvas, doc_):
         canvas.saveState()
