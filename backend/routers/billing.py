@@ -393,6 +393,16 @@ def update_accession_number(bill_id: int, item_id: int, payload: AccessionIn, re
                                   BillItem.accession_number == before).all() or [it])
     if _accession_taken(db, new_value, exclude_item_ids=[s.id for s in siblings]):
         raise HTTPException(400, f"Accession number '{new_value}' is already in use by another test")
+    # Once the tube is received, or a machine result is already filed under this
+    # number, the number is what ties the two together — changing it would orphan
+    # the result. Lab admin / super admin may still override (audited below).
+    if before and new_value != before and user.role not in ADMIN_ROLES:
+        locked_status = [s for s in siblings if (s.status or "collected") != "collected"]
+        from models.models import LabResult
+        has_result = db.query(LabResult.id).filter(LabResult.accession_number == before).first()
+        if locked_status or has_result:
+            raise HTTPException(400, "Accession number is locked — the sample is already received "
+                                     "or has a result. Ask a lab admin to change it.")
     for s in siblings:
         s.accession_number = new_value
     db.commit()
