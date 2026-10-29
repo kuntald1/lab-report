@@ -76,12 +76,13 @@ export default function Results() {
   const [sel,     setSel]     = useState(null);
   const [loading, setLoading] = useState(false);
   const [pdfMenu, setPdfMenu] = useState(null);   // 'single' | 'combined' | null — which download dropdown is open
-  const [q, setQ] = useState({ barcode:'', accession_number:'' });
+  const [q, setQ] = useState({ barcode:'', accession_number:'', patient_name:'' });
 
   const load = () => {
     const qs = new URLSearchParams();
     if (q.barcode) qs.set('barcode', q.barcode);
     if (q.accession_number) qs.set('accession_number', q.accession_number);
+    if (q.patient_name.trim()) qs.set('patient_name', q.patient_name.trim());
     authedFetch('/results/?' + qs.toString()).then(r=>r.ok?r.json():[]).then(d=>setResults(Array.isArray(d)?d:[])).catch(()=>setResults([]));
   };
   useEffect(() => { load(); }, []);
@@ -230,6 +231,10 @@ export default function Results() {
             style={{ padding:'0.5rem 0.7rem', borderRadius:8, border:'1px solid #e8ecf4', fontSize:'0.84rem' }} /></div>
         <div><div style={{ fontSize:'0.68rem', fontWeight:700, color:'#8892a4', marginBottom:'0.25rem' }}>Accession No.</div>
           <input value={q.accession_number} onChange={e=>setQ({...q,accession_number:e.target.value})} onKeyDown={e=>e.key==='Enter'&&load()}
+            style={{ padding:'0.5rem 0.7rem', borderRadius:8, border:'1px solid #e8ecf4', fontSize:'0.84rem' }} /></div>
+        <div><div style={{ fontSize:'0.68rem', fontWeight:700, color:'#8892a4', marginBottom:'0.25rem' }}>Patient Name</div>
+          <input value={q.patient_name} onChange={e=>setQ({...q,patient_name:e.target.value})} onKeyDown={e=>e.key==='Enter'&&load()}
+            placeholder="e.g. Sysmex"
             style={{ padding:'0.5rem 0.7rem', borderRadius:8, border:'1px solid #e8ecf4', fontSize:'0.84rem' }} /></div>
         <button onClick={load} style={{ padding:'0.5rem 1.1rem', borderRadius:9, border:'none', cursor:'pointer', fontWeight:700, fontSize:'0.82rem', color:'#fff', background:'linear-gradient(135deg,#f97316,#fbbf24)' }}>Search</button>
       </div>

@@ -21,8 +21,8 @@ export default function Billing({ isAdmin = true, initialPatientId = '', onManag
   const allowDiscount = isAdmin && !isFranchise;   // franchise logins never discount
   const [patients, setPatients] = useState([]);
   const [tubes, setTubes]       = useState([]);
-  const [pfDraft, setPfDraft]   = useState({ barcode:'' });   // what's typed
-  const [pf, setPf]             = useState({ barcode:'' });   // what's actually applied (via Search)
+  const [pfDraft, setPfDraft]   = useState({ barcode:'', name:'' });   // what's typed
+  const [pf, setPf]             = useState({ barcode:'', name:'' });   // what's actually applied (via Search)
   const [accessions, setAccessions] = useState({});           // {tube_key: accession_number} preview, editable pre-save — one number per tube, not per test
   const [manualAcc, setManualAcc]   = useState({});           // {tube_key: true} once the user hand-edits it (protects it from auto-renumbering)
   const [tests, setTests]       = useState([]);
@@ -60,17 +60,18 @@ export default function Billing({ isAdmin = true, initialPatientId = '', onManag
   const selectPatient = (id) => { setPatientId(id); setPicked({}); setPickedGroups({}); setAccessions({}); setManualAcc({}); };
 
   const runSearch = () => setPf(pfDraft);
-  const clearSearch = () => { setPfDraft({ barcode:'' }); setPf({ barcode:'' }); };
+  const clearSearch = () => { setPfDraft({ barcode:'', name:'' }); setPf({ barcode:'', name:'' }); };
 
   const filteredPatients = useMemo(() => patients.filter(p => {
     if (pf.barcode && !(p.barcode||'').toLowerCase().includes(pf.barcode.trim().toLowerCase())) return false;
+    if (pf.name && !(p.patient_name||'').toLowerCase().includes(pf.name.trim().toLowerCase())) return false;
     return true;
   }), [patients, pf]);
 
   // Search -> exactly one match -> select it immediately (same effect as picking it from the dropdown by hand),
   // so you don't have to click Search and then separately reopen the dropdown.
   useEffect(() => {
-    if (!pf.barcode) return;
+    if (!pf.barcode && !pf.name) return;
     if (filteredPatients.length === 1 && String(filteredPatients[0].id) !== String(patientId)) {
       selectPatient(String(filteredPatients[0].id));
     }
@@ -501,12 +502,16 @@ export default function Billing({ isAdmin = true, initialPatientId = '', onManag
             <input style={inp} placeholder="e.g. HC21889" value={pfDraft.barcode}
               onChange={e=>setPfDraft({...pfDraft,barcode:e.target.value})}
               onKeyDown={e=>{ if (e.key==='Enter') runSearch(); }} /></div>
+          <div style={{ minWidth:'220px' }}><label style={lbl}>Patient Name</label>
+            <input style={inp} placeholder="e.g. Sujata" value={pfDraft.name}
+              onChange={e=>setPfDraft({...pfDraft,name:e.target.value})}
+              onKeyDown={e=>{ if (e.key==='Enter') runSearch(); }} /></div>
           <button onClick={runSearch} style={{ background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', border:'none', borderRadius:'9px', padding:'0.62rem 1.4rem', fontWeight:700, cursor:'pointer', fontFamily:'Manrope,sans-serif', fontSize:'0.82rem' }}>🔍 Search</button>
-          {pf.barcode && (
+          {(pf.barcode || pf.name) && (
             <button onClick={clearSearch} style={{ background:'transparent', color:'#8892a4', border:'1px solid #e8ecf4', borderRadius:'9px', padding:'0.6rem 1.1rem', cursor:'pointer', fontFamily:'Manrope,sans-serif', fontSize:'0.78rem' }}>Clear</button>
           )}
         </div>
-        {pf.barcode && (
+        {(pf.barcode || pf.name) && (
           <div style={{ marginTop:'0.7rem', fontSize:'0.75rem', color:'#8892a4' }}>{filteredPatients.length} of {patients.length} patients match</div>
         )}
       </div>

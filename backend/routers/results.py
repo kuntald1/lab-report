@@ -72,7 +72,8 @@ def _with_catalog_ranges(db: Session, result: LabResult):
 def get_all_results(db: Session = Depends(get_db), scope: Scope = Depends(get_scope),
                     user: User = Depends(get_current_user),
                     barcode: Optional[str] = None, patient_id: Optional[str] = None,
-                    accession_number: Optional[str] = None):
+                    accession_number: Optional[str] = None,
+                    patient_name: Optional[str] = None):
     q = apply_scope(db.query(LabResult), LabResult, scope)
 
     # LabResult has no franchise column, so a franchise login must be scoped to
@@ -124,6 +125,12 @@ def get_all_results(db: Session = Depends(get_db), scope: Scope = Depends(get_sc
                 or_(Patient.barcode.ilike(f"%{pid}%"),
                     Patient.patient_name.ilike(f"%{pid}%"))).all()]
             q = q.filter(LabResult.patient_id.in_(match or [-1]))
+    name_pids = None
+    if patient_name and patient_name.strip():
+        # patient-name search (partial, case-insensitive) — matches the owning patient
+        name_pids = [pid for (pid,) in
+                     db.query(Patient.id).filter(Patient.patient_name.ilike(f"%{patient_name.strip()}%")).all()]
+        q = q.filter(LabResult.patient_id.in_(name_pids or [-1]))
     if accession_number:
         # symmetric with the barcode filter above — same scanned code, either box.
         acc_pids = [pid for (pid,) in
@@ -153,6 +160,8 @@ def get_all_results(db: Session = Depends(get_db), scope: Scope = Depends(get_sc
             )
         if barcode:
             pq = pq.filter(Patient.barcode.ilike(f"%{barcode}%"))
+        if name_pids is not None:
+            pq = pq.filter(Patient.id.in_(name_pids or [-1]))
         manual_patients = [p for p in pq.order_by(Patient.created_at.desc()).limit(200).all()
                            if p.id not in covered_pids]
 
