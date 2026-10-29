@@ -22,8 +22,6 @@ const nav = [
   { id:'billing', icon:'🧾', label:'New Bill', section:'master' },
   { id:'bills',   icon:'📑', label:'Bills',    section:'master' },
   { id:'doctors', icon:'💵', label:'Doctor Commission', section:'master' },
-  { id:'simulator', icon:'⚡', label:'Simulator',     section:'tools', tag:'DEMO' },
-  { id:'tcp',       icon:'🔌', label:'Live Connect',  section:'tools', tag:'PHASE 2' },
   { id:'reportvalidate', icon:'🩺', label:'Report Validate',  section:'reports', who:'doctor' },
   { id:'validatehistory', icon:'📋', label:'Validate History', section:'reports', who:'doctor' },
   { id:'mycommission', icon:'💰', label:'My Commission', section:'reports', who:'doctor' },
@@ -103,8 +101,6 @@ export default function Sidebar({ current, onChange, counts = {}, user = null, o
             {nav.filter(n=>n.section==='master').map(item => <NavItem key={item.id} item={item} active={current===item.id} onClick={()=>onChange(item.id)} />)}
             <div style={s.navLabel}>Reports</div>
             {nav.filter(n=>n.section==='reports').map(item => <NavItem key={item.id} item={item} active={current===item.id} onClick={()=>onChange(item.id)} />)}
-            <div style={s.navLabel}>Tools</div>
-            {nav.filter(n=>n.section==='tools').map(item => <NavItem key={item.id} item={item} active={current===item.id} onClick={()=>onChange(item.id)} />)}
           </>
         ) : (() => {
           const mainItems   = visible(nav.filter(n=>n.section==='main'));
