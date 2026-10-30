@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import Sidebar, { NAV_ITEMS } from './components/Sidebar';
+import Sidebar, { NAV_ITEMS, SIDEBAR_W_OPEN, SIDEBAR_W_COLLAPSED } from './components/Sidebar';
 import Dashboard from './pages/Dashboard';
 import Devices from './pages/Devices';
 import Patients from './pages/Patients';
@@ -43,6 +43,16 @@ export default function App() {
   const [page, setPage] = useState(isDoctor ? 'reportvalidate' : 'dashboard');
   const [billPatientId, setBillPatientId] = useState('');
 
+  // Collapsed sidebar — remembered per browser so it stays the way it was left.
+  const [collapsed, setCollapsed] = useState(() => {
+    try { return localStorage.getItem('mc_sidebar_collapsed') === '1'; } catch { return false; }
+  });
+  const toggleSidebar = () => setCollapsed(c => {
+    const next = !c;
+    try { localStorage.setItem('mc_sidebar_collapsed', next ? '1' : '0'); } catch {}
+    return next;
+  });
+
   // Which menu items this role may NOT see (Menu Permissions page). null = not
   // resolved yet. Page content waits for it so a role whose Dashboard is hidden
   // never sees it flash up before being moved on.
@@ -69,8 +79,9 @@ export default function App() {
   const logout = () => { auth.logout(); setAuthed(false); setPage('dashboard'); };
   return (
     <div style={{ display:'flex', minHeight:'100vh', background:'#f4f6fa' }}>
-      <Sidebar current={page} onChange={handleNav} user={auth.user()} onLogout={logout} hidden={hiddenMenu} />
-      <main style={{ flex:1, marginLeft:'235px', minHeight:'100vh', display:'flex', flexDirection:'column' }}>
+      <Sidebar current={page} onChange={handleNav} user={auth.user()} onLogout={logout} hidden={hiddenMenu}
+        collapsed={collapsed} onToggleCollapse={toggleSidebar} />
+      <main style={{ flex:1, marginLeft: collapsed ? SIDEBAR_W_COLLAPSED : SIDEBAR_W_OPEN, minHeight:'100vh', display:'flex', flexDirection:'column', transition:'margin-left 0.18s ease' }}>
         {/* Top bar */}
         <div style={{ background:'#fff', borderBottom:'1px solid #e8ecf4', padding:'0.85rem 2rem', display:'flex', alignItems:'center', justifyContent:'space-between', position:'sticky', top:0, zIndex:40, boxShadow:'0 1px 8px rgba(15,18,24,0.05)' }}>
           <div style={{ display:'flex', alignItems:'center', gap:'0.5rem', fontSize:'0.78rem', color:'#8892a4' }}>
