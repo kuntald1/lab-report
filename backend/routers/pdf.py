@@ -182,6 +182,11 @@ def _qr_drawing(data: str, size_cm: float = 2.0) -> Drawing:
 
 _LOGO_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'assets', 'healthycian_logo.jpg')
 _LOGO_ASPECT = 320 / 994   # source image is 994x320 (icon + wordmark + tagline lockup)
+# How far the sign-off rescue above may squeeze the result rows, and how
+# tight a row is ever allowed to get.
+_MAX_TIGHTEN  = 4
+_MIN_ROW_PAD  = 5.0
+
 _ICON_PATH  = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'assets', 'healthycian_icon.png')
 
 
@@ -206,6 +211,11 @@ class _BottomPinnedBlock(Flowable):
     def __init__(self, flowables):
         Flowable.__init__(self)
         self._content = _flowableSublist(flowables)
+        # True once the block has had to give up on a page and move to the
+        # next one. Since this block is always the LAST thing in the story,
+        # that means it ended up alone on a page of its own — which the
+        # caller uses as the cue to re-render the report a little tighter.
+        self.deferred = False
 
     def wrap(self, aW, aH):
         W, H = _listWrapOn(self._content, aW, self.canv)
@@ -222,6 +232,7 @@ class _BottomPinnedBlock(Flowable):
             # content) means wrap()/split() run again on the new frame, so
             # the bottom-pin padding gets recalculated for wherever it
             # actually lands rather than being baked in for this page.
+            self.deferred = True
             return [FrameBreak(), self]
         pad = max(aH - self._H, 0)
         return [Spacer(1, pad)] + list(self._content)
@@ -718,7 +729,7 @@ def generate_pdf(result: LabResult) -> bytes:
 LONG_PANEL_ROWS = 12
 
 
-def generate_combined_pdf(results: list, db: Session, with_header: bool = True) -> bytes:
+def generate_combined_pdf(results: list, db: Session, with_header: bool = True, _tighten: int = 0):
     """The official letterhead-style sample report: one shared header +
     patient-info block, then one dynamic section per test/panel (any number
     of panels, any set of parameters — nothing hardcoded), a configurable
@@ -956,7 +967,10 @@ def generate_combined_pdf(results: list, db: Session, with_header: bool = True) 
             # long panel (34-parameter H560) onto a third page. Those sizes keep
             # a tighter gap (6 / 6.5); everything else gets the roomy one.
             _n_rows = len(parameters)
-            row_pad = 6 if 13 <= _n_rows <= 16 else (6.5 if _n_rows > 28 else 10)
+            # `_tighten` is the retry level: 0 is the roomy layout everyone
+            # sees, and each step shaves a point off every row to try to win
+            # back enough space for the sign-off (see the end of this function).
+            row_pad = max(_MIN_ROW_PAD, (6 if 13 <= _n_rows <= 16 else (6.5 if _n_rows > 28 else 10)) - _tighten)
             result_table = Table(table_data, colWidths=['30%', '12%', '11%', '22%', '25%'],
                                  repeatRows=1)
             result_table.setStyle(TableStyle([
@@ -1086,7 +1100,8 @@ def generate_combined_pdf(results: list, db: Session, with_header: bool = True) 
     footer_flow.append(Paragraph('**END OF REPORT**', end_style))
     footer_flow.append(Paragraph('The result is related to the sample(s) tested only.', disclaim_style))
 
-    story.append(_BottomPinnedBlock(footer_flow))
+    signoff_block = _BottomPinnedBlock(footer_flow)
+    story.append(signoff_block)
 
     # ── PAGE CHROME: faint logo watermark behind the body + repeating
     #    letterhead footer band (drawn once per page, before the page's
@@ -1147,7 +1162,24 @@ def generate_combined_pdf(results: list, db: Session, with_header: bool = True) 
 
     doc.build(story, onFirstPage=_draw_page_chrome, onLaterPages=_draw_page_chrome)
     buffer.seek(0)
-    return buffer.read()
+    out = buffer.read()
+
+    # ── NO PAGE JUST FOR THE SIGN-OFF ──────────────────────────────────────
+    # The sign-off is the last thing in the story, so if it had to move to a
+    # fresh page it is sitting there alone — a page that looks blank down to
+    # the signature at its foot. Re-render with the result rows a point
+    # tighter and see whether it then fits under the last table. Each retry
+    # squeezes a little more; if even the tightest layout can't save the
+    # page, we keep the original roomy one rather than shrink the rows for
+    # nothing. (A retry reports failure upwards as None; the top-level call
+    # always returns bytes.)
+    if signoff_block.deferred:
+        if _tighten < _MAX_TIGHTEN:
+            tighter = generate_combined_pdf(results, db, with_header, _tighten + 1)
+            if tighter is not None:
+                return tighter
+        return None if _tighten else out
+    return out
 
 
 
