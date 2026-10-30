@@ -10,12 +10,20 @@ const METHOD_COLORS = { CASH:'#16a34a', UPI:'#2563eb', CARD:'#7c3aed', CREDIT:'#
 function todayISO(d=0){ const t=new Date(); t.setDate(t.getDate()+d); return t.toISOString().slice(0,10); }
 
 export default function Dashboard() {
-  const isFranchise = (auth.user()?.role || '').toLowerCase() === 'franchise';
-  const myFranchiseId = isFranchise ? (auth.user()?.franchise_id || '') : '';
-  const [f, setF] = useState({ franchise_id: myFranchiseId, branch_id:'', date_from: todayISO(-29), date_to: todayISO(0) });
+  const me = auth.user() || {};
+  const role = (me.role || '').toLowerCase();
+  const isFranchise = role === 'franchise';
+  // Only the two admin roles may look across branches; everyone else is pinned
+  // to the branch they belong to, and a phlebotomist cannot pick a franchise.
+  const isAdmin = role === 'super_admin' || role === 'lab_admin';
+  const isPhlebotomist = role === 'phlebotomist';
+  const myFranchiseId = isFranchise ? (me.franchise_id || '') : '';
+  const myBranchId = (!isAdmin && me.branch_id) ? String(me.branch_id) : '';
+  const [f, setF] = useState({ franchise_id: myFranchiseId, branch_id: myBranchId, date_from: todayISO(-29), date_to: todayISO(0) });
   const [d, setD] = useState({ kpis:{}, daily:[], methods:[], breakdown:[] });
   const [loading, setLoading] = useState(true);
   const [franchises, setFranchises] = useState([]);
+  const [branches, setBranches] = useState([]);
   const [detail, setDetail] = useState(null);
   const [dTab, setDTab] = useState('tests');
 
@@ -33,6 +41,7 @@ export default function Dashboard() {
 
   useEffect(() => {
     authedFetch('/admin/franchises').then(r=>r.ok?r.json():[]).then(x=>setFranchises(Array.isArray(x)?x:(x.items||[]))).catch(()=>{});
+    if (!isFranchise) authedFetch('/admin/branches').then(r=>r.ok?r.json():[]).then(x=>setBranches(Array.isArray(x)?x:[])).catch(()=>{});
     load();
   }, []); // eslint-disable-line
 
@@ -63,9 +72,17 @@ export default function Dashboard() {
         <div><div style={{ fontSize:'0.62rem', color:'#8892a4', fontWeight:700, textTransform:'uppercase', marginBottom:'0.25rem' }}>To</div><input style={inp} type="date" value={f.date_to} onChange={e=>set('date_to',e.target.value)} /></div>
         {!isFranchise && (
         <div><div style={{ fontSize:'0.62rem', color:'#8892a4', fontWeight:700, textTransform:'uppercase', marginBottom:'0.25rem' }}>Franchise</div>
-          <select style={inp} value={f.franchise_id} onChange={e=>set('franchise_id',e.target.value)}>
+          <select style={{ ...inp, ...(isPhlebotomist ? { background:'#f1f3f7', color:'#8892a4' } : {}) }} disabled={isPhlebotomist} value={f.franchise_id} onChange={e=>set('franchise_id',e.target.value)}>
             <option value="">All Franchises</option>
             {franchises.map(fr => <option key={fr.id} value={fr.id}>{fr.name}</option>)}
+          </select>
+        </div>
+        )}
+        {!isFranchise && (
+        <div><div style={{ fontSize:'0.62rem', color:'#8892a4', fontWeight:700, textTransform:'uppercase', marginBottom:'0.25rem' }}>Branch</div>
+          <select style={{ ...inp, ...(isAdmin ? {} : { background:'#f1f3f7', color:'#8892a4' }) }} disabled={!isAdmin} value={f.branch_id} onChange={e=>set('branch_id',e.target.value)}>
+            {(isAdmin || !myBranchId) && <option value="">All Branches</option>}
+            {(isAdmin ? branches : branches.filter(b => String(b.id) === myBranchId)).map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
           </select>
         </div>
         )}

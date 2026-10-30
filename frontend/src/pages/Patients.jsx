@@ -23,6 +23,11 @@ export default function Patients({ onBill = () => {} }) {
   const me = auth.user();
   const role = (me?.role || '').toLowerCase();
   const isFranchise = role === 'franchise';
+  // A phlebotomist always registers against his own branch: the Branch box is
+  // pre-filled and read-only, and Franchise (B2B) is not his to choose.
+  const isPhlebotomist = role === 'phlebotomist';
+  const lockedBranchId = (isPhlebotomist && me?.branch_id) ? String(me.branch_id) : '';
+  const isBranchLocked = !!lockedBranchId;
   const [patients, setPatients]   = useState([]);
   const [branches, setBranches]   = useState([]);
   const [franchises, setFranchises] = useState([]);
@@ -91,7 +96,7 @@ export default function Patients({ onBill = () => {} }) {
     // Franchise-role users have Branch/Franchise locked to their own
     // franchise automatically, so this only applies to lab-side staff who
     // can actually pick either field.
-    if (!isFranchise && !form.branch_id && !form.registered_franchise_id) {
+    if (!isFranchise && !isBranchLocked && !form.branch_id && !form.registered_franchise_id) {
       setBranchWarning(true);
       document.getElementById('branch-franchise-row')?.scrollIntoView({ behavior:'smooth', block:'center' });
       return;
@@ -108,7 +113,7 @@ export default function Patients({ onBill = () => {} }) {
       note: form.note || null,
       abha_number: form.abha_number || null,
       phone: form.phone || null,
-      branch_id: form.branch_id ? parseInt(form.branch_id) : null,
+      branch_id: isBranchLocked ? parseInt(lockedBranchId) : (form.branch_id ? parseInt(form.branch_id) : null),
       registered_franchise_id: form.registered_franchise_id ? parseInt(form.registered_franchise_id) : null,
       organization_id: form.organization_id ? parseInt(form.organization_id) : null,
     };
@@ -217,13 +222,13 @@ export default function Patients({ onBill = () => {} }) {
             <div><label style={lbl}>Phone <span style={{ textTransform:'none', letterSpacing:0, fontWeight:400 }}>(for WhatsApp bill)</span></label>
               <input style={inp} placeholder="10-digit mobile" value={form.phone} onChange={e=>setForm({...form,phone:e.target.value})} /></div>
             <div id="branch-franchise-row" style={{ gridColumn:'1 / -1', display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.9rem' }}>
-              <div><label style={lbl}>Branch {isFranchise && <span style={{color:'#f97316',fontWeight:400,textTransform:'none'}}>(locked – set by franchise)</span>}</label>
-                <select style={{...inp, background: isFranchise?'#f1f3f7':(branchWarning?'#fff7ed':''), color: isFranchise?'#8892a4':'', border: branchWarning?'1.5px solid #f97316':undefined}} disabled={isFranchise} value={form.branch_id} onChange={e=>{ setForm({...form,branch_id:e.target.value}); setBranchWarning(false); }}>
+              <div><label style={lbl}>Branch {isFranchise && <span style={{color:'#f97316',fontWeight:400,textTransform:'none'}}>(locked – set by franchise)</span>}{isBranchLocked && <span style={{color:'#f97316',fontWeight:400,textTransform:'none'}}>(locked – your branch)</span>}</label>
+                <select style={{...inp, background: (isFranchise||isBranchLocked)?'#f1f3f7':(branchWarning?'#fff7ed':''), color: isFranchise?'#8892a4':'', border: branchWarning?'1.5px solid #f97316':undefined}} disabled={isFranchise || isBranchLocked} value={isBranchLocked ? lockedBranchId : form.branch_id} onChange={e=>{ setForm({...form,branch_id:e.target.value}); setBranchWarning(false); }}>
                   <option value="">— Select branch —</option>
                   {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
                 </select></div>
               <div><label style={lbl}>Franchise <span style={{ textTransform:'none', letterSpacing:0, fontWeight:400 }}>(also used for B2B billing)</span></label>
-                <select style={{...inp, background: isFranchise?'#f1f3f7':(branchWarning?'#fff7ed':''), color: isFranchise?'#0f1218':'', border: branchWarning?'1.5px solid #f97316':undefined}} disabled={isFranchise} value={isFranchise ? (me?.franchise_id || form.registered_franchise_id) : form.registered_franchise_id} onChange={e=>{ setForm({...form,registered_franchise_id:e.target.value, organization_id:e.target.value}); setBranchWarning(false); }}>
+                <select style={{...inp, background: (isFranchise||isPhlebotomist)?'#f1f3f7':(branchWarning?'#fff7ed':''), color: isFranchise?'#0f1218':(isPhlebotomist?'#8892a4':''), border: branchWarning?'1.5px solid #f97316':undefined}} disabled={isFranchise || isPhlebotomist} value={isFranchise ? (me?.franchise_id || form.registered_franchise_id) : form.registered_franchise_id} onChange={e=>{ setForm({...form,registered_franchise_id:e.target.value, organization_id:e.target.value}); setBranchWarning(false); }}>
                   <option value="">— Direct / Walk-in —</option>
                   {franchises.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
                 </select></div>
