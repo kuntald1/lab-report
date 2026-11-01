@@ -24,6 +24,7 @@ import HistoryNeeded from './pages/HistoryNeeded';
 import HistoryBell from './components/HistoryBell';
 import DoctorBell from './components/DoctorBell';
 import RejectedBell from './components/RejectedBell';
+import ChangePasswordModal from './components/ChangePasswordModal';
 import SampleReport from './pages/SampleReport';
 import ManageCredit from './pages/ManageCredit';
 import Branches from './pages/Branches';
@@ -42,6 +43,8 @@ export default function App() {
   const isAdminRole = ['super_admin','lab_admin'].includes(role);
   const [page, setPage] = useState(isDoctor ? 'reportvalidate' : 'dashboard');
   const [billPatientId, setBillPatientId] = useState('');
+  const [pwModal, setPwModal] = useState(false);   // "Change password" from the sidebar
+  const [pwDone, setPwDone]   = useState('');
 
   // Collapsed sidebar — remembered per browser so it stays the way it was left.
   const [collapsed, setCollapsed] = useState(() => {
@@ -80,7 +83,15 @@ export default function App() {
   return (
     <div style={{ display:'flex', minHeight:'100vh', background:'#f4f6fa' }}>
       <Sidebar current={page} onChange={handleNav} user={auth.user()} onLogout={logout} hidden={hiddenMenu}
+        onChangePassword={()=>setPwModal(true)}
         collapsed={collapsed} onToggleCollapse={toggleSidebar} />
+      {pwModal && <ChangePasswordModal onClose={()=>setPwModal(false)}
+        onDone={(msg)=>{ setPwDone(msg); setTimeout(()=>setPwDone(''), 3200); }} />}
+      {pwDone && (
+        <div style={{ position:'fixed', bottom:'1.3rem', right:'1.3rem', zIndex:300, background:'#0f1218', color:'#fff',
+                      padding:'0.7rem 1.1rem', borderRadius:'10px', fontSize:'0.82rem', fontWeight:600,
+                      boxShadow:'0 10px 30px rgba(15,18,24,0.3)' }}>✓ {pwDone}</div>
+      )}
       <main style={{ flex:1, marginLeft: collapsed ? SIDEBAR_W_COLLAPSED : SIDEBAR_W_OPEN, minHeight:'100vh', display:'flex', flexDirection:'column', transition:'margin-left 0.18s ease' }}>
         {/* Top bar */}
         <div style={{ background:'#fff', borderBottom:'1px solid #e8ecf4', padding:'0.85rem 2rem', display:'flex', alignItems:'center', justifyContent:'space-between', position:'sticky', top:0, zIndex:40, boxShadow:'0 1px 8px rgba(15,18,24,0.05)' }}>

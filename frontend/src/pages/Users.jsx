@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { authedFetch } from '../services/auth';
+import ChangePasswordModal from '../components/ChangePasswordModal';
 
 const inp = { background:'#fafbfc', border:'1.5px solid #e8ecf4', borderRadius:'9px', padding:'0.65rem 0.9rem', color:'#0f1218', fontFamily:'Manrope,sans-serif', fontSize:'0.85rem', outline:'none', width:'100%' };
 const lbl = { fontSize:'0.7rem', color:'#8892a4', fontWeight:600, textTransform:'uppercase', letterSpacing:'0.06em', display:'block', marginBottom:'0.35rem' };
@@ -28,6 +29,7 @@ export default function Users() {
   const [form, setForm]         = useState(BLANK);
   const [editingId, setEditingId] = useState(null);
   const [confirmDel, setConfirmDel] = useState(null);
+  const [pwTarget, setPwTarget] = useState(null);   // whose password the admin is resetting
   const [toast, setToast]       = useState(null);
 
   const showToast = (kind, msg) => { setToast({ kind, msg }); setTimeout(()=>setToast(null), 3200); };
@@ -111,6 +113,11 @@ export default function Users() {
         </div>
       )}
       <style>{`@keyframes toastIn { from { opacity:0; transform:translateX(40px);} to { opacity:1; transform:translateX(0);} }`}</style>
+
+      {pwTarget && (
+        <ChangePasswordModal target={pwTarget} onClose={()=>setPwTarget(null)}
+          onDone={(msg)=>showToast('success', msg)} />
+      )}
 
       {confirmDel && (
         <div onClick={()=>setConfirmDel(null)} style={{ position:'fixed', inset:0, zIndex:9998, background:'rgba(15,18,24,0.45)', display:'flex', alignItems:'center', justifyContent:'center' }}>
@@ -220,6 +227,9 @@ export default function Users() {
                 </td>
                 <td style={{ padding:'0.9rem 1.3rem' }}>
                   <div style={{ display:'flex', gap:'0.4rem' }}>
+                    <button title="Change password" onClick={()=>setPwTarget(u)} style={iconBtn('#f97316')}>
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="7.5" cy="15.5" r="4.5"/><path d="M10.7 12.3 19 4"/><path d="m17 6 2 2"/><path d="m15 8 2 2"/></svg>
+                    </button>
                     <button title="Edit" onClick={()=>startEdit(u)} style={iconBtn('#2563eb')}>
                       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
                     </button>

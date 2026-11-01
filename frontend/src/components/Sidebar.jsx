@@ -38,7 +38,7 @@ export const SIDEBAR_W_COLLAPSED = '68px';
 // when the default one (Dashboard) is hidden for them.
 export const NAV_ITEMS = nav;
 
-export default function Sidebar({ current, onChange, counts = {}, user = null, onLogout = () => {}, hidden: hiddenProp = null, collapsed = false, onToggleCollapse = () => {} }) {
+export default function Sidebar({ current, onChange, counts = {}, user = null, onLogout = () => {}, onChangePassword = null, hidden: hiddenProp = null, collapsed = false, onToggleCollapse = () => {} }) {
   const isFranchise = (user?.role || '').toLowerCase() === 'franchise';
   const isAdmin = ['super_admin','lab_admin'].includes((user?.role || '').toLowerCase());
 
@@ -149,6 +149,12 @@ export default function Sidebar({ current, onChange, counts = {}, user = null, o
             <div style={{ fontSize:'0.8rem', fontWeight:700, color:'#0f1218', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{user?.full_name || user?.email || 'User'}</div>
             <div style={{ fontSize:'0.62rem', color:'#6b8a83', marginTop:'0.05rem', textTransform:'capitalize' }}>{(user?.role || 'user').replace('_',' ')}</div>
           </div>
+          )}
+          {onChangePassword && (
+            <div onClick={onChangePassword} title="Change password"
+              style={{ cursor:'pointer', color:'#84a49c', fontSize:'0.95rem', padding:'0.3rem', borderRadius:'7px' }}
+              onMouseEnter={e=>e.currentTarget.style.color='#f97316'}
+              onMouseLeave={e=>e.currentTarget.style.color='#84a49c'}>🔑</div>
           )}
           <div onClick={onLogout} title="Sign out"
             style={{ cursor:'pointer', color:'#84a49c', fontSize:'1rem', padding:'0.3rem', borderRadius:'7px' }}

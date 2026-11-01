@@ -5,7 +5,7 @@ from typing import Optional
 
 from database import get_db
 from models.org import User
-from auth.security import verify_password, create_access_token
+from auth.security import verify_password, create_access_token, hash_password
 from auth.deps import get_current_user, get_scope, Scope
 from auth.audit import write_audit
 
@@ -59,6 +59,37 @@ def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)
 @router.get("/me", response_model=UserOut)
 def me(user: User = Depends(get_current_user)):
     return UserOut.model_validate(user)
+
+
+class ChangePasswordIn(BaseModel):
+    current_password: str
+    new_password: str
+
+
+@router.post("/change-password")
+def change_password(payload: ChangePasswordIn, request: Request,
+                    db: Session = Depends(get_db),
+                    user: User = Depends(get_current_user)):
+    """Any logged-in user changes their OWN password.
+
+    Separate from the admin reset in routers/admin.py on purpose: this one
+    proves the current password first, and works for roles an admin is not
+    allowed to edit (a lab_admin cannot edit another lab_admin, but must still
+    be able to change their own password).
+    """
+    if not verify_password(payload.current_password, user.hashed_password):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+    new = (payload.new_password or "").strip()
+    if len(new) < 6:
+        raise HTTPException(status_code=400, detail="New password must be at least 6 characters")
+    if verify_password(new, user.hashed_password):
+        raise HTTPException(status_code=400, detail="New password must be different from the current one")
+    user.hashed_password = hash_password(new)
+    db.commit()
+    write_audit(db, action="change_password", user=user, entity="user", entity_id=user.id,
+                ip=request.client.host if request.client else None)
+    # The token carries no password material, so existing sessions stay valid.
+    return {"ok": True}
 
 
 @router.get("/scope")
