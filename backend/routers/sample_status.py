@@ -23,7 +23,7 @@ from models.models import Patient, LabResult
 from models.billing import Bill, BillItem
 from auth.deps import get_current_user, get_scope, apply_scope, Scope
 from auth.audit import write_audit
-from services.lifecycle import STATUS_ORDER, record_events_only
+from services.lifecycle import STATUS_ORDER, record_events_only, record_status
 from services.whatsapp import send_whatsapp
 
 router = APIRouter()
@@ -163,6 +163,24 @@ def advance_status(p: AdvanceIn, request: Request,
                                   accession_number=it.accession_number, test_name=it.test_name,
                                   parsed_data=None, status="outsource",
                                   tenant_id=getattr(b, "tenant_id", None), branch_id=patient.branch_id))
+    db.flush()
+
+    # Roll the patient's own status up from their tests. The per-test status is
+    # what this screen edits, but the patient carries one overall status too —
+    # it's what Results shows, what clears the "PENDING" chip, and what the
+    # public report link checks. Only move it once EVERY live test on that
+    # patient has reached the status just applied, so a half-finished panel
+    # never looks finished. sample_rejected tests are dead ends and don't hold
+    # the patient back; cancelled bills were already rejected above.
+    if p.status in STATUS_ORDER:
+        for patient in {pt.id: pt for _, _, pt in rows}.values():
+            siblings = _not_cancelled(
+                db.query(BillItem)
+                  .join(Bill, Bill.id == BillItem.bill_id)
+                  .filter(Bill.patient_id == patient.id)).all()
+            live = [it for it in siblings if (it.status or "") != "sample_rejected"]
+            if live and all((it.status or "") == p.status for it in live):
+                record_status(db, patient, p.status, actor_id=user.id, commit=False)
     db.commit()
 
     # When a sample is rejected -> WhatsApp the franchise (if patient belongs to one)
