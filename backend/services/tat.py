@@ -5,14 +5,17 @@ Pure functions (no DB) so they're portable and unit-testable. The router feeds
 them sample-event rows; they return the per-stage breakdown and per-group
 aggregates (median / p90 / average).
 
-Stages are the gaps between consecutive lifecycle events:
+Stages are the gaps between the statuses the lab actually records
+(Change Status): Collected -> Received -> Tested -> Validated -> Reported.
 
-    collected ─┬─ wait_for_pickup ──> dispatched
-               ├─ transit ───────────> received
-               ├─ receipt_accessioning > test_started
-               ├─ testing ───────────> resulted
-               ├─ validation ────────> validated
-               └─ reporting ─────────> reported   (= total: collected -> reported)
+    collected ── collection_to_lab ──> received
+    received  ── testing ────────────> test_started   (status "tested")
+    test_started ── validation ──────> validated
+    validated ── reporting ──────────> reported      (collected -> reported = total)
+
+"dispatched" is no longer a step in the lab's flow, so it is not a stage; a
+sample that still carries a legacy dispatched event is measured the same way,
+collected -> received covers it.
 """
 from datetime import datetime
 from typing import Optional
@@ -21,22 +24,18 @@ from models.clinical import EventType
 
 # (stage_name, from_event, to_event)
 STAGES = [
-    ("wait_for_pickup",       EventType.COLLECTED,    EventType.DISPATCHED),
-    ("transit",               EventType.DISPATCHED,   EventType.RECEIVED),
-    ("receipt_accessioning",  EventType.RECEIVED,     EventType.TEST_STARTED),
-    ("testing",               EventType.TEST_STARTED, EventType.RESULTED),
-    ("validation",            EventType.RESULTED,     EventType.VALIDATED),
-    ("reporting",             EventType.VALIDATED,    EventType.REPORTED),
+    ("collection_to_lab", EventType.COLLECTED,    EventType.RECEIVED),
+    ("testing",           EventType.RECEIVED,     EventType.TEST_STARTED),
+    ("validation",        EventType.TEST_STARTED, EventType.VALIDATED),
+    ("reporting",         EventType.VALIDATED,    EventType.REPORTED),
 ]
 
 # which of the three classic phases each stage belongs to
 PHASE_OF_STAGE = {
-    "wait_for_pickup":      "pre_analytical",
-    "transit":              "pre_analytical",
-    "receipt_accessioning": "pre_analytical",
-    "testing":              "analytical",
-    "validation":           "post_analytical",
-    "reporting":            "post_analytical",
+    "collection_to_lab": "pre_analytical",
+    "testing":           "analytical",
+    "validation":        "post_analytical",
+    "reporting":         "post_analytical",
 }
 
 STAGE_NAMES = [s[0] for s in STAGES]

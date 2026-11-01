@@ -2,12 +2,10 @@ import { useEffect, useState, useCallback } from 'react';
 import { authedFetch } from '../services/auth';
 
 const STAGE_META = {
-  wait_for_pickup:      { label: 'Wait for pickup',  color: '#E24B4A' },
-  transit:              { label: 'Transit',          color: '#E8A33D' },
-  receipt_accessioning: { label: 'Receipt + accessioning', color: '#378ADD' },
-  testing:              { label: 'Testing',          color: '#1D9E75' },
-  validation:           { label: 'Validation',       color: '#7F77DD' },
-  reporting:            { label: 'Reporting',        color: '#888780' },
+  collection_to_lab: { label: 'Collection → Lab', color: '#E24B4A', hint: 'Collected → Received' },
+  testing:           { label: 'Testing',          color: '#1D9E75', hint: 'Received → Tested' },
+  validation:        { label: 'Validation',       color: '#7F77DD', hint: 'Tested → Validated' },
+  reporting:         { label: 'Reporting',        color: '#888780', hint: 'Validated → Reported' },
 };
 
 const fmt = (m) => {
@@ -143,6 +141,7 @@ export default function TAT() {
 
 function Report({ data }) {
   const stageOrder = data.stage_order;
+  const [open, setOpen] = useState({});   // franchise key -> breakdown expanded
   // Size the bar on the SUM of the stages actually recorded — not on the
   // collected->reported total, which is missing until a sample is reported.
   // This keeps the bar readable and proportional whether or not it's complete.
@@ -161,10 +160,16 @@ function Report({ data }) {
         const tied = tieRounded(stageOrder
           .filter(s => f.stages[s] && f.stages[s].median > 0)
           .map(s => ({ key: s, v: f.stages[s].median })));
+        const key = f.franchise_id ?? 'direct';
+        const isOpen = !!open[key];
         return (
-          <div key={f.franchise_id ?? 'direct'} style={card}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '0.7rem' }}>
-              <div style={{ fontWeight: 700, fontSize: '0.98rem', color: '#0f1218' }}>{f.franchise_name}</div>
+          <div key={key} style={card}>
+            <div onClick={() => setOpen(o => ({ ...o, [key]: !o[key] }))}
+                 title="Click to show / hide the stage-by-stage breakdown"
+                 style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '0.7rem', cursor: 'pointer' }}>
+              <div style={{ fontWeight: 700, fontSize: '0.98rem', color: '#0f1218' }}>
+                {f.franchise_name} <span style={{ fontSize: '0.7rem', color: '#8892a4', marginLeft: 4 }}>{isOpen ? '▲' : '▼'}</span>
+              </div>
               <div style={{ fontSize: '0.8rem', color: '#8892a4' }}>
                 {complete
                   ? <><b style={{ color: '#0f1218' }}>{fmt(total)}</b> total · {f.order_count} orders</>
@@ -200,6 +205,43 @@ function Report({ data }) {
               <Chip label="Analytical"      val={f.phases.analytical      > 0 ? fmt(f.phases.analytical)      : '—'} tone="#1D9E75" muted={!(f.phases.analytical      > 0)} />
               <Chip label="Post-analytical" val={f.phases.post_analytical > 0 ? fmt(f.phases.post_analytical) : '—'} tone="#7F77DD" muted={!(f.phases.post_analytical > 0)} />
             </div>
+
+            {/* stage-by-stage breakdown — same numbers the mobile app shows */}
+            {isOpen && (
+              <div style={{ marginTop: '1rem', borderTop: '1px solid #eef1f6', paddingTop: '0.7rem' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(180px,1.6fr) 0.5fr 1fr 1fr 1fr', gap: '0.4rem',
+                              fontSize: '0.64rem', fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: '#8892a4', padding: '0 0.2rem 0.4rem' }}>
+                  <span>Stage</span><span style={{ textAlign: 'right' }}>n</span>
+                  <span style={{ textAlign: 'right' }}>Median</span><span style={{ textAlign: 'right' }}>Avg</span><span style={{ textAlign: 'right' }}>P90</span>
+                </div>
+                {stageOrder.map(st => {
+                  const v = f.stages[st];
+                  if (!v) return null;
+                  return (
+                    <div key={st} style={{ display: 'grid', gridTemplateColumns: 'minmax(180px,1.6fr) 0.5fr 1fr 1fr 1fr', gap: '0.4rem',
+                                           alignItems: 'center', padding: '0.45rem 0.2rem', borderTop: '1px solid #f3f5f9', fontSize: '0.8rem', color: '#0f1218' }}>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <span style={{ width: 10, height: 10, borderRadius: 3, background: STAGE_META[st].color, flexShrink: 0 }} />
+                        <span><b>{STAGE_META[st].label}</b> <span style={{ color: '#8892a4', fontSize: '0.7rem' }}>· {STAGE_META[st].hint}</span></span>
+                      </span>
+                      <span style={{ textAlign: 'right', color: '#8892a4' }}>{v.n}</span>
+                      <span style={{ textAlign: 'right' }}>{fmt(v.median)}</span>
+                      <span style={{ textAlign: 'right' }}>{fmt(v.avg)}</span>
+                      <span style={{ textAlign: 'right', color: '#d97706', fontWeight: 600 }}>{fmt(v.p90)}</span>
+                    </div>
+                  );
+                })}
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap', marginTop: '0.5rem', paddingTop: '0.6rem',
+                              borderTop: '1px solid #e8ecf4', fontSize: '0.8rem' }}>
+                  <b style={{ color: '#0f1218' }}>TOTAL (n={f.total ? f.total.n : 0})</b>
+                  <span style={{ color: '#475569' }}>
+                    {f.total
+                      ? <>Median <b>{fmt(f.total.median)}</b> · Avg <b>{fmt(f.total.avg)}</b> · P90 <b style={{ color: '#d97706' }}>{fmt(f.total.p90)}</b></>
+                      : 'No sample has been reported yet'}
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
         );
       })}
