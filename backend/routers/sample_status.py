@@ -23,7 +23,7 @@ from models.models import Patient, LabResult
 from models.billing import Bill, BillItem
 from auth.deps import get_current_user, get_scope, apply_scope, Scope
 from auth.audit import write_audit
-from services.lifecycle import STATUS_ORDER
+from services.lifecycle import STATUS_ORDER, record_events_only
 from services.whatsapp import send_whatsapp
 
 router = APIRouter()
@@ -144,6 +144,7 @@ def advance_status(p: AdvanceIn, request: Request,
     now = datetime.utcnow()
     for it, b, patient in rows:
         it.status = p.status
+        record_events_only(db, patient, p.status, user.id)   # feeds the TAT report
         if p.status == "reported":
             # manually advancing straight to reported here bypasses the doctor's own
             # Validate Report screen — still record who actually did it, so it's never
@@ -234,6 +235,7 @@ def scan_receive(p: ScanIn, request: Request,
                 "test_name": _test_label(it), "patient_name": patient.patient_name}
         if cur == "collected":
             it.status = "received"
+            record_events_only(db, patient, "received", user.id)   # feeds the TAT report
             updated.append({**line, "prev_status": cur, "new_status": "received"})
         else:
             skipped.append({**line, "status": cur})

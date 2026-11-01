@@ -62,3 +62,25 @@ def record_status(db, patient, status, actor_id=None, commit=True):
         except Exception:
             pass
     return written
+
+
+def record_events_only(db, patient, status, actor_id=None):
+    """Write the sample_event(s) for `status` (idempotent per patient) WITHOUT
+    touching patient.status and without committing. Used by the per-test
+    Change Status screens and the doctor's Validate, which move bill_items /
+    stamp the patient themselves but must still feed the TAT report."""
+    now = dt.datetime.now(dt.timezone.utc)
+    for et in STATUS_EVENTS.get(status, []):
+        exists = (db.query(SampleEvent)
+                    .filter(SampleEvent.patient_id == patient.id,
+                            SampleEvent.event_type == et)
+                    .first())
+        if exists:
+            continue
+        db.add(SampleEvent(
+            tenant_id=patient.tenant_id, branch_id=patient.branch_id,
+            franchise_id=patient.registered_franchise_id,
+            patient_id=patient.id, barcode=patient.barcode,
+            event_type=et, event_at=now, actor_id=actor_id,
+        ))
+    db.flush()

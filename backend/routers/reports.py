@@ -35,6 +35,7 @@ from models.org import ReferralDoctor
 from models.commission import DoctorCommission
 from models.reports import HistoryRequest
 from services.whatsapp import send_whatsapp
+from services.lifecycle import record_events_only
 
 router = APIRouter()
 ADMIN_ROLES = (Role.SUPER_ADMIN, Role.LAB_ADMIN)
@@ -261,6 +262,9 @@ def validate_report(patient_id: int, request: Request,
     p.status = "reported"
     p.validated_by = user.id
     p.validated_at = datetime.utcnow()
+    # TAT: stamp validated + reported events (idempotent, so re-validation adds nothing)
+    record_events_only(db, p, "validated", user.id)
+    record_events_only(db, p, "reported", user.id)
 
     # Advance the actual per-test status too — this is what Change Report Status, Results,
     # and receipts read from; only touch bill_items that were genuinely ready (status='tested').
