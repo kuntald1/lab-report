@@ -63,10 +63,11 @@ export default function Bills() {
     w.document.write(`<!doctype html><html><head><title>${detail.bill_no} · Sample Labels</title>
       <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
       <style>
-        body{font-family:Arial,sans-serif;margin:0;padding:0.4rem;}
-        .label{width:100%;padding:0.5rem 0.3rem;border-bottom:1px dashed #999;page-break-inside:avoid;text-align:center;}
-        .pname{font-size:0.75rem;font-weight:700;margin:0 0 0.15rem;}
-        .tname{font-size:0.68rem;color:#333;margin:0 0 0.2rem;}
+        body{font-family:Arial,sans-serif;margin:0;padding:0.2rem;}
+        /* Sized to wrap around a sample tube, not to fill the sheet. */
+        .label{width:100%;padding:0.25rem 0.2rem;border-bottom:1px dashed #999;page-break-inside:avoid;text-align:center;}
+        .pname{font-size:0.62rem;font-weight:700;margin:0 0 0.05rem;}
+        .tname{font-size:0.55rem;color:#333;margin:0 0 0.1rem;}
         svg{max-width:100%;}
         @media print{ .label{border-bottom:1px dashed #ccc;} }
       </style></head><body>
@@ -78,7 +79,8 @@ export default function Bills() {
       <script>
         window.onload = function(){
           document.querySelectorAll('.bc').forEach(function(el){
-            JsBarcode(el, el.getAttribute('data-code'), { format:'CODE128', height:40, fontSize:12, margin:4 });
+            // width:1 = 1px per bar (the default 2 made an 8-char code ~70mm, too wide for a tube)
+            JsBarcode(el, el.getAttribute('data-code'), { format:'CODE128', width:1, height:24, fontSize:9, margin:2 });
           });
           setTimeout(function(){ window.print(); }, 300);
         };
