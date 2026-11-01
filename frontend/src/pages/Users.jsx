@@ -16,7 +16,7 @@ const ROLE_OPTIONS = [
 const roleLabel = (r) => ROLE_OPTIONS.find(o=>o.value===r)?.label || r;
 const roleColor = { pathologist:'#16a34a', technician:'#2563eb', receptionist:'#8b5cf6', phlebotomist:'#0ea5e9', franchise:'#f97316', lab_admin:'#dc2626', super_admin:'#dc2626', patient:'#64748b' };
 
-const BLANK = { full_name:'', email:'', password:'', role:'technician', franchise_id:'', branch_id:'', department_id:'', phone:'' };
+const BLANK = { full_name:'', email:'', password:'', role:'technician', franchise_id:'', branch_id:'', department_id:'', phone:'', all_branches:false };
 
 export default function Users() {
   const [users, setUsers]       = useState([]);
@@ -46,7 +46,8 @@ export default function Users() {
   const startEdit = (u) => {
     setEditingId(u.id);
     setForm({ full_name:u.full_name||'', email:u.email||'', password:'', role:u.role,
-              franchise_id:u.franchise_id ?? '', branch_id:u.branch_id ?? '', department_id:u.department_id ?? '', phone:u.phone||'' });
+              franchise_id:u.franchise_id ?? '', branch_id:u.branch_id ?? '', department_id:u.department_id ?? '', phone:u.phone||'',
+              all_branches: !!u.all_branches });
     setShowForm(true);
     window.scrollTo({ top:0, behavior:'smooth' });
   };
@@ -74,6 +75,7 @@ export default function Users() {
           franchise_id: form.franchise_id ? parseInt(form.franchise_id) : null,
           branch_id: form.branch_id ? parseInt(form.branch_id) : null,
           department_id: form.department_id ? parseInt(form.department_id) : null,
+          all_branches: !!form.all_branches,
         };
         if (form.password.trim()) payload.password = form.password;  // optional reset
         const res = await authedFetch(`/admin/users/${editingId}`, { method:'PUT',
@@ -88,6 +90,7 @@ export default function Users() {
           franchise_id: form.franchise_id ? parseInt(form.franchise_id) : null,
           branch_id: form.branch_id ? parseInt(form.branch_id) : null,
           department_id: form.department_id ? parseInt(form.department_id) : null,
+          all_branches: !!form.all_branches,
         };
         const res = await authedFetch('/admin/users', { method:'POST',
           headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
@@ -163,7 +166,14 @@ export default function Users() {
                 <select style={inp} value={form.branch_id} onChange={e=>setForm({...form,branch_id:e.target.value})}>
                   <option value="">— Any / main —</option>
                   {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-                </select></div>
+                </select>
+                <label style={{ display:'flex', alignItems:'center', gap:'0.45rem', marginTop:'0.5rem', cursor:'pointer', fontSize:'0.78rem', color:'#475569' }}>
+                  <input type="checkbox" checked={!!form.all_branches}
+                         onChange={e=>setForm({...form, all_branches:e.target.checked})}
+                         style={{ width:'15px', height:'15px', accentColor:'#f97316', cursor:'pointer' }} />
+                  <span>Can see <b>all branches</b> — reports from any branch, not just their own. New patients/bills they create still go to the branch above.</span>
+                </label>
+              </div>
             )}
             <div><label style={lbl}>Department <span style={{ textTransform:'none', letterSpacing:0, fontWeight:400 }}>(optional)</span></label>
               <select style={inp} value={form.department_id} onChange={e=>setForm({...form,department_id:e.target.value})}>

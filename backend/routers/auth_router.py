@@ -26,6 +26,7 @@ class UserOut(BaseModel):
     branch_id: Optional[int] = None
     franchise_id: Optional[int] = None
     patient_id: Optional[int] = None
+    all_branches: bool = False
 
     class Config:
         from_attributes = True

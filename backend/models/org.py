@@ -131,6 +131,10 @@ class User(Base):
     franchise_id  = Column(Integer, ForeignKey("franchises.id"), nullable=True, index=True)
     patient_id    = Column(Integer, ForeignKey("patients.id"),   nullable=True, index=True)
     department_id = Column(Integer, ForeignKey("departments.id"), nullable=True, index=True)  # which lab section this person works in — independent of role
+    # Widens a BRANCH_SCOPED_ROLES login to READ every branch in its tenant
+    # (see auth/deps.py get_scope). branch_id above stays set regardless — it is
+    # still what the patients/bills this person creates get stamped with.
+    all_branches  = Column(Boolean, nullable=False, default=False, server_default="false")
     is_active     = Column(Boolean, default=True)
     created_at    = Column(DateTime(timezone=True), server_default=func.now())
     # For a pathologist login: which referral_doctors roster row is THIS

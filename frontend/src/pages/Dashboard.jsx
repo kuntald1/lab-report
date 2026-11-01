@@ -13,12 +13,14 @@ export default function Dashboard() {
   const me = auth.user() || {};
   const role = (me.role || '').toLowerCase();
   const isFranchise = role === 'franchise';
-  // Only the two admin roles may look across branches; everyone else is pinned
-  // to the branch they belong to, and a phlebotomist cannot pick a franchise.
+  // Only the two admin roles — plus anyone flagged "all branches" in Users &
+  // Staff — may look across branches; everyone else is pinned to the branch
+  // they belong to, and a phlebotomist cannot pick a franchise.
   const isAdmin = role === 'super_admin' || role === 'lab_admin';
+  const canPickBranch = isAdmin || !!me.all_branches;
   const isPhlebotomist = role === 'phlebotomist';
   const myFranchiseId = isFranchise ? (me.franchise_id || '') : '';
-  const myBranchId = (!isAdmin && me.branch_id) ? String(me.branch_id) : '';
+  const myBranchId = (!canPickBranch && me.branch_id) ? String(me.branch_id) : '';
   const [f, setF] = useState({ franchise_id: myFranchiseId, branch_id: myBranchId, date_from: todayISO(-29), date_to: todayISO(0) });
   const [d, setD] = useState({ kpis:{}, daily:[], methods:[], breakdown:[] });
   const [loading, setLoading] = useState(true);
@@ -80,9 +82,9 @@ export default function Dashboard() {
         )}
         {!isFranchise && (
         <div><div style={{ fontSize:'0.62rem', color:'#8892a4', fontWeight:700, textTransform:'uppercase', marginBottom:'0.25rem' }}>Branch</div>
-          <select style={{ ...inp, ...(isAdmin ? {} : { background:'#f1f3f7', color:'#8892a4' }) }} disabled={!isAdmin} value={f.branch_id} onChange={e=>set('branch_id',e.target.value)}>
-            {(isAdmin || !myBranchId) && <option value="">All Branches</option>}
-            {(isAdmin ? branches : branches.filter(b => String(b.id) === myBranchId)).map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+          <select style={{ ...inp, ...(canPickBranch ? {} : { background:'#f1f3f7', color:'#8892a4' }) }} disabled={!canPickBranch} value={f.branch_id} onChange={e=>set('branch_id',e.target.value)}>
+            {(canPickBranch || !myBranchId) && <option value="">All Branches</option>}
+            {(canPickBranch ? branches : branches.filter(b => String(b.id) === myBranchId)).map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
           </select>
         </div>
         )}

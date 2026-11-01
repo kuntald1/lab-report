@@ -277,6 +277,7 @@ class UserCreate(BaseModel):
     franchise_id: Optional[int] = None
     patient_id: Optional[int] = None
     department_id: Optional[int] = None
+    all_branches: Optional[bool] = False
 
 
 @router.post("/users", dependencies=[Depends(require_roles(Role.SUPER_ADMIN, Role.LAB_ADMIN))])
@@ -306,6 +307,7 @@ def create_user(payload: UserCreate, request: Request,
         franchise_id=payload.franchise_id,
         patient_id=payload.patient_id,
         department_id=payload.department_id,
+        all_branches=bool(payload.all_branches),
     )
     db.add(new_user); db.commit(); db.refresh(new_user)
     write_audit(db, action="create", user=user, entity="user", entity_id=new_user.id,
@@ -325,6 +327,7 @@ def list_users(db: Session = Depends(get_db), scope: Scope = Depends(get_scope))
              "phone": u.phone,
              "tenant_id": u.tenant_id, "branch_id": u.branch_id,
              "franchise_id": u.franchise_id, "department_id": u.department_id,
+             "all_branches": bool(u.all_branches),
              "is_active": u.is_active} for u in rows]
 
 
@@ -335,6 +338,7 @@ class UserUpdate(BaseModel):
     franchise_id: Optional[int] = None
     branch_id: Optional[int] = None
     department_id: Optional[int] = None
+    all_branches: Optional[bool] = None   # read every branch in the tenant
     is_active: Optional[bool] = None
     password: Optional[str] = None        # if provided, resets the password
 
@@ -362,6 +366,7 @@ def update_user(user_id: int, payload: UserUpdate, request: Request,
     if payload.franchise_id is not None: target.franchise_id = payload.franchise_id
     if payload.branch_id is not None:    target.branch_id = payload.branch_id
     if payload.department_id is not None: target.department_id = payload.department_id
+    if payload.all_branches is not None: target.all_branches = bool(payload.all_branches)
     if payload.is_active is not None:    target.is_active = payload.is_active
     if payload.password:                 target.hashed_password = hash_password(payload.password)
     db.commit(); db.refresh(target)

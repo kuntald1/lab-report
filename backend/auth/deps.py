@@ -76,7 +76,11 @@ def get_scope(user: User = Depends(get_current_user)) -> Scope:
         return Scope(role=user.role, tenant_id=user.tenant_id)
 
     if user.role in BRANCH_SCOPED_ROLES:
-        return Scope(role=user.role, tenant_id=user.tenant_id, branch_id=user.branch_id,
+        # `all_branches` widens the READ scope to the whole tenant. The user's own
+        # branch_id stays on the row (that's what their new patients/bills are
+        # stamped with) — it just stops narrowing what they can see.
+        return Scope(role=user.role, tenant_id=user.tenant_id,
+                     branch_id=None if user.all_branches else user.branch_id,
                      own_user_id=user.id if user.role in OWN_RECORDS_ROLES else None)
 
     if user.role == Role.FRANCHISE:
