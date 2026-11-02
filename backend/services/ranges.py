@@ -281,5 +281,9 @@ def filter_parameters_for_tests(db, parameters, test_ids) -> list:
     wanted = declared_parameters(db, test_ids)
     if not wanted:
         return parameters
-    kept = [p for p in parameters if _match_key(p.get("name")) in wanted]
+    # Match on either spelling. A parameter carries both the analyser's short
+    # code ("HGB", what reference ranges are keyed on) and the printed name
+    # ("Hemoglobin"), so the lab can type whichever it thinks in.
+    kept = [p for p in parameters
+            if _match_key(p.get("param")) in wanted or _match_key(p.get("name")) in wanted]
     return kept or parameters
