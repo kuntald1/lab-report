@@ -8,7 +8,8 @@ from models.org import Tenant, ReferralDoctor, Franchise, User
 from models.billing import BillItem
 from models.clinical import SampleEvent, EventType, TestCatalog
 from models.commission import DoctorCommission
-from services.ranges import apply_catalog_ranges, test_ids_for_result
+from services.ranges import (apply_catalog_ranges, test_ids_for_result,
+                             filter_parameters_for_tests)
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.lib.units import cm
@@ -904,16 +905,34 @@ def generate_combined_pdf(results: list, db: Session, with_header: bool = True, 
     for idx, r in enumerate(results):
         parsed = r.parsed_data or {}
         parameters = parsed.get('parameters', [])
+        _test_ids = test_ids_for_result(db, r)
         # The lab's catalog decides the printed range — by sex and age where it
         # says so — and the Results page resolves it the same way, so screen and
         # paper never disagree. Falls back to what the analyser stored.
         try:
-            parameters = apply_catalog_ranges(db, parameters, test_ids_for_result(db, r),
+            parameters = apply_catalog_ranges(db, parameters, _test_ids,
                                               r.patient or patient, r.device_id)
         except Exception:
             pass
+        # An analyser reports everything it measures in one go (the EC 90 always
+        # sends Na/K/Cl). Print only the parameters the billed tests say they
+        # report, so a patient billed for sodium alone gets one line, not three.
+        section_title = r.test_name or f"Result #{r.id}"
+        try:
+            _kept = filter_parameters_for_tests(db, parameters, _test_ids)
+            if len(_kept) < len(parameters):
+                # The analyser named this "Electrolyte (3 params)". Once the
+                # extra parameters are off the report that title is wrong, so
+                # the billed test's own name takes over.
+                _billed = [n for (n,) in db.query(TestCatalog.name)
+                                           .filter(TestCatalog.id.in_(_test_ids)).all() if n]
+                if _billed:
+                    section_title = " + ".join(_billed)
+            parameters = _kept
+        except Exception:
+            pass
 
-        section_flow = [Paragraph(f'<u>{(r.test_name or f"Result #{r.id}").upper()}</u>', section_style)]
+        section_flow = [Paragraph(f'<u>{section_title.upper()}</u>', section_style)]
 
         if parameters:
             th_style = ParagraphStyle('th', fontName='Helvetica-Bold', fontSize=8, textColor=BLACK)

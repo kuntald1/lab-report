@@ -130,6 +130,7 @@ class TestPatch(BaseModel):
     department_id: Optional[int] = None
     disclaimer: Optional[str] = None
     interpretation: Optional[str] = None
+    parameters: Optional[str] = None
 
 
 class TestCreate(BaseModel):
@@ -145,6 +146,7 @@ class TestCreate(BaseModel):
     department_id: Optional[int] = None
     disclaimer: Optional[str] = None
     interpretation: Optional[str] = None
+    parameters: Optional[str] = None
 
 
 def _test_dict(t: TestCatalog) -> dict:
@@ -153,7 +155,8 @@ def _test_dict(t: TestCatalog) -> dict:
             "sample_type": t.sample_type, "normal_value": t.normal_value,
             "sample_tube_id": t.sample_tube_id, "assigned_doctor_id": t.assigned_doctor_id,
             "department_id": t.department_id, "tat_target_minutes": t.tat_target_minutes,
-            "disclaimer": t.disclaimer or "", "interpretation": t.interpretation or ""}
+            "disclaimer": t.disclaimer or "", "interpretation": t.interpretation or "",
+            "parameters": t.parameters or ""}
 
 
 @router.get("/tests")

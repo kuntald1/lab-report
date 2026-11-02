@@ -82,6 +82,11 @@ class TestCatalog(Base):
     tat_target_minutes = Column(Integer, nullable=True)
     disclaimer     = Column(Text, nullable=True)   # printed below this test's results on the report
     interpretation = Column(Text, nullable=True)   # printed below this test's results on the report
+    # Which of the analyser's parameters this test reports, comma-separated
+    # (e.g. "Sodium" for a sodium-only test on an analyser that always sends
+    # Na/K/Cl). Blank = print whatever the analyser sent. See services/ranges.py
+    # filter_parameters_for_tests().
+    parameters     = Column(Text, nullable=True)
     is_active     = Column(Boolean, default=True)
     created_at    = Column(DateTime(timezone=True), server_default=func.now())
 

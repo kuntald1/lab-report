@@ -41,13 +41,15 @@ export default function TestsCatalog() {
   };
 
   const BLANK_TEST = { name:'', code:'', unit:'', method:'', mrp:'', price:'', normal_value:'',
-                        sample_tube_id:'', assigned_doctor_id:'', disclaimer:'', interpretation:'' };
+                        sample_tube_id:'', assigned_doctor_id:'', disclaimer:'', interpretation:'',
+                        parameters:'' };
   const openNew  = () => setForm({ ...BLANK_TEST });
   const openEdit = (t) => setForm({
     id: t.id, name: t.name || '', code: t.code || '', unit: t.unit || '', method: t.method || '',
     mrp: t.mrp ?? '', price: t.price ?? '', normal_value: t.normal_value || '',
     sample_tube_id: t.sample_tube_id ?? '', assigned_doctor_id: t.assigned_doctor_id ?? '',
     disclaimer: t.disclaimer || '', interpretation: t.interpretation || '',
+    parameters: t.parameters || '',
   });
 
   const save = async () => {
@@ -62,6 +64,7 @@ export default function TestsCatalog() {
       assigned_doctor_id: form.assigned_doctor_id ? parseInt(form.assigned_doctor_id) : null,
       disclaimer: form.disclaimer || null,
       interpretation: form.interpretation || null,
+      parameters: form.parameters || null,
     };
     const url    = form.id ? `/b2b/tests/${form.id}` : '/b2b/tests';
     const method = form.id ? 'PUT' : 'POST';
@@ -213,6 +216,19 @@ export default function TestsCatalog() {
                   <option value="">— Unassigned —</option>
                   {doctors.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
                 </select>
+              </div>
+            </div>
+
+            <div style={{ marginBottom:'0.9rem' }}>
+              <label style={lbl}>Parameters printed on the report</label>
+              <input style={inp} value={form.parameters}
+                     onChange={e=>setForm({...form,parameters:e.target.value})}
+                     placeholder="e.g. Sodium   (leave blank for all)" />
+              <div style={{ fontSize:'0.72rem', color:'#8892a4', marginTop:'0.3rem', lineHeight:1.5 }}>
+                An analyser sends everything it measures at once — the Erba EC 90 always
+                reports Sodium, Potassium and Chloride. Name the ones this test reports,
+                separated by commas, and the rest are left off the report.
+                <b> Leave it blank to print every parameter</b>, which is what every test does now.
               </div>
             </div>
 

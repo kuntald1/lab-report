@@ -230,3 +230,56 @@ def apply_to_result(db, result, patient) -> list:
     return apply_catalog_ranges(db, parsed.get("parameters") or [],
                                 test_ids_for_result(db, result), patient,
                                 getattr(result, "device_id", None))
+
+
+# ── which parameters a test actually reports ─────────────────────────────────
+
+def _match_key(name) -> str:
+    """Comparable form of a parameter name: letters and digits only, upper-case.
+
+    So "Sodium", "SODIUM" and "sodium " are one name, and a catalog entry
+    written "Na+" still matches an analyser reporting "NA".
+    """
+    return "".join(ch for ch in (name or "").upper() if ch.isalnum())
+
+
+def declared_parameters(db, test_ids) -> set:
+    """The parameter names the given catalog tests say they report.
+
+    Empty set = no test declared a list, which means "print everything" — the
+    behaviour of every test until someone fills the field in.
+    """
+    if not test_ids:
+        return set()
+    from models.clinical import TestCatalog
+    rows = (db.query(TestCatalog.parameters)
+              .filter(TestCatalog.id.in_(list(test_ids))).all())
+    wanted = set()
+    for (raw,) in rows:
+        for piece in (raw or "").replace(";", ",").split(","):
+            key = _match_key(piece)
+            if key:
+                wanted.add(key)
+    return wanted
+
+
+def filter_parameters_for_tests(db, parameters, test_ids) -> list:
+    """Keep only the parameters the billed tests report.
+
+    An analyser sends everything it measures at once — the Erba EC 90 always
+    returns Sodium, Potassium and Chloride — so a patient billed for sodium
+    alone would otherwise see all three on their report.
+
+    Conservative on purpose: if no test declares a list, or nothing in the
+    result matches the declared names (a renamed parameter, a typo), the
+    parameters are returned untouched. Dropping every line would turn a
+    configuration slip into an empty report, which is far worse than printing
+    one extra row.
+    """
+    if not parameters:
+        return parameters
+    wanted = declared_parameters(db, test_ids)
+    if not wanted:
+        return parameters
+    kept = [p for p in parameters if _match_key(p.get("name")) in wanted]
+    return kept or parameters
