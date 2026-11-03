@@ -296,7 +296,11 @@ function ReferenceRanges({ tests, showToast }) {
     .then(r => r.ok ? r.json() : [])
     .then(d => { setRows(Array.isArray(d) ? d : []); setLoad(false); })
     .catch(() => setLoad(false));
-  useEffect(load, []);
+  // Called inside the body, not passed straight to useEffect: `load` returns a
+  // promise, and React takes whatever an effect returns to be its cleanup
+  // function. Passed directly, leaving this tab made React call that promise —
+  // "c is not a function" — which took the whole page down to a blank screen.
+  useEffect(() => { load(); }, []);
 
   const testName   = (id) => tests.find(t => t.id === id)?.name || null;
   const deviceName = (id) => devices.find(d => d.id === id)?.name || (id ? `Device #${id}` : null);
