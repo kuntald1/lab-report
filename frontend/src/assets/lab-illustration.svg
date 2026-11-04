@@ -1,0 +1,113 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 660 430" fill="none" role="img" aria-label="A lab bench: an analyser, a rack of sample tubes, a microscope and a validated report">
+  <defs>
+    <linearGradient id="teal" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#34d8bc"/><stop offset="1" stop-color="#15a68f"/>
+    </linearGradient>
+    <linearGradient id="cyan" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#6ad5f5"/><stop offset="1" stop-color="#2fa9db"/>
+    </linearGradient>
+    <linearGradient id="amber" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fbbf24"/><stop offset="1" stop-color="#f97316"/>
+    </linearGradient>
+    <linearGradient id="steel" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f1f5f9"/><stop offset="1" stop-color="#cbd5e1"/>
+    </linearGradient>
+    <linearGradient id="screen" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#edf6fa"/>
+    </linearGradient>
+    <filter id="soft" x="-25%" y="-25%" width="150%" height="150%">
+      <feDropShadow dx="0" dy="9" stdDeviation="13" flood-color="#0f172a" flood-opacity="0.10"/>
+    </filter>
+  </defs>
+
+  <!-- background blooms -->
+  <circle cx="556" cy="74"  r="88" fill="#17b69e" opacity="0.08"/>
+  <circle cx="92"  cy="322" r="74" fill="#36b5e5" opacity="0.09"/>
+
+  <!-- ══════════ the validated report, floating top-centre ══════════ -->
+  <g filter="url(#soft)">
+    <rect x="236" y="14" width="178" height="128" rx="14" fill="#ffffff" stroke="#e6ebf1" stroke-width="2"/>
+    <rect x="256" y="36" width="62" height="10" rx="5" fill="#15a68f"/>
+    <rect x="256" y="58" width="116" height="7" rx="3.5" fill="#e9eff5"/>
+    <rect x="256" y="74" width="92"  height="7" rx="3.5" fill="#e9eff5"/>
+    <rect x="256" y="90" width="108" height="7" rx="3.5" fill="#e9eff5"/>
+    <circle cx="266" cy="118" r="11" fill="#dcfce7"/>
+    <path d="M261 118l3.6 3.8 6.6-7.6" stroke="#16a34a" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="286" y="114" width="70" height="8" rx="4" fill="#dcfce7"/>
+  </g>
+
+  <!-- ══════════ analyser, left ══════════ -->
+  <g filter="url(#soft)">
+    <rect x="30" y="126" width="186" height="166" rx="16" fill="#ffffff" stroke="#e6ebf1" stroke-width="2"/>
+    <rect x="48" y="144" width="150" height="88" rx="9" fill="url(#screen)" stroke="#dce9f2" stroke-width="1.5"/>
+    <polyline points="62,210 84,192 104,200 126,166 148,178 172,150 186,158"
+              stroke="url(#teal)" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="126" cy="166" r="4.5" fill="#15a68f"/>
+    <circle cx="172" cy="150" r="4.5" fill="#15a68f"/>
+    <rect x="48" y="248" width="58" height="9" rx="4.5" fill="#e4eaf1"/>
+    <rect x="48" y="266" width="36" height="9" rx="4.5" fill="#eef2f7"/>
+    <circle cx="178" cy="262" r="13" fill="url(#amber)"/>
+    <circle cx="146" cy="262" r="7"  fill="#cfd8e3"/>
+  </g>
+
+  <!-- ══════════ tube rack, centre ══════════ -->
+  <g>
+    <g>
+      <rect x="252" y="196" width="25" height="92" rx="12.5" fill="#ffffff" stroke="#dde5ee" stroke-width="2"/>
+      <path d="M254 252h21v24a10.5 10.5 0 0 1-21 0z" fill="url(#teal)" opacity="0.9"/>
+      <rect x="247" y="188" width="35" height="14" rx="6" fill="url(#teal)"/>
+    </g>
+    <g>
+      <rect x="292" y="180" width="25" height="108" rx="12.5" fill="#ffffff" stroke="#dde5ee" stroke-width="2"/>
+      <path d="M294 236h21v40a10.5 10.5 0 0 1-21 0z" fill="url(#cyan)" opacity="0.9"/>
+      <rect x="287" y="172" width="35" height="14" rx="6" fill="url(#cyan)"/>
+    </g>
+    <g>
+      <rect x="332" y="204" width="25" height="84" rx="12.5" fill="#ffffff" stroke="#dde5ee" stroke-width="2"/>
+      <path d="M334 256h21v20a10.5 10.5 0 0 1-21 0z" fill="url(#amber)" opacity="0.9"/>
+      <rect x="327" y="196" width="35" height="14" rx="6" fill="url(#amber)"/>
+    </g>
+    <g>
+      <rect x="372" y="188" width="25" height="100" rx="12.5" fill="#ffffff" stroke="#dde5ee" stroke-width="2"/>
+      <path d="M374 242h21v34a10.5 10.5 0 0 1-21 0z" fill="url(#teal)" opacity="0.55"/>
+      <rect x="367" y="180" width="35" height="14" rx="6" fill="#15a68f" opacity="0.65"/>
+    </g>
+    <!-- the rack itself, drawn after so the tubes sit IN it -->
+    <rect x="236" y="286" width="178" height="22" rx="8" fill="#ffffff" stroke="#dde5ee" stroke-width="2"/>
+    <rect x="248" y="294" width="154" height="6" rx="3" fill="#eef3f8"/>
+  </g>
+
+  <!-- ══════════ microscope, right ══════════ -->
+  <g filter="url(#soft)">
+    <!-- base -->
+    <path d="M462 308h128a10 10 0 0 1 0 20H462a10 10 0 0 1 0-20z" fill="#ffffff" stroke="#e1e8ef" stroke-width="2"/>
+    <path d="M488 286h86c6 0 10 5 9 11l-2 13h-100l-2-13c-1-6 3-11 9-11z" fill="url(#steel)" stroke="#e1e8ef" stroke-width="2"/>
+
+    <!-- the C-shaped arm -->
+    <path d="M548 124c30 12 46 38 46 66 0 32-22 58-52 64v32"
+          stroke="#cfd9e4" stroke-width="17" stroke-linecap="round" fill="none"/>
+    <path d="M548 124c30 12 46 38 46 66 0 32-22 58-52 64v32"
+          stroke="#eef3f8" stroke-width="7" stroke-linecap="round" fill="none"/>
+
+    <!-- stage, with a slide on it -->
+    <rect x="470" y="238" width="104" height="13" rx="6" fill="#ffffff" stroke="#e1e8ef" stroke-width="2"/>
+    <rect x="492" y="229" width="58" height="10" rx="3" fill="url(#cyan)" opacity="0.9"/>
+
+    <!-- objective turret + lenses -->
+    <rect x="500" y="196" width="48" height="16" rx="8" fill="#b9c6d4"/>
+    <path d="M510 212h12l-2.5 14h-7z" fill="#94a3b8"/>
+    <path d="M530 212h12l-2.5 10h-7z" fill="#cbd5e1"/>
+
+    <!-- eyepiece, angled back -->
+    <path d="M498 196l22-62 26 9-22 62z" fill="url(#teal)"/>
+    <rect x="512" y="116" width="30" height="16" rx="7" transform="rotate(19 527 124)" fill="#15a68f"/>
+
+    <!-- focus knobs -->
+    <circle cx="592" cy="218" r="15" fill="url(#amber)"/>
+    <circle cx="592" cy="218" r="6"  fill="#ffffff" opacity="0.7"/>
+  </g>
+
+  <!-- the bench -->
+  <rect x="18" y="330" width="624" height="13" rx="6.5" fill="#e4eaf1"/>
+  <rect x="18" y="330" width="300" height="13" rx="6.5" fill="#d2e4ef"/>
+</svg>
