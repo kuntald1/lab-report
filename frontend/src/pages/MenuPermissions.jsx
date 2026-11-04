@@ -9,7 +9,7 @@ const S   = { card: { background:'#fff', border:'1px solid #e8ecf4', borderRadiu
 const MENU_ITEMS = [
   { id:'dashboard', label:'Dashboard', group:'Main Menu' },
   { id:'patients', label:'Patients', group:'Main Menu' },
-  { id:'status', label:'Change Status', group:'Main Menu' },
+  { id:'status', label:'Change Report Status', group:'Main Menu' },
   { id:'results', label:'Results', group:'Main Menu' },
   { id:'tat', label:'TAT Report', group:'Main Menu' },
   { id:'tubes', label:'Sample Tubes', group:'Master' },

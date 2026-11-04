@@ -6,7 +6,7 @@ const nav = [
   { id:'dashboard', icon:'⬡',  label:'Dashboard',    section:'main' },
   { id:'devices',   icon:'🔬', label:'Your Devices',  section:'main', badge:'devices' },
   { id:'patients',  icon:'👤', label:'Patients',      section:'main', badge:'patients' },
-  { id:'status',    icon:'🔄', label:'Change Status',  section:'main' },
+  { id:'status',    icon:'🔄', label:'Change Report Status',  section:'main' },
   { id:'results',   icon:'🧪', label:'Results',       section:'main', badge:'results' },
   { id:'tat',       icon:'⏱',  label:'TAT Report',    section:'main' },
   { id:'tubes',     icon:'🧫', label:'Sample Tubes',  section:'master' },
