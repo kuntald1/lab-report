@@ -1,6 +1,12 @@
 import { useEffect, useState } from 'react';
 import { authedFetch } from '../services/auth';
 
+// Patient-history ticks, as reception sees them on the registration form.
+const CHECK_LABEL = {
+  diabetic: 'Diabetic', on_medication: 'On medication', hypertension: 'Hypertension',
+  fasting_sample: 'Fasting sample', pregnant: 'Pregnant', children: 'Children',
+};
+
 // FastAPI 422s return `detail` as an array of {loc,msg,type} objects, not a plain string —
 // Error(arrayOfObjects) stringifies to "[object Object],[object Object]". Format it properly.
 const apiErrorText = (detail) => {
@@ -165,6 +171,36 @@ export default function ReportValidate() {
               </div>
               <button onClick={()=>setDetail(null)} style={{ border:'none', background:'transparent', fontSize:'1.4rem', color:'#c4cad6', cursor:'pointer' }}>×</button>
             </div>
+
+            {/* What reception captured when the sample was registered. Shown before
+                the trail below, which only holds what the doctor asked for later —
+                a doctor who can see this may not need to ask at all. */}
+            {(() => {
+              const cl = detail.history_checklist || {};
+              const ticked = Object.entries(cl).filter(([, v]) => v).map(([k]) => CHECK_LABEL[k] || k);
+              const note = (detail.clinical_history || '').trim();
+              if (!ticked.length && !note) return null;
+              return (
+                <div style={{ marginBottom:'1rem', background:'rgba(249,115,22,0.05)',
+                              border:'1px solid rgba(249,115,22,0.2)', borderRadius:'12px', padding:'0.9rem 1.1rem' }}>
+                  <div style={{ fontWeight:800, color:'#c2410c', fontSize:'0.78rem', marginBottom:'0.5rem',
+                                fontFamily:'Manrope,sans-serif', textTransform:'uppercase', letterSpacing:'0.05em' }}>
+                    Given at registration
+                  </div>
+                  {ticked.length > 0 && (
+                    <div style={{ display:'flex', flexWrap:'wrap', gap:'0.35rem', marginBottom: note ? '0.6rem' : 0 }}>
+                      {ticked.map(t => (
+                        <span key={t} style={{ background:'#fff', border:'1px solid rgba(249,115,22,0.3)', color:'#c2410c',
+                                               borderRadius:'20px', padding:'0.15rem 0.6rem', fontSize:'0.74rem', fontWeight:700 }}>{t}</span>
+                      ))}
+                    </div>
+                  )}
+                  {note && (
+                    <div style={{ fontSize:'0.82rem', color:'#475569', lineHeight:1.55, whiteSpace:'pre-wrap' }}>{note}</div>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* history trail: every request the doctor raised, latest on top, collapsible */}
             {detail.history_trail && detail.history_trail.length > 0 && (

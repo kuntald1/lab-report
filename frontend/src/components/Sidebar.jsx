@@ -19,6 +19,7 @@ const nav = [
   { id:'users', icon:'👥', label:'Users & Staff', section:'master' },
   { id:'menupermissions', icon:'🔐', label:'Menu Permissions', section:'master' },
   { id:'reportsettings', icon:'🖨️', label:'Report Settings', section:'master', adminOnly:true },
+  { id:'costestimate', icon:'🧮', label:'Cost Estimate', section:'master' },
   { id:'billing', icon:'🧾', label:'New Bill', section:'master' },
   { id:'bills',   icon:'📑', label:'Bills',    section:'master' },
   { id:'doctors', icon:'💵', label:'Doctor Commission', section:'master' },

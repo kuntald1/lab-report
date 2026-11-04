@@ -6,6 +6,7 @@ from routers import devices, results, patients, simulate, pdf, tcp
 from routers import auth_router, admin
 from routers import catalog, orders, tat
 from routers import sample_status
+from routers import estimates as estimates_router
 from database import engine, Base
 # Import models so their tables register on Base before create_all().
 from models import models as _core_models   # noqa: F401  (patients/devices/lab_results)
@@ -79,6 +80,7 @@ app.include_router(messaging_router.router, prefix="/api/billing", tags=["Messag
 app.include_router(reports_router.router, prefix="/api/reports", tags=["Reports"])
 app.include_router(reports2_router.router, prefix="/api/reports2", tags=["Reports2"])
 app.include_router(commission_router.router, prefix="/api/commission", tags=["Doctor Commission"])
+app.include_router(estimates_router.router, prefix="/api/estimates", tags=["Cost Estimate"])
 
 @app.get("/")
 def root():

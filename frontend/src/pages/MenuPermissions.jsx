@@ -21,6 +21,7 @@ const MENU_ITEMS = [
   { id:'testscatalog', label:'Tests Catalog', group:'Master' },
   { id:'users', label:'Users & Staff', group:'Master' },
   { id:'menupermissions', label:'Menu Permissions', group:'Master' },
+  { id:'costestimate', label:'Cost Estimate', group:'Master' },
   { id:'billing', label:'New Bill', group:'Master' },
   { id:'bills', label:'Bills', group:'Master' },
   { id:'doctors', label:'Doctor Commission', group:'Master' },
