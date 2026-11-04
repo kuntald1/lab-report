@@ -88,7 +88,7 @@ class RangeIn(BaseModel):
     # lab can set HGB once rather than on every panel that includes it.
     test_id: Optional[int] = None
     param: Optional[str] = None          # WBC, HGB, NEUT% ... NULL = whole test
-    sex: str = "A"                       # 'M' | 'F' | 'A'
+    sex: str = "A"                       # 'M' | 'F' | 'A' | 'C' (children — any sex, narrowed by the age band)
     age_min: Optional[int] = None        # years
     age_max: Optional[int] = None
     age_min_months: Optional[int] = None # infants; used only once a patient's
@@ -108,7 +108,7 @@ def _clean_range(p: RangeIn) -> dict:
     d["param"] = (d.get("param") or "").strip() or None
     d["method"] = (d.get("method") or "").strip() or None
     d["sex"] = (d.get("sex") or "A").strip()[:1].upper()
-    if d["sex"] not in ("M", "F", "A"):
+    if d["sex"] not in ("M", "F", "A", "C"):
         d["sex"] = "A"
     return d
 

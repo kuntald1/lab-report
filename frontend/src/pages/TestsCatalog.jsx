@@ -274,7 +274,7 @@ const BLANK_RANGE = { param:'', test_id:'', sex:'A', age_min:'', age_max:'',
                       age_min_months:'', age_max_months:'', low:'', high:'',
                       critical_low:'', critical_high:'', unit:'', text:'', method:'', device_id:'' };
 
-const SEX_LABEL = { M:'Male', F:'Female', A:'Any' };
+const SEX_LABEL = { M:'Male', F:'Female', A:'Any', C:'Children' };
 
 function ReferenceRanges({ tests, showToast }) {
   const [rows, setRows]     = useState([]);
@@ -414,7 +414,7 @@ function ReferenceRanges({ tests, showToast }) {
             <thead>
               <tr style={{ color:'#8892a4', fontSize:'0.68rem', textTransform:'uppercase', letterSpacing:'0.06em' }}>
                 <th style={{ textAlign:'left',  padding:'0.4rem 0.5rem' }}>Applies to</th>
-                <th style={{ textAlign:'left',  padding:'0.4rem 0.5rem' }}>Sex</th>
+                <th style={{ textAlign:'left',  padding:'0.4rem 0.5rem' }}>Patient Group</th>
                 <th style={{ textAlign:'left',  padding:'0.4rem 0.5rem' }}>Age</th>
                 <th style={{ textAlign:'left',  padding:'0.4rem 0.5rem' }}>Range</th>
                 <th style={{ textAlign:'left',  padding:'0.4rem 0.5rem' }}>Critical</th>
@@ -499,9 +499,10 @@ function ReferenceRanges({ tests, showToast }) {
 
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'0.9rem', marginBottom:'0.9rem' }}>
               <div>
-                <label style={lbl}>Sex</label>
+                <label style={lbl}>Patient Group</label>
                 <select style={inp} value={form.sex} onChange={e=>setForm({ ...form, sex:e.target.value })}>
                   <option value="A">Any</option><option value="M">Male</option><option value="F">Female</option>
+                  <option value="C">Children</option>
                 </select>
               </div>
               <div>

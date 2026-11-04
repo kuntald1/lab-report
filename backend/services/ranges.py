@@ -67,7 +67,9 @@ def _row_matches(row, sex, years, months, device_id) -> bool:
     if row.device_id is not None and row.device_id != device_id:
         return False
 
-    if (row.sex or "A").upper() not in ("A", sex):
+    # 'C' (children) says nothing about sex — the age band on the row is what
+    # narrows it, exactly like 'A'.
+    if (row.sex or "A").upper() not in ("A", "C", sex):
         return False
 
     has_months = row.age_min_months is not None or row.age_max_months is not None
@@ -108,6 +110,8 @@ def _specificity(row, test_ids, device_id=None) -> tuple:
     """
     aged = 1 if any(v is not None for v in
                     (row.age_min, row.age_max, row.age_min_months, row.age_max_months)) else 0
+    # Only M/F actually narrow by sex. 'C' is a label for an age-banded row,
+    # and it is the age band that earns it its specificity.
     sexed = 1 if (row.sex or "A").upper() in ("M", "F") else 0
     named_test = 1 if (row.test_id is not None and row.test_id in test_ids) else 0
     # A row written for this analyser outranks one written for all of them.

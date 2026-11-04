@@ -10,7 +10,7 @@ const S   = { card: { background:'#fff', border:'1px solid #e8ecf4', borderRadiu
 const sampleColor = { Blood:'#fff1ee', Serum:'#eff6ff', Urine:'#fefce8', Plasma:'#fdf4ff', Sodium:'#f0fdf4', Potassium:'#fef9c3', Electrolyte:'#f0fdf4' };
 const sampleText  = { Blood:'#c2410c', Serum:'#1d4ed8', Urine:'#854d0e', Plasma:'#7e22ce', Sodium:'#16a34a', Potassium:'#854d0e', Electrolyte:'#16a34a' };
 
-const BLANK_CHECKLIST = { diabetic:false, on_medication:false, hypertension:false, fasting_sample:false, pregnant:false, children:false };
+const BLANK_CHECKLIST = { diabetic:false, on_medication:false, hypertension:false, fasting_sample:false, pregnant:false };
 const BLANK = { patient_name:'', age:'', gender:'Male', doctor_name:'Self', referral_doctor_id:null, barcode:'', abha_number:'', phone:'', branch_id:'', registered_franchise_id:'', organization_id:'', checklist:{ ...BLANK_CHECKLIST }, note:'' };
 
 // pretty-print a 14-digit ABHA as XX-XXXX-XXXX-XXXX
@@ -258,7 +258,7 @@ export default function Patients({ onBill = () => {} }) {
           <div style={{ background:'rgba(249,115,22,0.04)', border:'1px solid rgba(249,115,22,0.15)', borderRadius:'12px', padding:'1rem 1.3rem', marginBottom:'1rem' }}>
             <div style={{ fontWeight:800, color:'#f97316', fontSize:'0.82rem', marginBottom:'0.7rem' }}>Patient History</div>
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.4rem 2rem', marginBottom:'0.7rem' }}>
-              {[['diabetic','Diabetic?'],['on_medication','On medication?'],['hypertension','Hypertension?'],['fasting_sample','Fasting sample?'],['pregnant','Pregnant?'],['children','Children?']].map(([k,label])=>(
+              {[['diabetic','Diabetic?'],['on_medication','On medication?'],['hypertension','Hypertension?'],['fasting_sample','Fasting sample?'],['pregnant','Pregnant?']].map(([k,label])=>(
                 <label key={k} style={{ display:'flex', alignItems:'center', gap:'0.5rem', fontSize:'0.83rem', color:'#475569', cursor:'pointer' }}>
                   <input type="checkbox" checked={!!(form.checklist&&form.checklist[k])} onChange={e=>setForm({...form,checklist:{...(form.checklist||{}),[k]:e.target.checked}})} style={{ accentColor:'#f97316', width:'15px', height:'15px' }} />
                   {label}

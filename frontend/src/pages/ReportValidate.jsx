@@ -4,7 +4,7 @@ import { authedFetch } from '../services/auth';
 // Patient-history ticks, as reception sees them on the registration form.
 const CHECK_LABEL = {
   diabetic: 'Diabetic', on_medication: 'On medication', hypertension: 'Hypertension',
-  fasting_sample: 'Fasting sample', pregnant: 'Pregnant', children: 'Children',
+  fasting_sample: 'Fasting sample', pregnant: 'Pregnant',
 };
 
 // FastAPI 422s return `detail` as an array of {loc,msg,type} objects, not a plain string —

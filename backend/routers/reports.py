@@ -445,9 +445,12 @@ def fill_history(patient_id: int, payload: FillHistoryIn, request: Request,
     req = (db.query(HistoryRequest).filter(HistoryRequest.patient_id == p.id,
            HistoryRequest.status == "open").order_by(HistoryRequest.id.desc()).first())
 
-    # store the answer onto the patient + close the request
-    p.clinical_history = payload.answer
-    p.history_checklist = payload.answer_checklist
+    # Close the request and store the answer ON THE REQUEST — never on the
+    # patient. The patient's clinical_history / history_checklist is what
+    # reception captured at registration, and overwriting it here destroyed
+    # that: the doctor's "Given at registration" box ended up showing the
+    # answer to their own question, with every tick cleared. Each answer lives
+    # on its own HistoryRequest row, which is what the history trail reads.
     p.needs_history = False
     if req:
         req.status = "answered"
