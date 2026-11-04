@@ -52,21 +52,25 @@ export default function Login({ onLogin }) {
   };
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', background: '#ffffff', fontFamily: 'Manrope,sans-serif' }}>
+    // height, not minHeight, and the children shrink to fit: the page is meant
+    // to sit on one screen at 100% zoom with no scrollbar at all.
+    <div style={{ height: '100vh', overflow: 'hidden', display: 'flex',
+                  background: '#ffffff', fontFamily: 'Manrope,sans-serif' }}>
 
       {/* ── left: sign in ── */}
-      <div style={{ flex: '0 0 440px', maxWidth: '100%', display: 'flex', alignItems: 'center',
-                    justifyContent: 'center', padding: '2rem 1.6rem', background: '#ffffff' }}>
+      <div style={{ flex: '0 0 440px', maxWidth: '100%', minHeight: 0, display: 'flex', alignItems: 'center',
+                    justifyContent: 'center', padding: 'clamp(1rem, 3vh, 2rem) 1.6rem',
+                    background: '#ffffff', overflowY: 'auto' }}>
         <div style={{ width: '100%', maxWidth: '360px' }}>
 
           <img src={healthycianLogo} alt="Healthycian"
                style={{ width: '100%', maxWidth: '300px', display: 'block', marginBottom: '0.5rem' }} />
-          <div style={{ fontSize: '0.78rem', color: '#64748b', letterSpacing: '0.02em', marginBottom: '2.2rem' }}>
+          <div style={{ fontSize: '0.78rem', color: '#64748b', letterSpacing: '0.02em', marginBottom: 'clamp(1rem, 3vh, 2.2rem)' }}>
             Laboratory Information System
           </div>
 
           <div style={{ fontSize: '1.65rem', fontWeight: 800, color: '#0f172a', textAlign: 'center' }}>Welcome !</div>
-          <div style={{ fontSize: '0.86rem', color: '#64748b', textAlign: 'center', marginBottom: '1.8rem' }}>
+          <div style={{ fontSize: '0.86rem', color: '#64748b', textAlign: 'center', marginBottom: 'clamp(1rem, 2.5vh, 1.8rem)' }}>
             Login to your account to continue
           </div>
 
@@ -113,12 +117,12 @@ export default function Login({ onLogin }) {
 
       {/* ── right: what the lab does. Hidden on a narrow screen. ── */}
       <div className="login-side"
-           style={{ flex: 1, minWidth: 0, position: 'relative', overflow: 'hidden',
+           style={{ flex: 1, minWidth: 0, minHeight: 0, position: 'relative', overflow: 'hidden',
                     background: 'linear-gradient(135deg,#eef6f4 0%,#e4f1fb 55%,#f3f8fd 100%)',
                     display: 'flex', flexDirection: 'column', justifyContent: 'center',
-                    padding: '2.2rem 3.2rem' }}>
+                    gap: '1.2rem', padding: 'clamp(1.2rem, 3vh, 2.2rem) clamp(1.5rem, 3vw, 3.2rem)' }}>
 
-        <div style={{ position: 'relative', maxWidth: '620px' }}>
+        <div style={{ position: 'relative', flex: '0 0 auto', maxWidth: '620px' }}>
           <div style={{ fontSize: 'clamp(1.9rem, 3.2vw, 2.9rem)', fontWeight: 800, color: '#0f172a',
                         lineHeight: 1.18, letterSpacing: '-0.02em' }}>
             Smarter Lab<br />Management for a<br />
@@ -132,11 +136,13 @@ export default function Login({ onLogin }) {
           </div>
         </div>
 
+        {/* flex:1 + minHeight:0 lets this shrink on a short screen instead of
+            pushing the flow strip off the bottom and summoning a scrollbar */}
         <img src={labArt} alt="" aria-hidden="true"
-             style={{ position: 'relative', display: 'block', width: '100%', maxWidth: '620px',
-                      marginTop: '1.6rem' }} />
+             style={{ position: 'relative', flex: '1 1 auto', minHeight: 0, width: '100%',
+                      maxWidth: '620px', objectFit: 'contain', objectPosition: 'left center' }} />
 
-        <div style={{ position: 'relative', marginTop: '1.4rem', background: 'rgba(255,255,255,0.78)',
+        <div style={{ position: 'relative', flex: '0 0 auto', background: 'rgba(255,255,255,0.78)',
                       border: '1px solid rgba(255,255,255,0.9)', borderRadius: '16px',
                       padding: '1.3rem 1.1rem', backdropFilter: 'blur(4px)',
                       boxShadow: '0 10px 40px rgba(15,23,42,0.07)',
