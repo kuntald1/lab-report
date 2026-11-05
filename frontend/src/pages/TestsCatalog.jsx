@@ -123,7 +123,10 @@ export default function TestsCatalog() {
           <p style={{ color:'#8892a4', fontSize:'0.82rem', marginTop:'0.2rem' }}>{tests.length} tests · set MRP, price, normal value, sample tube &amp; assigned doctor</p>
         </div>
         {tab === 'tests' && (
-          <button onClick={openNew} style={{ background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', border:'none', borderRadius:'10px', padding:'0.7rem 1.3rem', fontWeight:700, cursor:'pointer', fontFamily:'Manrope,sans-serif', whiteSpace:'nowrap', boxShadow:'0 4px 14px rgba(249,115,22,0.3)' }}>+ Add Test</button>
+          <div style={{ display:'flex', gap:'0.5rem', alignItems:'center', flexWrap:'wrap' }}>
+            <ExcelBar kind="tests" noun="Tests" showToast={showToast} onDone={load} />
+            <button onClick={openNew} style={{ background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', border:'none', borderRadius:'10px', padding:'0.7rem 1.3rem', fontWeight:700, cursor:'pointer', fontFamily:'Manrope,sans-serif', whiteSpace:'nowrap', boxShadow:'0 4px 14px rgba(249,115,22,0.3)' }}>+ Add Test</button>
+          </div>
         )}
       </div>
 
@@ -259,6 +262,147 @@ export default function TestsCatalog() {
   );
 }
 
+/**
+ * Download the sheet, edit it in Excel, upload it back.
+ *
+ * An upload is always validated first with dry_run, so the lab sees "3 new,
+ * 12 updated" and can still back out. Nothing is written until they confirm,
+ * and a sheet with any error at all writes nothing — the server reports every
+ * bad row at once rather than one per attempt.
+ */
+function ExcelBar({ kind, noun, showToast, onDone }) {
+  const [busy, setBusy]       = useState('');
+  const [preview, setPreview] = useState(null);   // { file, created, updated }
+  const [errs, setErrs]       = useState(null);   // { message, errors[], error_count }
+  const inputId = `xl-${kind}`;
+
+  async function download() {
+    setBusy('export');
+    try {
+      const res = await authedFetch(`/catalog-xlsx/export/${kind}`);
+      if (!res.ok) throw new Error();
+      const url = URL.createObjectURL(await res.blob());
+      const a = document.createElement('a');
+      a.href = url; a.download = `${kind}.xlsx`;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+      showToast('success', `${noun} downloaded`);
+    } catch { showToast('error', 'Export failed'); }
+    finally { setBusy(''); }
+  }
+
+  async function send(file, dry) {
+    const fd = new FormData();
+    fd.append('file', file);
+    const res = await authedFetch(`/catalog-xlsx/import/${kind}?dry_run=${dry}`,
+                                  { method:'POST', body: fd });
+    let body = null;
+    try { body = await res.json(); } catch { /* keep null */ }
+    return { ok: res.ok, body };
+  }
+
+  async function picked(e) {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = '';                    // so the same file can be picked twice
+    if (!file) return;
+    setBusy('import');
+    const { ok, body } = await send(file, true);
+    setBusy('');
+    if (!ok) {
+      const d = body && body.detail;
+      setErrs(typeof d === 'string' ? { message: d, errors: [] }
+                                    : (d || { message: 'That file could not be read', errors: [] }));
+      return;
+    }
+    if (!body.created && !body.updated) { showToast('error', 'That sheet has no rows to import'); return; }
+    setPreview({ file, ...body });
+  }
+
+  async function confirm() {
+    setBusy('import');
+    const { ok, body } = await send(preview.file, false);
+    setBusy(''); setPreview(null);
+    if (!ok) {
+      const d = body && body.detail;
+      setErrs(typeof d === 'string' ? { message: d, errors: [] } : (d || { message:'Import failed', errors: [] }));
+      return;
+    }
+    showToast('success', body.message);
+    onDone && onDone();
+  }
+
+  const btn = {
+    background:'#fff', border:'1.5px solid #e8ecf4', borderRadius:'10px', padding:'0.6rem 1rem',
+    fontWeight:700, cursor:'pointer', fontFamily:'Manrope,sans-serif', fontSize:'0.8rem',
+    color:'#55617a', whiteSpace:'nowrap',
+  };
+  const btnStyle = btn;
+
+  return (
+    <>
+      <button onClick={download} disabled={!!busy} style={btnStyle} title={`Download ${noun} as Excel`}>
+        {busy === 'export' ? 'Preparing…' : '⭳  Export Excel'}
+      </button>
+      <label htmlFor={inputId} style={{ ...btnStyle, display:'inline-block' }} title={`Upload an edited ${noun} sheet`}>
+        {busy === 'import' ? 'Checking…' : '⭱  Import Excel'}
+      </label>
+      <input id={inputId} type="file" accept=".xlsx" onChange={picked} style={{ display:'none' }} />
+
+      {preview && (
+        <div onClick={()=>setPreview(null)} style={OVERLAY}>
+          <div onClick={e=>e.stopPropagation()} style={{ ...SHEET, width:'430px' }}>
+            <div style={MODAL_TITLE}>Import {noun}?</div>
+            <div style={{ color:'#8892a4', fontSize:'0.85rem', lineHeight:1.6, marginBottom:'1.3rem' }}>
+              <div><strong style={{ color:'#16a34a' }}>{preview.created}</strong> will be added.</div>
+              <div><strong style={{ color:'#f97316' }}>{preview.updated}</strong> will be updated.</div>
+              <div style={{ marginTop:'0.6rem' }}>Nothing is deleted — anything missing from the sheet is left as it is.</div>
+            </div>
+            <div style={{ display:'flex', gap:'0.6rem', justifyContent:'flex-end' }}>
+              <button onClick={()=>setPreview(null)} style={GHOST}>Cancel</button>
+              <button onClick={confirm} disabled={busy==='import'} style={PRIMARY}>
+                {busy==='import' ? 'Importing…' : 'Import'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {errs && (
+        <div onClick={()=>setErrs(null)} style={OVERLAY}>
+          <div onClick={e=>e.stopPropagation()} style={{ ...SHEET, width:'620px', maxHeight:'80vh', overflowY:'auto' }}>
+            <div style={MODAL_TITLE}>Nothing was imported</div>
+            <div style={{ color:'#8892a4', fontSize:'0.85rem', marginBottom:'1rem' }}>
+              {errs.message}{errs.error_count > (errs.errors||[]).length
+                ? ` (showing the first ${(errs.errors||[]).length} of ${errs.error_count})` : ''}
+            </div>
+            {(errs.errors||[]).length > 0 && (
+              <ul style={{ margin:0, paddingLeft:'1.1rem', color:'#b91c1c', fontSize:'0.8rem', lineHeight:1.8 }}>
+                {errs.errors.map((e,i) => <li key={i}>{e}</li>)}
+              </ul>
+            )}
+            <div style={{ display:'flex', justifyContent:'flex-end', marginTop:'1.4rem' }}>
+              <button onClick={()=>setErrs(null)} style={PRIMARY}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+const OVERLAY = { position:'fixed', inset:0, zIndex:9996, background:'rgba(15,18,24,0.45)',
+                  display:'flex', alignItems:'center', justifyContent:'center', padding:'1rem' };
+const SHEET   = { background:'#fff', borderRadius:'16px', padding:'1.8rem', maxWidth:'95vw',
+                  boxShadow:'0 20px 60px rgba(15,18,24,0.3)' };
+const MODAL_TITLE = { fontFamily:'Manrope,sans-serif', fontSize:'1.15rem', fontWeight:800,
+                      color:'#0f1218', marginBottom:'0.5rem' };
+const GHOST   = { background:'transparent', color:'#8892a4', border:'1px solid #e8ecf4', borderRadius:'10px',
+                  padding:'0.65rem 1.3rem', cursor:'pointer', fontWeight:600, fontFamily:'Manrope,sans-serif' };
+const PRIMARY = { background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', border:'none',
+                  borderRadius:'10px', padding:'0.65rem 1.5rem', cursor:'pointer', fontWeight:700,
+                  fontFamily:'Manrope,sans-serif' };
+
+
 function iconBtn(color) {
   return { display:'inline-flex', alignItems:'center', justifyContent:'center', width:'30px', height:'30px',
            borderRadius:'8px', cursor:'pointer', background:color+'12', color, border:'1px solid '+color+'33' };
@@ -270,11 +414,42 @@ function iconBtn(color) {
 // whether it reads HIGH or LOW. Edited here rather than in code, because they
 // differ by lab, and because a correction applies to reports already issued.
 // ─────────────────────────────────────────────────────────────────────────────
-const BLANK_RANGE = { param:'', test_id:'', sex:'A', age_min:'', age_max:'',
+// `scope` is not stored — it is test_id put into words. It exists because
+// "common or just this test" is a decision, and as one more line in a list of
+// test names it did not read like one, which is where the confusion started.
+// `_was` remembers the test_id a row was opened with, so turning a common row
+// into a per-test one can offer to copy rather than silently move it.
+const BLANK_RANGE = { param:'', test_id:'', scope:'common', _was:null, sex:'A', age_min:'', age_max:'',
                       age_min_months:'', age_max_months:'', low:'', high:'',
                       critical_low:'', critical_high:'', unit:'', text:'', method:'', device_id:'' };
 
 const SEX_LABEL = { M:'Male', F:'Female', A:'Any', C:'Children' };
+
+const PILL = { fontSize:'0.62rem', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.07em',
+               padding:'4px 11px', borderRadius:'100px', whiteSpace:'nowrap' };
+const PILL_COMMON = { ...PILL, background:'rgba(23,163,116,0.1)', border:'1px solid rgba(23,163,116,0.28)', color:'#15855f' };
+const PILL_TEST   = { ...PILL, background:'rgba(249,115,22,0.08)', border:'1px solid rgba(249,115,22,0.2)', color:'#f97316' };
+
+/** One of the two Applies-to choices. */
+function ScopeOption({ on, title, sub, onPick }) {
+  return (
+    <div onClick={onPick}
+         style={{ border:`1.5px solid ${on ? '#f97316' : '#e8ecf4'}`, borderRadius:'11px',
+                  padding:'0.75rem 0.85rem', background: on ? 'rgba(249,115,22,0.05)' : '#fff',
+                  boxShadow: on ? '0 0 0 3px rgba(249,115,22,0.09)' : 'none',
+                  display:'flex', gap:'0.6rem', alignItems:'flex-start', cursor:'pointer' }}>
+      <span style={{ width:'16px', height:'16px', borderRadius:'50%', flex:'0 0 auto', marginTop:'1px',
+                     border:`1.5px solid ${on ? '#f97316' : '#c9d2df'}`, background:'#fff',
+                     display:'flex', alignItems:'center', justifyContent:'center' }}>
+        {on && <span style={{ width:'8px', height:'8px', borderRadius:'50%', background:'#f97316' }} />}
+      </span>
+      <span>
+        <span style={{ display:'block', fontSize:'0.84rem', fontWeight:700, lineHeight:1.25 }}>{title}</span>
+        <span style={{ display:'block', fontSize:'0.71rem', color:'#8892a4', marginTop:'0.2rem', lineHeight:1.4 }}>{sub}</span>
+      </span>
+    </div>
+  );
+}
 
 function ReferenceRanges({ tests, showToast }) {
   const [rows, setRows]     = useState([]);
@@ -284,6 +459,8 @@ function ReferenceRanges({ tests, showToast }) {
   const [saving, setSaving] = useState(false);
   const [del, setDel]       = useState(null);
   const [devices, setDevices] = useState([]);
+  const [testQ, setTestQ]   = useState('');   // the picker's own search
+  const [ask, setAsk]       = useState(null); // common → this-test-only: copy or move?
 
   // The analyser list, so a methodology can be pinned to the machine that
   // actually produced the value rather than to every machine reporting it.
@@ -306,33 +483,43 @@ function ReferenceRanges({ tests, showToast }) {
   const deviceName = (id) => devices.find(d => d.id === id)?.name || (id ? `Device #${id}` : null);
 
   const num = (v) => (v === '' || v === null || v === undefined) ? null : Number(v);
+  const payloadOf = (f) => ({
+    param: f.param.trim(), test_id: f.scope === 'test' && f.test_id ? Number(f.test_id) : null,
+    sex: f.sex,
+    age_min: num(f.age_min), age_max: num(f.age_max),
+    age_min_months: num(f.age_min_months), age_max_months: num(f.age_max_months),
+    low: num(f.low), high: num(f.high),
+    critical_low: num(f.critical_low), critical_high: num(f.critical_high),
+    unit: f.unit.trim() || null, text: f.text.trim() || null,
+    method: f.method.trim() || null,
+    device_id: f.device_id ? Number(f.device_id) : null,
+  });
+
+  /** id null = create a new row; otherwise update that one. */
+  const persist = async (id, payload, okMsg) => {
+    setSaving(true);
+    try {
+      const res = await authedFetch(
+        id ? `/catalog/reference-ranges/${id}` : '/catalog/reference-ranges',
+        { method: id ? 'PUT' : 'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify(payload) });
+      if (!res.ok) throw new Error();
+      setAsk(null); setForm(null); load();
+      showToast('success', okMsg);
+    } catch { showToast('error', 'Save failed'); }
+    finally { setSaving(false); }
+  };
+
   const save = async () => {
     if (!form.param.trim()) { showToast('error', 'Parameter is required'); return; }
+    if (form.scope === 'test' && !form.test_id) { showToast('error', 'Pick the test this range is for'); return; }
     if (form.low === '' && form.high === '' && !form.text.trim() && !form.method.trim()) {
       showToast('error', 'Give a low, a high, a text range, or a method'); return;
     }
-    setSaving(true);
-    const payload = {
-      param: form.param.trim(), test_id: form.test_id ? Number(form.test_id) : null,
-      sex: form.sex,
-      age_min: num(form.age_min), age_max: num(form.age_max),
-      age_min_months: num(form.age_min_months), age_max_months: num(form.age_max_months),
-      low: num(form.low), high: num(form.high),
-      critical_low: num(form.critical_low), critical_high: num(form.critical_high),
-      unit: form.unit.trim() || null, text: form.text.trim() || null,
-      method: form.method.trim() || null,
-      device_id: form.device_id ? Number(form.device_id) : null,
-    };
-    try {
-      const res = await authedFetch(
-        form.id ? `/catalog/reference-ranges/${form.id}` : '/catalog/reference-ranges',
-        { method: form.id ? 'PUT' : 'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify(payload) });
-      if (!res.ok) throw new Error();
-      setForm(null); load();
-      showToast('success', form.id ? 'Range updated' : 'Range added');
-    } catch { showToast('error', 'Save failed'); }
-    finally { setSaving(false); }
+    // Narrowing a common row to one test would quietly strip the default from
+    // every other test, so ask which was meant rather than guessing.
+    if (form.id && form._was === '' && form.scope === 'test') { setAsk(form); return; }
+    await persist(form.id || null, payloadOf(form), form.id ? 'Range updated' : 'Range added');
   };
 
   const doDelete = async () => {
@@ -364,16 +551,35 @@ function ReferenceRanges({ tests, showToast }) {
   const q = search.trim().toLowerCase();
   const shown = rows.filter(r => !q || (r.param||'').toLowerCase().includes(q)
                                    || (testName(r.test_id)||'').toLowerCase().includes(q));
-  // Grouped by parameter, so every variant of HGB sits together and a gap in
-  // the set (a sex or an age band nobody filled in) is obvious at a glance.
-  const groups = [];
-  shown.forEach(r => {
-    const key = (r.param || '').toUpperCase();
-    let g = groups.find(x => x.key === key);
-    if (!g) { g = { key, rows: [] }; groups.push(g); }
-    g.rows.push(r);
+  // Grouped the way the lab reads it: the shared ranges first, then one block
+  // per test. Grouping by parameter instead scattered a single test's settings
+  // across the page, which is what staff reported as confusing.
+  const byParam = (a, b) =>
+    (a.param||'').toUpperCase().localeCompare((b.param||'').toUpperCase()) || (a.id - b.id);
+  const common = shown.filter(r => !r.test_id).sort(byParam);
+  const perTest = new Map();
+  shown.filter(r => r.test_id).forEach(r => {
+    if (!perTest.has(r.test_id)) perTest.set(r.test_id, []);
+    perTest.get(r.test_id).push(r);
   });
-  groups.sort((a,b) => a.key.localeCompare(b.key));
+  const groups = [];
+  if (common.length) groups.push({ key:'__common', common:true, title:'Shared ranges', rows:common });
+  [...perTest.entries()]
+    .map(([id, rs]) => ({ key:'t'+id, common:false, title: testName(id) || `Test #${id}`,
+                          rows: rs.sort(byParam) }))
+    .sort((a, b) => a.title.localeCompare(b.title))
+    .forEach(g => groups.push(g));
+
+  // Which tests name this parameter in "Parameters printed on the report".
+  // That field is optional and blank means "print whatever the analyser sent",
+  // so a test can report the parameter without turning up here — which is why
+  // the warning that uses this always ends with "and any other test".
+  const testsDeclaring = (param) => {
+    const p = (param || '').trim().toUpperCase();
+    if (!p) return [];
+    return tests.filter(t => String(t.parameters || '').split(',')
+                               .map(s => s.trim().toUpperCase()).filter(Boolean).includes(p));
+  };
 
   return (
     <>
@@ -382,7 +588,8 @@ function ReferenceRanges({ tests, showToast }) {
         <input style={{ ...inp, maxWidth:'320px' }} placeholder="Search parameter or test…"
                value={search} onChange={e=>setSearch(e.target.value)} />
         <div style={{ flex:1 }} />
-        <button onClick={()=>setForm({ ...BLANK_RANGE })}
+        <ExcelBar kind="reference-ranges" noun="Reference Ranges" showToast={showToast} onDone={load} />
+        <button onClick={()=>{ setTestQ(''); setForm({ ...BLANK_RANGE }); }}
                 style={{ background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', border:'none',
                          borderRadius:'10px', padding:'0.7rem 1.3rem', fontWeight:700, cursor:'pointer',
                          fontFamily:'Manrope,sans-serif', whiteSpace:'nowrap',
@@ -392,9 +599,10 @@ function ReferenceRanges({ tests, showToast }) {
       <div style={{ ...S.card, marginBottom:'1.2rem', padding:'0.9rem 1.2rem', background:'#fffbeb',
                     border:'1px solid #fde68a', color:'#92400e', fontSize:'0.8rem', lineHeight:1.6 }}>
         These decide the reference range printed on the report and whether a value reads HIGH or LOW.
-        A range with no test applies wherever that parameter is reported; adding one for a specific test
-        overrides it. Where several could apply, the one matching the patient's age wins, then sex, then test.
-        A parameter with no range here keeps whatever the analyser sent. A methodology can be pinned to one analyser; a row naming yours beats one that names none.
+        A <b>common</b> range applies wherever that parameter is reported; a <b>this test only</b> range
+        overrides it for that one test. Where several could apply, the one matching the patient's age wins,
+        then sex, then test. A parameter with no range here keeps whatever the analyser sent. A methodology
+        can be pinned to one analyser; a row naming yours beats one that names none.
       </div>
 
       {loading ? (
@@ -406,14 +614,23 @@ function ReferenceRanges({ tests, showToast }) {
         </div>
       ) : groups.map(g => (
         <div key={g.key} style={{ ...S.card, marginBottom:'0.9rem', padding:'1.1rem 1.4rem' }}>
-          <div style={{ fontFamily:'Manrope,sans-serif', fontWeight:800, fontSize:'0.95rem',
-                        color:'#0f1218', marginBottom:'0.7rem' }}>
-            {g.key} <span style={{ color:'#8892a4', fontWeight:600, fontSize:'0.78rem' }}>· {g.rows.length} range{g.rows.length>1?'s':''}</span>
+          <div style={{ display:'flex', alignItems:'center', gap:'0.6rem', marginBottom:'0.7rem', flexWrap:'wrap' }}>
+            <span style={g.common ? PILL_COMMON : PILL_TEST}>{g.common ? 'Common · all tests' : 'This test only'}</span>
+            <span style={{ fontFamily:'Manrope,sans-serif', fontWeight:800, fontSize:'0.95rem', color:'#0f1218' }}>
+              {g.title}
+            </span>
+            <span style={{ color:'#8892a4', fontWeight:600, fontSize:'0.78rem' }}>· {g.rows.length} range{g.rows.length>1?'s':''}</span>
           </div>
+          {g.common && (
+            <div style={{ fontSize:'0.74rem', color:'#92400e', background:'#fffbeb', border:'1px solid #fde68a',
+                          borderRadius:'8px', padding:'0.55rem 0.75rem', marginBottom:'0.8rem', lineHeight:1.5 }}>
+              These apply wherever the parameter is reported. Changing one here changes it for every test.
+            </div>
+          )}
           <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'0.82rem' }}>
             <thead>
               <tr style={{ color:'#8892a4', fontSize:'0.68rem', textTransform:'uppercase', letterSpacing:'0.06em' }}>
-                <th style={{ textAlign:'left',  padding:'0.4rem 0.5rem' }}>Applies to</th>
+                <th style={{ textAlign:'left',  padding:'0.4rem 0.5rem' }}>Parameter</th>
                 <th style={{ textAlign:'left',  padding:'0.4rem 0.5rem' }}>Patient Group</th>
                 <th style={{ textAlign:'left',  padding:'0.4rem 0.5rem' }}>Age</th>
                 <th style={{ textAlign:'left',  padding:'0.4rem 0.5rem' }}>Range</th>
@@ -425,10 +642,7 @@ function ReferenceRanges({ tests, showToast }) {
             <tbody>
               {g.rows.map(r => (
                 <tr key={r.id} style={{ borderTop:'1px solid #f1f4f9' }}>
-                  <td style={{ padding:'0.5rem' }}>
-                    {r.test_id ? (testName(r.test_id) || `Test #${r.test_id}`)
-                               : <span style={{ color:'#8892a4' }}>All tests</span>}
-                  </td>
+                  <td style={{ padding:'0.5rem', fontWeight:700 }}>{r.param || '—'}</td>
                   <td style={{ padding:'0.5rem' }}>{SEX_LABEL[(r.sex||'A').toUpperCase()] || r.sex}</td>
                   <td style={{ padding:'0.5rem', color:'#8892a4' }}>{ageText(r)}</td>
                   <td style={{ padding:'0.5rem', fontWeight:700 }}>{rangeText(r)} {r.unit || ''}</td>
@@ -443,8 +657,10 @@ function ReferenceRanges({ tests, showToast }) {
                     ) : null}
                   </td>
                   <td style={{ padding:'0.5rem', textAlign:'right', whiteSpace:'nowrap' }}>
-                    <span onClick={()=>setForm({ ...BLANK_RANGE, ...Object.fromEntries(
-                            Object.entries(r).map(([k,v]) => [k, v == null ? '' : v])) })}
+                    <span onClick={()=>{ setTestQ('');
+                            setForm({ ...BLANK_RANGE, ...Object.fromEntries(
+                              Object.entries(r).map(([k,v]) => [k, v == null ? '' : v])),
+                              scope: r.test_id ? 'test' : 'common', _was: r.test_id || '' }); }}
                           style={{ ...iconBtn('#f97316'), marginRight:'0.4rem' }} title="Edit">✎</span>
                     <span onClick={()=>setDel(r)} style={iconBtn('#dc2626')} title="Delete">✕</span>
                   </td>
@@ -487,17 +703,75 @@ function ReferenceRanges({ tests, showToast }) {
                   Exactly as the analyser reports it. Capitals don't matter.
                 </div>
               </div>
-              <div>
-                <label style={lbl}>Applies to</label>
-                <select style={inp} value={form.test_id}
-                        onChange={e=>setForm({ ...form, test_id:e.target.value })}>
-                  <option value="">All tests reporting this parameter</option>
-                  {tests.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-                </select>
-              </div>
             </div>
 
-            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'0.9rem', marginBottom:'0.9rem' }}>
+            {/* Applies to — the one decision that used to hide as the first
+                entry in a list of test names. The test picker only appears
+                once "This test only" is chosen, so the common case never meets
+                the long list at all. */}
+            <label style={lbl}>Applies to *</label>
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.6rem' }}>
+              <ScopeOption on={form.scope === 'common'} title="Common"
+                sub={`Every test that reports ${form.param.trim() || 'this parameter'}`}
+                onPick={()=>setForm({ ...form, scope:'common', test_id:'' })} />
+              <ScopeOption on={form.scope === 'test'} title="This test only" sub="Pick one test"
+                onPick={()=>setForm({ ...form, scope:'test' })} />
+            </div>
+
+            {form.scope === 'common' ? (
+              <div style={{ fontSize:'0.72rem', color:'#8892a4', marginTop:'0.4rem' }}>
+                Most ranges are common — written once, used by every test reporting the parameter.
+              </div>
+            ) : (
+              <div style={{ marginTop:'0.7rem', border:'1.5px solid #e8ecf4', borderRadius:'10px',
+                            background:'#fff', overflow:'hidden' }}>
+                <input style={{ ...inp, border:'none', borderBottom:'1px solid #e8ecf4', borderRadius:0,
+                                background:'#fafbfc' }}
+                       value={testQ} onChange={e=>setTestQ(e.target.value)}
+                       placeholder="🔍  Search tests…" />
+                <div style={{ maxHeight:'168px', overflowY:'auto' }}>
+                  {tests.filter(t => !testQ.trim() ||
+                          (t.name||'').toLowerCase().includes(testQ.trim().toLowerCase()))
+                        .map(t => {
+                    const on = String(form.test_id) === String(t.id);
+                    return (
+                      <div key={t.id} onClick={()=>setForm({ ...form, test_id:t.id })}
+                           style={{ padding:'0.45rem 0.85rem', fontSize:'0.82rem', cursor:'pointer',
+                                    display:'flex', justifyContent:'space-between', alignItems:'center',
+                                    background: on ? 'rgba(249,115,22,0.08)' : 'transparent',
+                                    color: on ? '#c2410c' : '#0f1218', fontWeight: on ? 700 : 400 }}>
+                        <span>{t.name}</span>
+                        {/* the price tells two same-named tests apart */}
+                        <span style={{ color:'#8892a4', fontWeight:600, fontSize:'0.72rem' }}>
+                          {on ? '✓' : inr(t.price)}
+                        </span>
+                      </div>
+                    );
+                  })}
+                  {tests.filter(t => !testQ.trim() ||
+                        (t.name||'').toLowerCase().includes(testQ.trim().toLowerCase())).length === 0 && (
+                    <div style={{ padding:'0.7rem 0.85rem', fontSize:'0.8rem', color:'#8892a4' }}>
+                      No test matches that.
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Editing a shared row reaches further than the person may realise. */}
+            {form.id && form.scope === 'common' && (
+              <div style={{ fontSize:'0.74rem', color:'#92400e', background:'#fffbeb', border:'1px solid #fde68a',
+                            borderRadius:'8px', padding:'0.6rem 0.75rem', marginTop:'0.8rem', lineHeight:1.5 }}>
+                ⚠ This is a <b>common</b> range. Saving changes it everywhere {form.param.trim() || 'this parameter'} is
+                reported{testsDeclaring(form.param).length
+                  ? ` — ${testsDeclaring(form.param).slice(0,3).map(t=>t.name).join(', ')}` +
+                    (testsDeclaring(form.param).length > 3 ? ` and ${testsDeclaring(form.param).length - 3} more` : '')
+                  : ''}, and any other test reporting it.
+              </div>
+            )}
+
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'0.9rem',
+                          marginTop:'1rem', marginBottom:'0.9rem' }}>
               <div>
                 <label style={lbl}>Patient Group</label>
                 <select style={inp} value={form.sex} onChange={e=>setForm({ ...form, sex:e.target.value })}>
@@ -605,6 +879,44 @@ function ReferenceRanges({ tests, showToast }) {
           </div>
         </div>
       )}
+
+      {/* A common row being narrowed to one test: copying keeps every other
+          test covered, moving does not. Asking costs one click and saves a
+          silent regression on reports nobody was looking at. */}
+      {ask && (
+        <div onClick={()=>setAsk(null)} style={{ position:'fixed', inset:0, zIndex:9999, background:'rgba(15,18,24,0.45)', display:'flex', alignItems:'center', justifyContent:'center', padding:'1rem' }}>
+          <div onClick={e=>e.stopPropagation()} style={{ background:'#fff', borderRadius:'16px', padding:'1.8rem', width:'460px', maxWidth:'95vw', boxShadow:'0 20px 60px rgba(15,18,24,0.3)' }}>
+            <div style={{ fontFamily:'Manrope,sans-serif', fontSize:'1.1rem', fontWeight:800, color:'#0f1218', marginBottom:'0.45rem' }}>
+              Make this specific to one test?
+            </div>
+            <div style={{ fontSize:'0.84rem', color:'#8892a4', lineHeight:1.55, marginBottom:'1.1rem' }}>
+              {ask.param} · {SEX_LABEL[(ask.sex||'A').toUpperCase()]} · {ageText(ask)} is currently a common range.
+            </div>
+            {[['copy', `Add an override for ${testName(Number(ask.test_id)) || 'this test'}`,
+                       'The common range stays for every other test. Recommended.'],
+              ['move', 'Move it — remove the common range',
+                       'Other tests fall back to whatever the analyser sent.']].map(([m, t, s]) => (
+              <div key={m} onClick={()=>setAsk({ ...ask, mode:m })}
+                   style={{ border:`1.5px solid ${(ask.mode||'copy')===m ? '#f97316' : '#e8ecf4'}`,
+                            background:(ask.mode||'copy')===m ? 'rgba(249,115,22,0.05)' : '#fff',
+                            borderRadius:'11px', padding:'0.75rem 0.85rem', marginBottom:'0.55rem', cursor:'pointer' }}>
+                <div style={{ fontSize:'0.84rem', fontWeight:700 }}>{t}</div>
+                <div style={{ fontSize:'0.72rem', color:'#8892a4', marginTop:'0.2rem', lineHeight:1.4 }}>{s}</div>
+              </div>
+            ))}
+            <div style={{ display:'flex', gap:'0.6rem', justifyContent:'flex-end', marginTop:'1rem' }}>
+              <button onClick={()=>setAsk(null)} style={{ background:'transparent', color:'#8892a4', border:'1px solid #e8ecf4', borderRadius:'10px', padding:'0.65rem 1.3rem', cursor:'pointer', fontWeight:600, fontFamily:'Manrope,sans-serif' }}>Cancel</button>
+              <button disabled={saving}
+                onClick={()=>(ask.mode||'copy') === 'copy'
+                  ? persist(null, payloadOf(ask), 'Override added for this test')
+                  : persist(ask.id, payloadOf(ask), 'Range moved to this test')}
+                style={{ background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', border:'none', borderRadius:'10px', padding:'0.65rem 1.6rem', cursor:'pointer', fontWeight:700, fontFamily:'Manrope,sans-serif' }}>
+                {saving ? 'Saving…' : 'Continue'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
@@ -658,7 +970,10 @@ function TestGroups({ tests, showToast }) {
     <div>
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'1rem' }}>
         <div style={{ color:'#8892a4', fontSize:'0.82rem' }}>{groups.length} group(s) · a panel bundles several tests at one price</div>
-        <button onClick={openNew} style={{ background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', border:'none', borderRadius:'10px', padding:'0.6rem 1.2rem', fontWeight:700, cursor:'pointer', fontFamily:'Manrope,sans-serif' }}>+ New Test Group</button>
+        <div style={{ display:'flex', gap:'0.5rem', alignItems:'center', flexWrap:'wrap' }}>
+          <ExcelBar kind="test-groups" noun="Test Groups" showToast={showToast} onDone={load} />
+          <button onClick={openNew} style={{ background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', border:'none', borderRadius:'10px', padding:'0.6rem 1.2rem', fontWeight:700, cursor:'pointer', fontFamily:'Manrope,sans-serif' }}>+ New Test Group</button>
+        </div>
       </div>
 
       <div style={{ ...S.card, padding:0, overflow:'hidden' }}>
