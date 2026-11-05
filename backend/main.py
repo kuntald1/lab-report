@@ -1,3 +1,4 @@
+import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -7,7 +8,6 @@ from routers import auth_router, admin
 from routers import catalog, orders, tat
 from routers import sample_status
 from routers import estimates as estimates_router
-from routers import catalog_xlsx as catalog_xlsx_router
 from database import engine, Base
 # Import models so their tables register on Base before create_all().
 from models import models as _core_models   # noqa: F401  (patients/devices/lab_results)
@@ -82,7 +82,15 @@ app.include_router(reports_router.router, prefix="/api/reports", tags=["Reports"
 app.include_router(reports2_router.router, prefix="/api/reports2", tags=["Reports2"])
 app.include_router(commission_router.router, prefix="/api/commission", tags=["Doctor Commission"])
 app.include_router(estimates_router.router, prefix="/api/estimates", tags=["Cost Estimate"])
-app.include_router(catalog_xlsx_router.router, prefix="/api/catalog-xlsx", tags=["Catalog Excel"])
+# Excel import/export needs openpyxl. If it is missing the catalog simply has
+# no spreadsheet buttons — it must never stop the API booting, because an
+# import error here takes down login and everything else with it.
+try:
+    from routers import catalog_xlsx as catalog_xlsx_router
+    app.include_router(catalog_xlsx_router.router, prefix="/api/catalog-xlsx", tags=["Catalog Excel"])
+except ImportError as _e:
+    logging.getLogger("uvicorn.error").warning(
+        "Catalog Excel import/export is off: %s. Add openpyxl to requirements.txt and rebuild.", _e)
 
 @app.get("/")
 def root():
