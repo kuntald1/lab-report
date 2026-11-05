@@ -87,6 +87,24 @@ def _stream(wb, filename):
     )
 
 
+def _key(v) -> str:
+    """The form a name is matched in — on both sides of every lookup.
+
+    A lab pasting names out of a browser or Word brings non-breaking spaces and
+    the odd double space with them. Matching on the raw text makes those fail
+    with an error that prints a name looking identical to the real one, which
+    is unanswerable for whoever has to fix the sheet. So every space-like
+    character becomes a plain space, runs of them collapse, and case is
+    dropped.
+    """
+    if v is None:
+        return ""
+    s = str(v)
+    for ch in "\u00a0\u2007\u202f\u2009\u200a\u2002\u2003\u3000\t\r\n":
+        s = s.replace(ch, " ")
+    return re.sub(r" +", " ", s).strip().lower()
+
+
 def _txt(v) -> Optional[str]:
     """Cell -> trimmed string, or None for blank. Excel hands back numbers for
     anything that looks numeric, so a code like 00123 arrives as 123."""
@@ -130,7 +148,7 @@ def _rows(file_bytes, expected, errors):
     except StopIteration:
         raise HTTPException(400, "The sheet is empty")
 
-    keys = [re.sub(r"\s+", " ", str(h or "").strip().lower()) for h in header]
+    keys = [_key(h) for h in header]
     missing = [c for c in expected if c not in keys]
     if missing:
         raise HTTPException(
@@ -188,11 +206,11 @@ async def import_tests(file: UploadFile = File(...), dry_run: bool = Query(False
     data = _rows(await file.read(), ["name"], errors)
     tenant = user.tenant_id
 
-    depts = {(d.name or "").strip().lower(): d.id for d in db.query(Department).all()}
-    tubes = {(t.name or "").strip().lower(): t.id for t in db.query(SampleTube).all()}
+    depts = {_key(d.name): d.id for d in db.query(Department).all()}
+    tubes = {_key(t.name): t.id for t in db.query(SampleTube).all()}
     by_id = {t.id: t for t in db.query(TestCatalog).all()}
-    by_code = {(t.code or "").strip().lower(): t for t in db.query(TestCatalog).all() if t.code}
-    by_name = {(t.name or "").strip().lower(): t for t in db.query(TestCatalog).all()}
+    by_code = {_key(t.code): t for t in db.query(TestCatalog).all() if t.code}
+    by_name = {_key(t.name): t for t in db.query(TestCatalog).all()}
 
     created = updated = 0
     pending = []
@@ -210,19 +228,19 @@ async def import_tests(file: UploadFile = File(...), dry_run: bool = Query(False
             errors.append(f"Row {n}: id {rid} is not a test in this catalog. Leave id blank to add a new test.")
             continue
         if row is None and code:
-            row = by_code.get(code.lower())
+            row = by_code.get(_key(code))
         if row is None:
-            row = by_name.get(name.lower())
+            row = by_name.get(_key(name))
 
         dept_id = tube_id = None
         dname = _txt(r.get("department"))
         if dname:
-            dept_id = depts.get(dname.lower())
+            dept_id = depts.get(_key(dname))
             if dept_id is None:
                 errors.append(f"Row {n}: department '{dname}' does not exist")
         tname = _txt(r.get("sample tube"))
         if tname:
-            tube_id = tubes.get(tname.lower())
+            tube_id = tubes.get(_key(tname))
             if tube_id is None:
                 errors.append(f"Row {n}: sample tube '{tname}' does not exist")
 
@@ -289,10 +307,10 @@ async def import_groups(file: UploadFile = File(...), dry_run: bool = Query(Fals
     data = _rows(await file.read(), ["name", "tests"], errors)
     tenant = user.tenant_id
 
-    tests_by_name = {(t.name or "").strip().lower(): t.id for t in db.query(TestCatalog).all()}
-    tests_by_code = {(t.code or "").strip().lower(): t.id for t in db.query(TestCatalog).all() if t.code}
+    tests_by_name = {_key(t.name): t.id for t in db.query(TestCatalog).all()}
+    tests_by_code = {_key(t.code): t.id for t in db.query(TestCatalog).all() if t.code}
     by_id = {p.id: p for p in db.query(Package).all()}
-    by_name = {(p.name or "").strip().lower(): p for p in db.query(Package).all()}
+    by_name = {_key(p.name): p for p in db.query(Package).all()}
 
     created = updated = 0
     pending = []
@@ -307,14 +325,14 @@ async def import_groups(file: UploadFile = File(...), dry_run: bool = Query(Fals
             errors.append(f"Row {n}: id {rid} is not a test group. Leave id blank to add a new one.")
             continue
         if row is None:
-            row = by_name.get(name.lower())
+            row = by_name.get(_key(name))
 
         # '|' first; a comma would split test names that contain one.
         raw = _txt(r.get("tests")) or ""
         parts = [p.strip() for p in (raw.split("|") if "|" in raw else raw.split(",")) if p.strip()]
         ids = []
         for p in parts:
-            tid = tests_by_name.get(p.lower()) or tests_by_code.get(p.lower())
+            tid = tests_by_name.get(_key(p)) or tests_by_code.get(_key(p))
             if tid is None:
                 errors.append(f"Row {n}: '{p}' is not a test in the catalog")
             else:
@@ -392,9 +410,9 @@ async def import_ranges(file: UploadFile = File(...), dry_run: bool = Query(Fals
     errors = []
     data = _rows(await file.read(), ["parameter", "applies to"], errors)
 
-    tests_by_name = {(t.name or "").strip().lower(): t.id for t in db.query(TestCatalog).all()}
+    tests_by_name = {_key(t.name): t.id for t in db.query(TestCatalog).all()}
     try:
-        devs_by_name = {(d.name or "").strip().lower(): d.id for d in db.query(Device).all()}
+        devs_by_name = {_key(d.name): d.id for d in db.query(Device).all()}
     except Exception:
         devs_by_name = {}
     by_id = {r.id: r for r in db.query(ReferenceRange).all()}
@@ -418,15 +436,15 @@ async def import_ranges(file: UploadFile = File(...), dry_run: bool = Query(Fals
             errors.append(f"Row {n}: applies to is required — "
                           f'"{COMMON}" or an exact test name')
             continue
-        if applies.strip().lower() in (COMMON.lower(), "common", "all tests", "all"):
+        if _key(applies) in (_key(COMMON), "common", "all tests", "all"):
             test_id = None
         else:
-            test_id = tests_by_name.get(applies.lower())
+            test_id = tests_by_name.get(_key(applies))
             if test_id is None:
                 errors.append(f"Row {n}: applies to — '{applies}' is not a test in the catalog")
 
         grp_raw = _txt(r.get("patient group")) or "Any"
-        sex = GROUP_IN.get(grp_raw.lower())
+        sex = GROUP_IN.get(_key(grp_raw))
         if sex is None:
             errors.append(f"Row {n}: patient group — '{grp_raw}' must be Any, Male, Female or Children")
             sex = "A"
@@ -434,7 +452,7 @@ async def import_ranges(file: UploadFile = File(...), dry_run: bool = Query(Fals
         dev_id = None
         dname = _txt(r.get("analyser"))
         if dname:
-            dev_id = devs_by_name.get(dname.lower())
+            dev_id = devs_by_name.get(_key(dname))
             if dev_id is None:
                 errors.append(f"Row {n}: analyser '{dname}' does not exist")
 
