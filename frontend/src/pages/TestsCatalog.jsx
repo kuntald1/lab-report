@@ -276,18 +276,18 @@ function ExcelBar({ kind, noun, showToast, onDone }) {
   const [errs, setErrs]       = useState(null);   // { message, errors[], error_count }
   const inputId = `xl-${kind}`;
 
-  async function download() {
-    setBusy('export');
+  async function download(which = 'export') {
+    setBusy(which);
     try {
-      const res = await authedFetch(`/catalog-xlsx/export/${kind}`);
+      const res = await authedFetch(`/catalog-xlsx/${which}/${kind}`);
       if (!res.ok) throw new Error();
       const url = URL.createObjectURL(await res.blob());
       const a = document.createElement('a');
-      a.href = url; a.download = `${kind}.xlsx`;
+      a.href = url; a.download = which === 'sample' ? `${kind}-SAMPLE.xlsx` : `${kind}.xlsx`;
       document.body.appendChild(a); a.click(); a.remove();
       URL.revokeObjectURL(url);
-      showToast('success', `${noun} downloaded`);
-    } catch { showToast('error', 'Export failed'); }
+      showToast('success', which === 'sample' ? 'Sample file downloaded' : `${noun} downloaded`);
+    } catch { showToast('error', which === 'sample' ? 'Could not fetch the sample' : 'Export failed'); }
     finally { setBusy(''); }
   }
 
@@ -340,8 +340,16 @@ function ExcelBar({ kind, noun, showToast, onDone }) {
 
   return (
     <>
-      <button onClick={download} disabled={!!busy} style={btnStyle} title={`Download ${noun} as Excel`}>
+      <button onClick={() => download('export')} disabled={!!busy} style={btnStyle}
+              title={`Download your ${noun} as Excel`}>
         {busy === 'export' ? 'Preparing…' : '⭳  Export Excel'}
+      </button>
+      {/* a filled-in template, so nobody has to guess the columns before their
+          first import. Its rows are examples and its ids are blank. */}
+      <button onClick={() => download('sample')} disabled={!!busy}
+              style={{ ...btnStyle, border:'1.5px dashed #d7dfea', color:'#7c8aa0' }}
+              title={`A filled-in example ${noun} sheet to learn the format`}>
+        {busy === 'sample' ? 'Preparing…' : '◳  Sample file'}
       </button>
       <label htmlFor={inputId} style={{ ...btnStyle, display:'inline-block' }} title={`Upload an edited ${noun} sheet`}>
         {busy === 'import' ? 'Checking…' : '⭱  Import Excel'}
@@ -455,12 +463,21 @@ function ReferenceRanges({ tests, showToast }) {
   const [rows, setRows]     = useState([]);
   const [loading, setLoad]  = useState(true);
   const [search, setSearch] = useState('');
+  // Collapsed by default: with 147 shared ranges the useful first view is the
+  // shape of the catalog, not a wall of rows. A search overrides it below —
+  // a hit hidden inside a shut group is the same as no hit at all.
+  const [open, setOpen]     = useState({});
   const [form, setForm]     = useState(null);
   const [saving, setSaving] = useState(false);
   const [del, setDel]       = useState(null);
   const [devices, setDevices] = useState([]);
   const [testQ, setTestQ]   = useState('');   // the picker's own search
   const [ask, setAsk]       = useState(null); // common → this-test-only: copy or move?
+
+  // While searching, every group that still has rows is open — otherwise the
+  // matches sit inside closed cards and the search looks broken.
+  const isOpen = (key) => (search.trim() ? true : !!open[key]);
+  const toggle = (key) => setOpen(o => ({ ...o, [key]: !o[key] }));
 
   // The analyser list, so a methodology can be pinned to the machine that
   // actually produced the value rather than to every machine reporting it.
@@ -614,13 +631,24 @@ function ReferenceRanges({ tests, showToast }) {
         </div>
       ) : groups.map(g => (
         <div key={g.key} style={{ ...S.card, marginBottom:'0.9rem', padding:'1.1rem 1.4rem' }}>
-          <div style={{ display:'flex', alignItems:'center', gap:'0.6rem', marginBottom:'0.7rem', flexWrap:'wrap' }}>
+          <div onClick={()=>toggle(g.key)} role="button" tabIndex={0} aria-expanded={isOpen(g.key)}
+               onKeyDown={e=>{ if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(g.key); } }}
+               style={{ display:'flex', alignItems:'center', gap:'0.6rem', flexWrap:'wrap',
+                        cursor:'pointer', userSelect:'none',
+                        marginBottom: isOpen(g.key) ? '0.7rem' : 0 }}>
+            <span aria-hidden="true"
+                  style={{ display:'inline-flex', alignItems:'center', justifyContent:'center',
+                           width:'22px', height:'22px', borderRadius:'7px', flexShrink:0,
+                           background:'#f4f7fb', color:'#55617a', fontSize:'0.62rem',
+                           transition:'transform 0.15s ease',
+                           transform: isOpen(g.key) ? 'rotate(90deg)' : 'none' }}>▶</span>
             <span style={g.common ? PILL_COMMON : PILL_TEST}>{g.common ? 'Common · all tests' : 'This test only'}</span>
             <span style={{ fontFamily:'Manrope,sans-serif', fontWeight:800, fontSize:'0.95rem', color:'#0f1218' }}>
               {g.title}
             </span>
             <span style={{ color:'#8892a4', fontWeight:600, fontSize:'0.78rem' }}>· {g.rows.length} range{g.rows.length>1?'s':''}</span>
           </div>
+          {isOpen(g.key) && (<>
           {g.common && (
             <div style={{ fontSize:'0.74rem', color:'#92400e', background:'#fffbeb', border:'1px solid #fde68a',
                           borderRadius:'8px', padding:'0.55rem 0.75rem', marginBottom:'0.8rem', lineHeight:1.5 }}>
@@ -668,6 +696,7 @@ function ReferenceRanges({ tests, showToast }) {
               ))}
             </tbody>
           </table>
+          </>)}
         </div>
       ))}
 

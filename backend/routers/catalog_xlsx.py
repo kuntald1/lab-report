@@ -171,6 +171,73 @@ def _result(created, updated, errors, dry_run):
             "message": ("Would add %d and update %d" if dry_run else "Added %d, updated %d") % (created, updated)}
 
 
+# --------------------------------------------------------------------------- samples
+def _sample(filename, title, columns, rows, *notes):
+    """A filled-in template, so a lab can see the shape before touching theirs.
+
+    The rows are examples, not data: every id is blank, so importing the file
+    untouched would ADD them. The first note says so in as many words, because
+    somebody will try it.
+    """
+    wb = Workbook()
+    ws = _sheet(wb, title, columns)
+    for r in rows:
+        ws.append(r)
+    _notes(wb,
+           "These rows are EXAMPLES. Replace them with your own data, or delete them, before importing.",
+           "Every id here is blank, which is what marks a row as new. On a sheet exported from your own"
+           " catalog the ids are filled in — leave those alone.",
+           *notes)
+    return _stream(wb, filename)
+
+
+@router.get("/sample/tests")
+def sample_tests():
+    return _sample("tests-SAMPLE.xlsx", "Tests", TEST_COLS, [
+        [None, "CBC",  "Complete Blood Count",   "Haematology", "Whole Blood", "EDTA", None, None,
+         300, 250, "See report", "HGB, PLT, WBC", 120, None, None],
+        [None, "HB",   "Haemoglobin",            "Haematology", "Whole Blood", "EDTA", "g/dL", None,
+         100, 100, None, "HGB", 60, None, None],
+        [None, "NA",   "Sodium (Na+)",           "Biochemistry", "Serum", "Serum (Plain)", "mmol/L",
+         "ISE direct", 200, 180, "136 - 145", "Sodium", 90, None, None],
+        [None, "TSH",  "Thyroid Stimulating Hormone", "Biochemistry", "Serum", "Serum (Plain)", "uIU/mL",
+         "CLIA", 450, 400, "0.4 - 4.0", None, 240, None, None],
+    ],
+    "department and sample tube must already exist in your masters — the exact names, nothing new.",
+    "parameters — which of the analyser's values this test prints, comma separated."
+    " Blank prints everything the analyser sent.")
+
+
+@router.get("/sample/test-groups")
+def sample_groups():
+    return _sample("test-groups-SAMPLE.xlsx", "Test Groups", GROUP_COLS, [
+        [None, "LIPID", "Lipid Profile", 600, "Total Cholesterol | HDL Cholesterol | LDL Cholesterol | Triglycerides"],
+        [None, "ANAEM", "Anaemia Profile", 450, "Complete Blood Count | Haemoglobin"],
+        [None, "ELEC",  "Serum Electrolytes", 500, "Sodium (Na+) | Potassium (K+) | Chloride (Cl-)"],
+    ],
+    "Separate the tests with a vertical bar:  Test A | Test B",
+    "Each name must be a test that already exists. A test code works too.",
+    "The list replaces the group's members — a name you remove here leaves the group.")
+
+
+@router.get("/sample/reference-ranges")
+def sample_ranges():
+    return _sample("reference-ranges-SAMPLE.xlsx", "Reference Ranges", RANGE_COLS, [
+        [None, "HGB", COMMON, "Male",     18, 65, None, None, 13, 17, 7, 21, "g/dL", None, None, None],
+        [None, "HGB", COMMON, "Female",   18, 65, None, None, 12, 15, 7, 21, "g/dL", None, None, None],
+        [None, "HGB", COMMON, "Children", None, None, 0, 12, 11, 14, None, None, "g/dL", None, None, None],
+        [None, "HGB", "Complete Blood Count", "Any", None, None, None, None, 12, 16, None, None,
+         "g/dL", None, None, None],
+        [None, "WBC", COMMON, "Any", None, None, None, None, 4, 11, 2, 30, "10^3/uL", None,
+         "Flow cytometry (laser scatter)", None],
+    ],
+    f'applies to — "{COMMON}" for a range shared by every test that reports the parameter,'
+    " or the exact test name to make it apply to that one test only.",
+    "The fourth row shows an override: the same parameter, narrowed to one test.",
+    "patient group — Any, Male, Female or Children. Children takes the month columns.",
+    "Leave low and high blank and fill method to set only the methodology printed on the report.")
+
+
 # --------------------------------------------------------------------------- tests
 TEST_COLS = ["id", "code", "name", "department", "sample type", "sample tube", "unit",
              "method", "mrp", "price", "normal value", "parameters",
