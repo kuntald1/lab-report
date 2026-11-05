@@ -4,8 +4,13 @@ import healthycianLogo from '../assets/healthycian_logo.png';
 import labHero from '../assets/lab-hero.jpg';
 
 /**
- * OPTION A — the supplied banner used whole as the right-hand panel,
- * with the sign-in card floating on the left.
+ * The sign-in card floats on the left; the right is the lab's own artwork.
+ *
+ * lab-hero.jpg is only the PHOTOGRAPH — the wordmark, headline, feature strip
+ * and footer line are all live markup on top of it. They used to be baked into
+ * the picture, and object-fit:cover trimmed the top and bottom of it on a real
+ * browser window, which cut the footer off. Markup cannot be cropped, so it
+ * now survives any window height, and it stays sharp on a large monitor.
  *
  * Deliberately NOT here, because the lab asked for them out: the Center /
  * Doctor login tabs, "Forgot password?", Google sign-in, and the IP/device
@@ -13,6 +18,26 @@ import labHero from '../assets/lab-hero.jpg';
  *
  * The right panel narrows out below 1020px, so a phone gets the card alone.
  */
+
+const FEATURES = [
+  { label: ['Streamlined', 'Operations'],  tint: '#e8f6ee', ink: '#2fa36a', icon: 'process'  },
+  { label: ['Secure &', 'Reliable'],       tint: '#e7f1fd', ink: '#3b82d6', icon: 'shield'   },
+  { label: ['Accurate', 'Reports'],        tint: '#efeafd', ink: '#7c5cd0', icon: 'document' },
+  { label: ['Real-time', 'Access'],        tint: '#e3f5f6', ink: '#1f9fae', icon: 'cloud'    },
+  { label: ['Better Patient', 'Care'],     tint: '#fdf0dd', ink: '#e0952a', icon: 'heart'    },
+];
+
+function Icon({ name }) {
+  const c = {
+    width: '58%', height: '58%', viewBox: '0 0 24 24', fill: 'none',
+    stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round', strokeLinejoin: 'round',
+  };
+  if (name === 'process')  return <svg {...c}><path d="M20.5 12a8.5 8.5 0 1 1-2.5-6" /><path d="M20.5 3.5v4.2h-4.2" /></svg>;
+  if (name === 'shield')   return <svg {...c}><path d="M12 3l7.5 3v5.2c0 4.6-3.2 8.6-7.5 9.8-4.3-1.2-7.5-5.2-7.5-9.8V6z" /><path d="M9 12l2.1 2.2L15.2 10" /></svg>;
+  if (name === 'document') return <svg {...c}><path d="M14 3H7.5A1.5 1.5 0 0 0 6 4.5v15A1.5 1.5 0 0 0 7.5 21h9a1.5 1.5 0 0 0 1.5-1.5V7z" /><path d="M14 3v4h4" /><path d="M9 16l1.8 1.8L14.5 14" /></svg>;
+  if (name === 'cloud')    return <svg {...c}><path d="M7.2 19a4.2 4.2 0 0 1 .5-8.4 5.3 5.3 0 0 1 10.1 1.3A3.6 3.6 0 0 1 17.4 19z" /></svg>;
+  return <svg {...c}><path d="M12 20.3S4.6 15.7 4.6 10.8a4.2 4.2 0 0 1 7.4-2.7 4.2 4.2 0 0 1 7.4 2.7c0 4.9-7.4 9.5-7.4 9.5z" /></svg>;
+}
 
 export default function Login({ onLogin }) {
   const [email, setEmail]       = useState('');
@@ -128,20 +153,82 @@ export default function Login({ onLogin }) {
         </div>
       </div>
 
-      {/* ── right: the banner, full bleed. Hidden on a narrow screen. ──
-           No radius, shadow or padding: the lab asked for the seam between the
-           two halves gone, so the artwork runs to the top, right and bottom
-           edges and its own pale left wash carries it into the form side. */}
+      {/* ── right: the photo, with every word of it live markup on top.
+           Hidden on a narrow screen. ── */}
       <div className="login-side"
            style={{ position: 'relative', flex: 1, minWidth: 0, height: '100vh', overflow: 'hidden' }}>
-        <img src={labHero} alt="Smarter lab management for a healthier tomorrow"
-             style={{ display: 'block', width: '100%', height: '100%',
+
+        {/* the photo only. Its left edge is faded so the join with the tinted
+            form side does not read as a hard vertical line. */}
+        <img src={labHero} alt="" aria-hidden="true"
+             style={{ position: 'absolute', inset: 0, width: '100%', height: '100%',
                       objectFit: 'cover', objectPosition: 'center',
-                      // the artwork's left edge is near-white and the form side
-                      // is faintly tinted, which showed as a hard vertical line;
-                      // fading the first 3.5% dissolves the join
                       WebkitMaskImage: 'linear-gradient(90deg, rgba(0,0,0,0) 0%, #000 3.5%)',
                       maskImage: 'linear-gradient(90deg, rgba(0,0,0,0) 0%, #000 3.5%)' }} />
+
+        {/* a column the height of the window: the spacer below takes up the
+            slack, so the strip and the footer sit on the bottom edge whatever
+            the window height is, and neither can be cropped away */}
+        <div style={{ position: 'relative', height: '100%', boxSizing: 'border-box',
+                      display: 'flex', flexDirection: 'column',
+                      padding: 'clamp(1rem, 4.5vh, 3.2rem) 9% clamp(0.9rem, 3.5vh, 2.4rem) 8%' }}>
+
+          <img src={healthycianLogo} alt="Healthycian"
+               style={{ width: 'clamp(170px, 23%, 310px)', display: 'block', flex: '0 0 auto' }} />
+
+          {/* two growing gaps, the lower one twice the upper: the headline
+              settles between the wordmark and the strip instead of clinging to
+              the top, and both collapse first when the window gets short */}
+          <div style={{ flex: '1 1 auto', minHeight: 'clamp(1rem, 4vh, 3.4rem)' }} />
+
+          <div style={{ flex: '0 0 auto',
+                        fontSize: 'clamp(1.6rem, 2.85vw, 3rem)', fontWeight: 800, color: '#13294b',
+                        lineHeight: 1.17, letterSpacing: '-0.02em' }}>
+            Smarter Lab<br />Management for a<br />
+            <span style={{ color: '#16a34a' }}>Healthier Tomorrow</span>
+          </div>
+
+          <div style={{ flex: '0 0 auto', marginTop: 'clamp(0.5rem, 1.8vh, 1.1rem)',
+                        fontSize: 'clamp(0.82rem, 1.05vw, 1.18rem)', color: '#475569' }}>
+            Efficient. Accurate. Connected.
+          </div>
+
+          <svg viewBox="0 0 300 20" aria-hidden="true"
+               style={{ flex: '0 0 auto', display: 'block', marginTop: 'clamp(0.4rem, 1.5vh, 1rem)',
+                        width: 'clamp(145px, 15vw, 255px)', height: '14px' }}>
+            <path d="M5 15C68 5 212 3 295 9" stroke="#16a34a" strokeWidth="5" strokeLinecap="round" fill="none" />
+          </svg>
+
+          <div style={{ flex: '2 1 auto', minHeight: 'clamp(0.8rem, 3vh, 2.6rem)' }} />
+
+          <div style={{ flex: '0 0 auto', background: '#fff', borderRadius: '18px',
+                        boxShadow: '0 14px 44px rgba(15,23,42,0.13)',
+                        padding: 'clamp(0.9rem, 2.4vh, 1.7rem) clamp(0.5rem, 1.4vw, 1.2rem)',
+                        display: 'flex', alignItems: 'flex-start' }}>
+            {FEATURES.map((f, i) => (
+              <div key={f.label.join(' ')}
+                   style={{ flex: '1 1 0', minWidth: 0, textAlign: 'center', padding: '0 0.3rem',
+                            borderLeft: i ? '1px solid #e8eef4' : 'none' }}>
+                <div style={{ width: 'clamp(34px, 2.6vw, 50px)', height: 'clamp(34px, 2.6vw, 50px)',
+                              borderRadius: '50%', background: f.tint, color: f.ink,
+                              margin: '0 auto clamp(0.35rem, 1vh, 0.7rem)',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Icon name={f.icon} />
+                </div>
+                <div style={{ fontSize: 'clamp(0.62rem, 0.78vw, 0.88rem)', fontWeight: 700,
+                              color: '#13294b', lineHeight: 1.3 }}>
+                  {f.label[0]}<br />{f.label[1]}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div style={{ flex: '0 0 auto', marginTop: 'clamp(0.6rem, 2vh, 1.3rem)', textAlign: 'right',
+                        fontSize: 'clamp(0.62rem, 0.75vw, 0.85rem)', fontWeight: 600,
+                        color: '#9fb3c6', letterSpacing: '0.01em' }}>
+            Healthy Labs &nbsp;•&nbsp; Healthier Communities
+          </div>
+        </div>
       </div>
 
       <style>{`
