@@ -44,7 +44,7 @@ export default function Login({ onLogin }) {
     // height, not minHeight, and the children shrink to fit: the page is meant
     // to sit on one screen at 100% zoom with no scrollbar at all.
     <div style={{ height: '100vh', overflow: 'hidden', position: 'relative', display: 'flex',
-                  alignItems: 'center', justifyContent: 'center', background: '#f6fbfc', fontFamily: 'Manrope,sans-serif' }}>
+                  alignItems: 'center', background: '#f6fbfc', fontFamily: 'Manrope,sans-serif' }}>
 
       {/* ── the soft waves in the two corners ── */}
       <svg viewBox="0 0 420 420" aria-hidden="true" preserveAspectRatio="none"
@@ -128,15 +128,20 @@ export default function Login({ onLogin }) {
         </div>
       </div>
 
-      {/* ── right: the banner, exactly as supplied. Hidden on a narrow screen. ── */}
+      {/* ── right: the banner, full bleed. Hidden on a narrow screen. ──
+           No radius, shadow or padding: the lab asked for the seam between the
+           two halves gone, so the artwork runs to the top, right and bottom
+           edges and its own pale left wash carries it into the form side. */}
       <div className="login-side"
-           style={{ position: 'relative', flex: '0 1 auto', minWidth: 0, height: '100vh', overflow: 'hidden',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    padding: 'clamp(1rem, 3vh, 2.4rem) clamp(1.2rem, 3vw, 3rem) clamp(1rem, 3vh, 2.4rem) 0' }}>
+           style={{ position: 'relative', flex: 1, minWidth: 0, height: '100vh', overflow: 'hidden' }}>
         <img src={labHero} alt="Smarter lab management for a healthier tomorrow"
-             style={{ maxWidth: '100%', maxHeight: '100%', width: 'auto', height: 'auto',
-                      objectFit: 'contain', borderRadius: '18px',
-                      boxShadow: '0 16px 48px rgba(15,23,42,0.12)' }} />
+             style={{ display: 'block', width: '100%', height: '100%',
+                      objectFit: 'cover', objectPosition: 'center',
+                      // the artwork's left edge is near-white and the form side
+                      // is faintly tinted, which showed as a hard vertical line;
+                      // fading the first 3.5% dissolves the join
+                      WebkitMaskImage: 'linear-gradient(90deg, rgba(0,0,0,0) 0%, #000 3.5%)',
+                      maskImage: 'linear-gradient(90deg, rgba(0,0,0,0) 0%, #000 3.5%)' }} />
       </div>
 
       <style>{`
