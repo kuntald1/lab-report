@@ -204,8 +204,10 @@ def sample_tests():
          "CLIA", 450, 400, "0.4 - 4.0", None, 240, None, None],
     ],
     "department and sample tube must already exist in your masters — the exact names, nothing new.",
-    "parameters — which of the analyser's values this test prints, comma separated."
-    " Blank prints everything the analyser sent.")
+    '"parameters" — an analyser sends everything it measures at once. The Erba EC 90 always reports Sodium, Potassium and Chloride, so a test billed as Sodium alone would print all three.',
+    'Name here only the values THIS test should print, separated by commas, and the rest are left off the report. Leave it blank to print everything the analyser sent, which is what every test does until the column is filled in.',
+    'Write the name the way the analyser reports it. Matching ignores capitals, spaces and punctuation, so Sodium, SODIUM, sodium and Na+ are all the same name.',
+    'If nothing in the column matches what the analyser sent, the report prints everything rather than nothing — so a typo here can never produce an empty report, only an over-full one.')
 
 
 @router.get("/sample/test-groups")
@@ -261,8 +263,10 @@ def export_tests(db: Session = Depends(get_db), scope: Scope = Depends(get_scope
            "Leave id blank to add a new test. Never change an id by hand.",
            "A row whose id is filled updates that test; nothing is ever deleted by importing.",
            "department and sample tube must match a name that already exists.",
-           'parameters — which of the analyser\'s parameters this test prints, comma separated.'
-           " Blank prints whatever the analyser sent.")
+           '"parameters" — an analyser sends everything it measures at once. The Erba EC 90 always reports Sodium, Potassium and Chloride, so a test billed as Sodium alone would print all three.',
+           'Name here only the values THIS test should print, separated by commas, and the rest are left off the report. Leave it blank to print everything the analyser sent, which is what every test does until the column is filled in.',
+           'Write the name the way the analyser reports it. Matching ignores capitals, spaces and punctuation, so Sodium, SODIUM, sodium and Na+ are all the same name.',
+           'If nothing in the column matches what the analyser sent, the report prints everything rather than nothing — so a typo here can never produce an empty report, only an over-full one.')
     return _stream(wb, "tests.xlsx")
 
 
