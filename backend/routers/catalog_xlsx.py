@@ -29,7 +29,7 @@ from openpyxl.utils import get_column_letter
 from database import get_db
 from models.org import Role, User
 from models.b2b import SampleTube
-from models.clinical import Department, TestCatalog, Package, PackageTest, ReferenceRange
+from models.clinical import TestCatalog, Package, PackageTest, ReferenceRange
 from models.models import Device
 from auth.deps import get_current_user, get_scope, require_roles, apply_scope, Scope
 
@@ -194,16 +194,17 @@ def _sample(filename, title, columns, rows, *notes):
 @router.get("/sample/tests")
 def sample_tests():
     return _sample("tests-SAMPLE.xlsx", "Tests", TEST_COLS, [
-        [None, "CBC",  "Complete Blood Count",   "Haematology", "Whole Blood", "EDTA", None, None,
-         300, 250, "See report", "HGB, PLT, WBC", 120, None, None],
-        [None, "HB",   "Haemoglobin",            "Haematology", "Whole Blood", "EDTA", "g/dL", None,
-         100, 100, None, "HGB", 60, None, None],
-        [None, "NA",   "Sodium (Na+)",           "Biochemistry", "Serum", "Serum (Plain)", "mmol/L",
-         "ISE direct", 200, 180, "136 - 145", "Sodium", 90, None, None],
-        [None, "TSH",  "Thyroid Stimulating Hormone", "Biochemistry", "Serum", "Serum (Plain)", "uIU/mL",
-         "CLIA", 450, 400, "0.4 - 4.0", None, 240, None, None],
+        [None, "CBC", "Complete Blood Count", "EDTA", None, None,
+         300, 250, "See report", "HGB, PLT, WBC", None, None, None],
+        [None, "HB",  "Haemoglobin", "EDTA", "g/dL", None,
+         100, 100, None, "HGB", None, None, None],
+        [None, "NA",  "Sodium (Na+)", "Serum (Plain)", "mmol/L", "ISE direct",
+         200, 180, "136 - 145", "Sodium", "Dr AK Dhar", None, None],
+        [None, "TSH", "Thyroid Stimulating Hormone", "Serum (Plain)", "uIU/mL", "CLIA",
+         450, 400, "0.4 - 4.0", None, "Dr AK Dhar", None, None],
     ],
-    "department and sample tube must already exist in your masters — the exact names, nothing new.",
+    "sample tube must already be in your Sample Tubes master — the exact name, nothing new.",
+    "assigned doctor — a pathologist already on your account, by name or e-mail. Blank leaves it unassigned.",
     '"parameters" — an analyser sends everything it measures at once. The Erba EC 90 always reports Sodium, Potassium and Chloride, so a test billed as Sodium alone would print all three.',
     'Name here only the values THIS test should print, separated by commas, and the rest are left off the report. Leave it blank to print everything the analyser sent, which is what every test does until the column is filled in.',
     'Write the name the way the analyser reports it. Matching ignores capitals, spaces and punctuation, so Sodium, SODIUM, sodium and Na+ are all the same name.',
@@ -241,28 +242,37 @@ def sample_ranges():
 
 
 # --------------------------------------------------------------------------- tests
-TEST_COLS = ["id", "code", "name", "department", "sample type", "sample tube", "unit",
-             "method", "mrp", "price", "normal value", "parameters",
-             "tat target minutes", "disclaimer", "interpretation"]
+# The Tests sheet mirrors the Add Test form, column for column.
+#
+# department and sample type are stored but read by nothing, and the target TAT
+# is better derived from the received -> tested timestamps than typed per test,
+# so none of the three belongs in a sheet a lab has to fill in. They stay in the
+# database: a value already there is left alone, this sheet simply does not
+# carry it. assigned doctor is here because the form has it.
+TEST_COLS = ["id", "code", "name", "sample tube", "unit", "method",
+             "mrp", "price", "normal value", "parameters",
+             "assigned doctor", "disclaimer", "interpretation"]
 
 
 @router.get("/export/tests")
 def export_tests(db: Session = Depends(get_db), scope: Scope = Depends(get_scope)):
     rows = apply_scope(db.query(TestCatalog), TestCatalog, scope).order_by(TestCatalog.name).all()
-    depts = {d.id: d.name for d in db.query(Department).all()}
     tubes = {t.id: t.name for t in db.query(SampleTube).all()}
+    docs  = {u.id: (u.full_name or u.email) for u in db.query(User)
+             .filter(User.role == Role.PATHOLOGIST).all()}
 
     wb = Workbook()
     ws = _sheet(wb, "Tests", TEST_COLS)
     for t in rows:
-        ws.append([t.id, t.code, t.name, depts.get(t.department_id), t.sample_type,
-                   tubes.get(t.sample_tube_id), t.unit, t.method, t.mrp, t.price,
-                   t.normal_value, t.parameters, t.tat_target_minutes,
-                   t.disclaimer, t.interpretation])
+        ws.append([t.id, t.code, t.name, tubes.get(t.sample_tube_id), t.unit, t.method,
+                   t.mrp, t.price, t.normal_value, t.parameters,
+                   docs.get(t.assigned_doctor_id), t.disclaimer, t.interpretation])
     _notes(wb,
            "Leave id blank to add a new test. Never change an id by hand.",
            "A row whose id is filled updates that test; nothing is ever deleted by importing.",
-           "department and sample tube must match a name that already exists.",
+           "sample tube must match a name already in your Sample Tubes master.",
+           "assigned doctor — a pathologist already on your account, by name or e-mail."
+           " Blank leaves the test unassigned.",
            '"parameters" — an analyser sends everything it measures at once. The Erba EC 90 always reports Sodium, Potassium and Chloride, so a test billed as Sodium alone would print all three.',
            'Name here only the values THIS test should print, separated by commas, and the rest are left off the report. Leave it blank to print everything the analyser sent, which is what every test does until the column is filled in.',
            'Write the name the way the analyser reports it. Matching ignores capitals, spaces and punctuation, so Sodium, SODIUM, sodium and Na+ are all the same name.',
@@ -277,8 +287,12 @@ async def import_tests(file: UploadFile = File(...), dry_run: bool = Query(False
     data = _rows(await file.read(), ["name"], errors)
     tenant = user.tenant_id
 
-    depts = {_key(d.name): d.id for d in db.query(Department).all()}
     tubes = {_key(t.name): t.id for t in db.query(SampleTube).all()}
+    docs  = {}
+    for u in db.query(User).filter(User.role == Role.PATHOLOGIST).all():
+        for label in (u.full_name, u.email):     # either is accepted in the cell
+            if label:
+                docs.setdefault(_key(label), u.id)
     by_id = {t.id: t for t in db.query(TestCatalog).all()}
     by_code = {_key(t.code): t for t in db.query(TestCatalog).all() if t.code}
     by_name = {_key(t.name): t for t in db.query(TestCatalog).all()}
@@ -303,27 +317,29 @@ async def import_tests(file: UploadFile = File(...), dry_run: bool = Query(False
         if row is None:
             row = by_name.get(_key(name))
 
-        dept_id = tube_id = None
-        dname = _txt(r.get("department"))
-        if dname:
-            dept_id = depts.get(_key(dname))
-            if dept_id is None:
-                errors.append(f"Row {n}: department '{dname}' does not exist")
+        tube_id = doc_id = None
         tname = _txt(r.get("sample tube"))
         if tname:
             tube_id = tubes.get(_key(tname))
             if tube_id is None:
                 errors.append(f"Row {n}: sample tube '{tname}' does not exist")
+        dname = _txt(r.get("assigned doctor"))
+        if dname:
+            doc_id = docs.get(_key(dname))
+            if doc_id is None:
+                errors.append(f"Row {n}: assigned doctor '{dname}' is not a pathologist on this account")
 
+        # Only the columns the sheet carries. department_id, sample_type and
+        # tat_target_minutes are deliberately absent, so whatever is already in
+        # the database for them survives an import untouched.
         vals = dict(
-            code=code, name=name, department_id=dept_id,
-            sample_type=_txt(r.get("sample type")), sample_tube_id=tube_id,
+            code=code, name=name, sample_tube_id=tube_id,
             unit=_txt(r.get("unit")), method=_txt(r.get("method")),
             mrp=_num(r.get("mrp"), "mrp", n, errors) or 0.0,
             price=_num(r.get("price"), "price", n, errors) or 0.0,
             normal_value=_txt(r.get("normal value")),
             parameters=_txt(r.get("parameters")),
-            tat_target_minutes=_num(r.get("tat target minutes"), "tat target minutes", n, errors, integer=True),
+            assigned_doctor_id=doc_id,
             disclaimer=_txt(r.get("disclaimer")),
             interpretation=_txt(r.get("interpretation")),
         )
