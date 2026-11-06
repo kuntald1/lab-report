@@ -235,13 +235,13 @@ def sample_groups():
 @router.get("/sample/reference-ranges")
 def sample_ranges():
     return _sample("reference-ranges-SAMPLE.xlsx", "Reference Ranges", RANGE_COLS, [
-        [None, "HGB", COMMON, "Male",     18, 65, None, None, 13, 17, 7, 21, "g/dL", None, None, None],
-        [None, "HGB", COMMON, "Female",   18, 65, None, None, 12, 15, 7, 21, "g/dL", None, None, None],
-        [None, "HGB", COMMON, "Children", None, None, 0, 12, 11, 14, None, None, "g/dL", None, None, None],
-        [None, "HGB", "Complete Blood Count", "Any", None, None, None, None, 12, 16, None, None,
-         "g/dL", None, None, None],
-        [None, "WBC", COMMON, "Any", None, None, None, None, 4, 11, 2, 30, "10^3/uL", None,
-         "Flow cytometry (laser scatter)", None],
+        [None, "HGB", COMMON, "Male",     18, 65, None, None, 13, 17, "g/dL", 7, 21, None, None, None],
+        [None, "HGB", COMMON, "Female",   18, 65, None, None, 12, 15, "g/dL", 7, 21, None, None, None],
+        [None, "HGB", COMMON, "Children", None, None, 0, 12, 11, 14, "g/dL", None, None, None, None, None],
+        [None, "HGB", "Complete Blood Count", "Any", None, None, None, None, 12, 16, "g/dL",
+         None, None, None, None, None],
+        [None, "WBC", COMMON, "Any", None, None, None, None, 4, 11, "10^3/uL", 2, 30,
+         "Flow cytometry (laser scatter)", None, None],
     ],
     f'applies to — "{COMMON}" for a range shared by every test that reports the parameter,'
     " or the exact test name to make it apply to that one test only.",
@@ -503,9 +503,13 @@ async def import_groups(file: UploadFile = File(...), dry_run: bool = Query(Fals
 
 
 # --------------------------------------------------------------------------- reference ranges
-RANGE_COLS = ["id", "parameter", "applies to", "patient group", "age from (years)", "age to (years)",
-              "age from (months)", "age to (months)", "low", "high",
-              "critical low", "critical high", "unit", "text range", "method", "analyser"]
+# Headings and their order follow the Add reference range form, field for
+# field. "(optional)" is left off "method": it is guidance in the form, not
+# part of the field's name, and the other sheets drop it from "code" too.
+RANGE_COLS = ["id", "parameter", "applies to", "patient group",
+              "age from (years)", "age to (years)", "age from (months)", "age to (months)",
+              "low", "high", "unit", "critical low", "critical high",
+              "method", "analyser", "text range"]
 
 GROUP_IN  = {"any": "A", "male": "M", "female": "F", "children": "C",
              "a": "A", "m": "M", "f": "F", "c": "C"}
@@ -529,8 +533,8 @@ def export_ranges(db: Session = Depends(get_db)):
                    COMMON if r.test_id is None else tests.get(r.test_id, f"#{r.test_id}"),
                    GROUP_OUT.get((r.sex or "A").upper(), "Any"),
                    r.age_min, r.age_max, r.age_min_months, r.age_max_months,
-                   r.low, r.high, r.critical_low, r.critical_high,
-                   r.unit, r.text, r.method, devs.get(r.device_id)])
+                   r.low, r.high, r.unit, r.critical_low, r.critical_high,
+                   r.method, devs.get(r.device_id), r.text])
     _notes(wb,
            'applies to — write "{COMMON}" for a range shared by every test that reports the parameter,'
            " or the exact test name to make it apply to that one test only.",
