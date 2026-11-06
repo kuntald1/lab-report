@@ -135,7 +135,7 @@ def _num(v, field, row_no, errors, integer=False):
     return n
 
 
-def _rows(file_bytes, expected, errors):
+def _rows(file_bytes, expected, errors, aliases=None):
     """Yield (row_no, {lowercased header: value}) for every non-empty row."""
     try:
         wb = load_workbook(io.BytesIO(file_bytes), data_only=True, read_only=True)
@@ -149,6 +149,12 @@ def _rows(file_bytes, expected, errors):
         raise HTTPException(400, "The sheet is empty")
 
     keys = [_key(h) for h in header]
+    # A sheet downloaded before a column was renamed still has the old heading.
+    # Accept it, so files already sitting on someone's desktop keep working.
+    if aliases:
+        for i, k in enumerate(keys):
+            if k in aliases and aliases[k] not in keys:
+                keys[i] = aliases[k]
     missing = [c for c in expected if c not in keys]
     if missing:
         raise HTTPException(
@@ -214,11 +220,14 @@ def sample_tests():
 @router.get("/sample/test-groups")
 def sample_groups():
     return _sample("test-groups-SAMPLE.xlsx", "Test Groups", GROUP_COLS, [
-        [None, "LIPID", "Lipid Profile", 600, "Total Cholesterol | HDL Cholesterol | LDL Cholesterol | Triglycerides"],
-        [None, "ANAEM", "Anaemia Profile", 450, "Complete Blood Count | Haemoglobin"],
-        [None, "ELEC",  "Serum Electrolytes", 500, "Sodium (Na+) | Potassium (K+) | Chloride (Cl-)"],
+        [None, "Lipid Profile", "LIPID",
+         "Total Cholesterol, HDL Cholesterol, LDL Cholesterol, Triglycerides", 600],
+        [None, "Anaemia Profile", "ANAEM", "Complete Blood Count, Haemoglobin", 450],
+        [None, "Serum Electrolytes", "ELEC", "Sodium (Na+), Potassium (K+), Chloride (Cl-)", 500],
     ],
-    "Separate the tests with a vertical bar:  Test A | Test B",
+    "Separate the tests with commas:  Test A, Test B, Test C",
+    "Spaces around a name do not matter, and neither do capitals — they are tidied up on import.",
+    "A test whose own name contains a comma still works; it is matched whole.",
     "Each name must be a test that already exists. A test code works too.",
     "The list replaces the group's members — a name you remove here leaves the group.")
 
@@ -363,7 +372,45 @@ async def import_tests(file: UploadFile = File(...), dry_run: bool = Query(False
 
 
 # --------------------------------------------------------------------------- test groups
-GROUP_COLS = ["id", "code", "name", "price", "tests"]
+def _split_tests(raw, resolve):
+    """Split the cell into test names.
+
+    Commas, because that is what people type. The catch is that a test name can
+    contain one of its own — "Serum Electrolytes (Na, K, Cl)" is a real entry in
+    this catalog — so a plain split would tear it into three names that match
+    nothing. Instead the pieces are split and then greedily re-joined: the
+    longest run of consecutive pieces that names a real test wins before any
+    shorter one.
+
+    A vertical bar still separates if the cell has one, because it is
+    unambiguous and earlier exports used it.
+    """
+    if "|" in raw:
+        return [p.strip() for p in raw.split("|") if p.strip()]
+    pieces = [p.strip() for p in raw.split(",")]
+    out, i = [], 0
+    while i < len(pieces):
+        if not pieces[i]:
+            i += 1
+            continue
+        taken = None
+        for j in range(len(pieces), i, -1):          # longest candidate first
+            cand = ", ".join(pieces[i:j]).strip()
+            if cand and resolve(cand) is not None:
+                taken = (cand, j)
+                break
+        if taken:
+            out.append(taken[0])
+            i = taken[1]
+        else:
+            out.append(pieces[i])                     # unknown: reported below
+            i += 1
+    return out
+
+
+# Headings match the New Test Group form, label for label.
+GROUP_COLS = ["id", "group name", "code", "tests in this group", "group price"]
+GROUP_ALIASES = {"name": "group name", "price": "group price", "tests": "tests in this group"}
 
 
 @router.get("/export/test-groups")
@@ -378,10 +425,12 @@ def export_groups(db: Session = Depends(get_db), scope: Scope = Depends(get_scop
     ws = _sheet(wb, "Test Groups", GROUP_COLS)
     for p in pkgs:
         members = [m for m in links.get(p.id, []) if m]
-        ws.append([p.id, p.code, p.name, p.price, " | ".join(sorted(members))])
+        ws.append([p.id, p.name, p.code, ", ".join(sorted(members)), p.price])
     _notes(wb,
-           'Separate the tests in the "tests" column with a vertical bar:  Test A | Test B',
-           "Each name must match a test in the Tests sheet exactly.",
+           'Separate the tests with commas:  Test A, Test B, Test C',
+           "Spaces around a name do not matter, and neither do capitals — they are tidied up on import.",
+           "A test whose own name contains a comma still works; it is matched whole.",
+           "Each name must be a test that already exists. A test code works too.",
            "The list in the sheet replaces the group's members — a name you delete here leaves the group.",
            "Leave id blank to add a new group. Never change an id by hand.")
     return _stream(wb, "test-groups.xlsx")
@@ -391,7 +440,8 @@ def export_groups(db: Session = Depends(get_db), scope: Scope = Depends(get_scop
 async def import_groups(file: UploadFile = File(...), dry_run: bool = Query(False),
                         db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     errors = []
-    data = _rows(await file.read(), ["name", "tests"], errors)
+    data = _rows(await file.read(), ["group name", "tests in this group"], errors,
+                 aliases=GROUP_ALIASES)
     tenant = user.tenant_id
 
     tests_by_name = {_key(t.name): t.id for t in db.query(TestCatalog).all()}
@@ -401,10 +451,12 @@ async def import_groups(file: UploadFile = File(...), dry_run: bool = Query(Fals
 
     created = updated = 0
     pending = []
+    resolve = lambda nm: tests_by_name.get(_key(nm)) or tests_by_code.get(_key(nm))
+
     for n, r in data:
-        name = _txt(r.get("name"))
+        name = _txt(r.get("group name"))
         if not name:
-            errors.append(f"Row {n}: name is required")
+            errors.append(f"Row {n}: group name is required")
             continue
         rid = _num(r.get("id"), "id", n, errors, integer=True)
         row = by_id.get(rid) if rid else None
@@ -414,12 +466,9 @@ async def import_groups(file: UploadFile = File(...), dry_run: bool = Query(Fals
         if row is None:
             row = by_name.get(_key(name))
 
-        # '|' first; a comma would split test names that contain one.
-        raw = _txt(r.get("tests")) or ""
-        parts = [p.strip() for p in (raw.split("|") if "|" in raw else raw.split(",")) if p.strip()]
         ids = []
-        for p in parts:
-            tid = tests_by_name.get(_key(p)) or tests_by_code.get(_key(p))
+        for p in _split_tests(_txt(r.get("tests in this group")) or "", resolve):
+            tid = resolve(p)
             if tid is None:
                 errors.append(f"Row {n}: '{p}' is not a test in the catalog")
             else:
@@ -428,7 +477,7 @@ async def import_groups(file: UploadFile = File(...), dry_run: bool = Query(Fals
             errors.append(f"Row {n}: a group needs at least one test")
 
         pending.append((row, dict(code=_txt(r.get("code")), name=name,
-                                  price=_num(r.get("price"), "price", n, errors) or 0.0), ids))
+                                  price=_num(r.get("group price"), "group price", n, errors) or 0.0), ids))
         if row:
             updated += 1
         else:
