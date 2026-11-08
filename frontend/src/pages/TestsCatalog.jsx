@@ -131,12 +131,13 @@ export default function TestsCatalog() {
       </div>
 
       <div style={{ display:'flex', gap:'0.4rem', marginBottom:'1.2rem', borderBottom:'1.5px solid #e8ecf4' }}>
-        {[['tests','Tests'],['groups','Test Groups'],['ranges','Reference Ranges']].map(([id,label]) => (
+        {[['tests','Tests'],['groups','Test Groups'],['ranges','Reference Ranges'],['parameters','Parameters']].map(([id,label]) => (
           <button key={id} onClick={()=>setTab(id)} style={{ background:'transparent', border:'none', cursor:'pointer', padding:'0.6rem 1.1rem', fontFamily:'Manrope,sans-serif', fontWeight:700, fontSize:'0.88rem', color: tab===id?'#f97316':'#8892a4', borderBottom: tab===id?'2.5px solid #f97316':'2.5px solid transparent', marginBottom:'-1.5px' }}>{label}</button>
         ))}
       </div>
 
-      {tab === 'ranges' ? <ReferenceRanges tests={tests} showToast={showToast} /> :
+      {tab === 'parameters' ? <ParameterList showToast={showToast} /> :
+       tab === 'ranges' ? <ReferenceRanges tests={tests} showToast={showToast} /> :
        tab === 'groups' ? <TestGroups tests={tests} showToast={showToast} /> : (<>
       <div style={{ ...S.card, marginBottom:'1.2rem', padding:'1rem 1.5rem' }}>
         <input style={{ ...inp, maxWidth:'360px' }} placeholder="Search tests…" value={search} onChange={e=>setSearch(e.target.value)} />
@@ -959,6 +960,147 @@ function ReferenceRanges({ tests, showToast }) {
                 style={{ background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', border:'none', borderRadius:'10px', padding:'0.65rem 1.6rem', cursor:'pointer', fontWeight:700, fontFamily:'Manrope,sans-serif' }}>
                 {saving ? 'Saving…' : 'Continue'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Parameter list — optional. Says which names are one parameter (WBC / TLC /
+// White Blood Cells), the heading each prints under and its order. Left empty,
+// nothing in the app changes.
+// ─────────────────────────────────────────────────────────────────────────────
+const BLANK_PARAM = { name:'', section:'', sort_order:'', aliases:'', is_active:true };
+
+function ParameterList({ showToast }) {
+  const [rows, setRows]     = useState([]);
+  const [loading, setLoad]  = useState(true);
+  const [search, setSearch] = useState('');
+  const [form, setForm]     = useState(null);
+  const [saving, setSaving] = useState(false);
+
+  const load = () => authedFetch('/catalog/parameters')
+    .then(r => r.ok ? r.json() : [])
+    .then(d => { setRows(Array.isArray(d) ? d : []); setLoad(false); })
+    .catch(() => setLoad(false));
+  useEffect(() => { load(); }, []);
+
+  const q = search.trim().toLowerCase();
+  const shown = rows.filter(r => !q ||
+    [r.name, r.section, r.aliases].some(v => (v || '').toLowerCase().includes(q)));
+
+  const save = async () => {
+    if (!form.name.trim()) { showToast('error', 'Parameter is required'); return; }
+    setSaving(true);
+    try {
+      const body = { name: form.name.trim(), section: form.section.trim() || null,
+                     sort_order: form.sort_order === '' ? null : Number(form.sort_order),
+                     aliases: form.aliases.trim() || null, is_active: form.is_active !== false };
+      const res = await authedFetch(form.id ? `/catalog/parameters/${form.id}` : '/catalog/parameters',
+        { method: form.id ? 'PUT' : 'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+      if (!res.ok) {
+        let msg = 'Save failed';
+        try { const j = await res.json(); if (typeof j.detail === 'string') msg = j.detail; } catch {}
+        showToast('error', msg); return;
+      }
+      setForm(null); load(); showToast('success', form.id ? 'Parameter updated' : 'Parameter added');
+    } catch { showToast('error', 'Save failed'); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <>
+      <div style={{ ...S.card, marginBottom:'1.2rem', padding:'1rem 1.5rem', display:'flex', gap:'0.8rem', alignItems:'center', flexWrap:'wrap' }}>
+        <input style={{ ...inp, maxWidth:'320px' }} placeholder="Search parameter, section or alias…"
+               value={search} onChange={e=>setSearch(e.target.value)} />
+        <div style={{ flex:1 }} />
+        <ExcelBar kind="parameters" noun="Parameters" showToast={showToast} onDone={load} />
+        <button onClick={()=>setForm({ ...BLANK_PARAM })}
+                style={{ background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', border:'none', borderRadius:'10px', padding:'0.7rem 1.3rem', fontWeight:700, cursor:'pointer', fontFamily:'Manrope,sans-serif', whiteSpace:'nowrap', boxShadow:'0 4px 14px rgba(249,115,22,0.3)' }}>+ Add Parameter</button>
+      </div>
+
+      <div style={{ ...S.card, marginBottom:'1.2rem', padding:'0.9rem 1.2rem', background:'#fffbeb', border:'1px solid #fde68a', color:'#92400e', fontSize:'0.8rem', lineHeight:1.6 }}>
+        Optional. Give a parameter its other names (<b>aliases</b>) and a result that arrives under any of them
+        is treated as that parameter, so it finds the same reference range. The <b>section</b> and <b>order</b>
+        decide the heading and position on the report. A name or alias can belong to one parameter only.
+      </div>
+
+      {loading ? (
+        <div style={{ ...S.card, textAlign:'center', color:'#8892a4', padding:'2.5rem' }}>Loading…</div>
+      ) : shown.length === 0 ? (
+        <div style={{ ...S.card, textAlign:'center', color:'#8892a4', padding:'2.5rem' }}>
+          {rows.length === 0 ? 'No parameters yet — everything works by the names analysers send.' : 'Nothing matches that search.'}
+        </div>
+      ) : (
+        <div style={{ ...S.card, padding:'0.4rem 1.2rem' }}>
+          {shown.map(r => (
+            <div key={r.id} onClick={()=>setForm({ id:r.id, name:r.name || '', section:r.section || '',
+                    sort_order: r.sort_order ?? '', aliases:r.aliases || '', is_active:r.is_active !== false })}
+                 style={{ display:'flex', gap:'0.8rem', alignItems:'center', padding:'0.75rem 0', borderBottom:'1px solid #f0f2f7', cursor:'pointer', opacity: r.is_active === false ? 0.5 : 1 }}>
+              <span style={{ width:'34px', color:'#8892a4', fontSize:'0.78rem' }}>{r.sort_order ?? '—'}</span>
+              <span style={{ fontWeight:700, minWidth:'170px' }}>{r.name}</span>
+              <span style={{ ...PILL_TEST, visibility: r.section ? 'visible' : 'hidden' }}>{r.section || '-'}</span>
+              <span style={{ flex:1, color:'#8892a4', fontSize:'0.8rem' }}>{r.aliases || ''}</span>
+              {r.is_active === false && <span style={{ ...PILL, background:'#f3f4f6', color:'#6b7280', border:'1px solid #e5e7eb' }}>Inactive</span>}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {form && (
+        <div onClick={()=>setForm(null)} style={{ position:'fixed', inset:0, zIndex:9997, background:'rgba(15,18,24,0.45)', display:'flex', alignItems:'center', justifyContent:'center', padding:'1rem', overflowY:'auto' }}>
+          <div onClick={e=>e.stopPropagation()} style={{ background:'#fff', borderRadius:'16px', padding:'1.8rem', width:'560px', maxWidth:'95vw', maxHeight:'92vh', overflowY:'auto', boxShadow:'0 20px 60px rgba(15,18,24,0.3)' }}>
+            <div style={{ fontFamily:'Manrope,sans-serif', fontSize:'1.2rem', fontWeight:800, color:'#0f1218', marginBottom:'1.2rem' }}>
+              {form.id ? 'Edit parameter' : 'Add parameter'}
+            </div>
+
+            <div style={{ marginBottom:'0.9rem' }}>
+              <label style={lbl}>Parameter *</label>
+              <input style={inp} value={form.name} placeholder="WBC, Hemoglobin, Neutrophils %…"
+                     onChange={e=>setForm({ ...form, name:e.target.value })} />
+            </div>
+
+            <div style={{ display:'grid', gridTemplateColumns:'2fr 1fr', gap:'0.9rem', marginBottom:'0.9rem' }}>
+              <div>
+                <label style={lbl}>Section</label>
+                <input style={inp} value={form.section} placeholder="RBC, WBC, PLATELETS…"
+                       onChange={e=>setForm({ ...form, section:e.target.value })} />
+              </div>
+              <div>
+                <label style={lbl}>Order</label>
+                <input style={inp} type="number" value={form.sort_order}
+                       onChange={e=>setForm({ ...form, sort_order:e.target.value })} />
+              </div>
+            </div>
+            <div style={{ fontSize:'0.72rem', color:'#8892a4', margin:'-0.5rem 0 0.9rem' }}>
+              Section is the heading it prints under. Order is its position in the report; blank goes last.
+            </div>
+
+            <div style={{ marginBottom:'0.9rem' }}>
+              <label style={lbl}>Aliases</label>
+              <input style={inp} value={form.aliases} placeholder="TLC, White Blood Cells, Total Leucocyte Count"
+                     onChange={e=>setForm({ ...form, aliases:e.target.value })} />
+              <div style={{ fontSize:'0.72rem', color:'#8892a4', marginTop:'0.3rem' }}>
+                Other names for the same parameter, separated by commas.
+              </div>
+            </div>
+
+            <label style={{ display:'flex', alignItems:'center', gap:'0.55rem', cursor:'pointer', marginBottom:'1.4rem', fontSize:'0.85rem', fontWeight:700, color:'#0f1218' }}>
+              <input type="checkbox" checked={form.is_active !== false}
+                     onChange={e=>setForm({ ...form, is_active:e.target.checked })}
+                     style={{ width:'16px', height:'16px', accentColor:'#f97316' }} />
+              Active
+              <span style={{ fontSize:'0.72rem', fontWeight:500, color:'#8892a4' }}>
+                Untick to keep this parameter but stop using it.
+              </span>
+            </label>
+
+            <div style={{ display:'flex', gap:'0.6rem', justifyContent:'flex-end' }}>
+              <button onClick={()=>setForm(null)} style={{ background:'transparent', color:'#8892a4', border:'1px solid #e8ecf4', borderRadius:'10px', padding:'0.65rem 1.3rem', cursor:'pointer', fontWeight:600, fontFamily:'Manrope,sans-serif' }}>Cancel</button>
+              <button onClick={save} disabled={saving} style={{ background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', border:'none', borderRadius:'10px', padding:'0.65rem 1.6rem', cursor:'pointer', fontWeight:700, fontFamily:'Manrope,sans-serif' }}>{saving?'Saving…':(form.id?'Save changes':'Add Parameter')}</button>
             </div>
           </div>
         </div>

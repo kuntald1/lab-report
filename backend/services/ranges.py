@@ -12,6 +12,7 @@ A flag a person set by hand is never overwritten — see `flag_manual`.
 """
 from models.clinical import ReferenceRange
 from models.billing import BillItem
+from services.parameters import alias_map, canon, names_of, norm as _pnorm, active_parameters
 
 
 def _norm(p) -> str:
@@ -127,7 +128,10 @@ def matching_rows(db, params, test_ids, patient, device_id=None) -> dict:
     single winner here would silently drop the other, so the callers pick a
     winner per field instead.
     """
-    wanted = {_norm(p) for p in params if _norm(p)}
+    # Names the Parameter list says are one parameter (WBC / TLC / White Blood
+    # Cells) are compared as one. An empty list leaves every name as it was.
+    amap = alias_map(db)
+    wanted = {canon(amap, p) for p in params if _norm(p)}
     if not wanted:
         return {}
 
@@ -145,7 +149,7 @@ def matching_rows(db, params, test_ids, patient, device_id=None) -> dict:
 
     found = {}
     for row in q.all():
-        key = _norm(row.param)
+        key = canon(amap, row.param)
         if key not in wanted or not _row_matches(row, sex, years, months, device_id):
             continue
         found.setdefault(key, []).append(row)
@@ -182,9 +186,10 @@ def apply_catalog_ranges(db, parameters, test_ids, patient, device_id=None) -> l
     if not matches:
         return parameters
 
+    amap = alias_map(db)
     out = []
     for p in parameters:
-        rows = matches.get(_norm(p.get("param") or p.get("name")))
+        rows = matches.get(canon(amap, p.get("param") or p.get("name")))
         if not rows:
             out.append(p)
             continue
@@ -261,12 +266,21 @@ def declared_parameters(db, test_ids) -> set:
     from models.clinical import TestCatalog
     rows = (db.query(TestCatalog.parameters)
               .filter(TestCatalog.id.in_(list(test_ids))).all())
+    # A declared name that the Parameter list knows brings all its other names
+    # with it, so a test listing "WBC" still prints a result the analyser sent
+    # as "White Blood Cells".
+    siblings = {}
+    for prm in active_parameters(db):
+        group = {_match_key(n) for n in names_of(prm) if _match_key(n)}
+        for n in names_of(prm):
+            siblings.setdefault(_pnorm(n), group)
     wanted = set()
     for (raw,) in rows:
         for piece in (raw or "").replace(";", ",").split(","):
             key = _match_key(piece)
             if key:
                 wanted.add(key)
+                wanted |= siblings.get(_pnorm(piece), set())
     return wanted
 
 

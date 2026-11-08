@@ -150,6 +150,23 @@ class ReferenceRange(Base):
     is_active = Column(Boolean, nullable=False, default=True, server_default=sql_true())
 
 
+class Parameter(Base):
+    """One measured thing a report can show (Hemoglobin, Neutrophils %, ...).
+
+    Optional: a lab that never fills this in sees no change anywhere. When it
+    does, the list does three jobs — it says which names are the same parameter
+    (`aliases`: WBC, TLC and White Blood Cells are one thing), which heading it
+    prints under (`section`) and in what order (`sort_order`).
+    """
+    __tablename__ = "parameters"
+    id         = Column(Integer, primary_key=True, index=True)
+    name       = Column(String, nullable=False, index=True)    # the name the lab calls it
+    section    = Column(String, nullable=True)                 # heading it prints under, e.g. "RBC INDICES"
+    sort_order = Column(Integer, nullable=True)                # position within the report; blank = last
+    aliases    = Column(Text, nullable=True)                   # other names, comma-separated
+    is_active  = Column(Boolean, nullable=False, default=True, server_default=sql_true())
+
+
 # --------------------------------------------------------------------------- orders
 class Order(Base):
     """A requisition for a patient: one sample (barcode) carrying ordered tests."""

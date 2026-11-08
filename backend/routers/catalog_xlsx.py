@@ -29,7 +29,8 @@ from openpyxl.utils import get_column_letter
 from database import get_db
 from models.org import Role, User
 from models.b2b import SampleTube
-from models.clinical import TestCatalog, Package, PackageTest, ReferenceRange
+from models.clinical import TestCatalog, Package, PackageTest, ReferenceRange, Parameter
+from services.parameters import norm as _pnorm, split_aliases, names_of
 from models.models import Device
 from auth.deps import get_current_user, get_scope, require_roles, apply_scope, Scope
 
@@ -684,6 +685,124 @@ async def import_ranges(file: UploadFile = File(...), dry_run: bool = Query(Fals
     for row, vals in resolved:
         if row is None:
             row = ReferenceRange()
+            db.add(row)
+        for k, v in vals.items():
+            setattr(row, k, v)
+    db.commit()
+    return _result(created, updated, errors, False)
+
+
+# --------------------------------------------------------------------------- parameter list
+# Mirrors the Add parameter form, field for field.
+PARAM_COLS = ["id", "parameter", "section", "order", "aliases", "active"]
+
+
+@router.get("/sample/parameters")
+def sample_parameters():
+    return _sample("parameters-SAMPLE.xlsx", "Parameters", PARAM_COLS, [
+        [None, "WBC",        "WBC",         1, "TLC, White Blood Cells, Total Leucocyte Count", "Yes"],
+        [None, "Neutrophils %", "WBC",      2, "NEUT%, NEU%, Neutrophils", "Yes"],
+        [None, "Hemoglobin", "RBC",         1, "HGB, Hb, Haemoglobin", "Yes"],
+        [None, "MCV",        "RBC INDICES", 1, None, "Yes"],
+    ],
+    "aliases — other names for the same parameter, separated by commas. A result that arrives under "
+    "any of these names is treated as this parameter, so its reference range and its place on the report match.",
+    "section — the heading the parameter prints under. Leave blank for none.",
+    "order — position within the report (1, 2, 3 ...). Blank goes last.",
+    "A name or alias can belong to one parameter only.")
+
+
+@router.get("/export/parameters")
+def export_parameters(db: Session = Depends(get_db)):
+    rows = db.query(Parameter).order_by(Parameter.section, Parameter.sort_order, Parameter.name).all()
+    wb = Workbook()
+    ws = _sheet(wb, "Parameters", PARAM_COLS)
+    for r in rows:
+        ws.append([r.id, r.name, r.section, r.sort_order, r.aliases,
+                   "No" if r.is_active is False else "Yes"])
+    _notes(wb,
+           "aliases — other names for the same parameter, separated by commas "
+           "(WBC, TLC, White Blood Cells). A name or alias can belong to one parameter only.",
+           "section — the heading it prints under. order — its position within the report.",
+           "active — Yes or No. No keeps the parameter but stops it being used. Blank leaves it as it is.",
+           "Leave id blank to add a new parameter; a blank id with a name that already exists updates that "
+           "parameter. Never change an id by hand.")
+    return _stream(wb, "parameters.xlsx")
+
+
+@router.post("/import/parameters", dependencies=[Depends(WRITE)])
+async def import_parameters(file: UploadFile = File(...), dry_run: bool = Query(False),
+                            db: Session = Depends(get_db)):
+    errors = []
+    data = _rows(await file.read(), ["parameter"], errors)
+
+    existing = db.query(Parameter).order_by(Parameter.id).all()
+    by_id = {p.id: p for p in existing}
+    by_name = {}
+    for p in existing:
+        by_name.setdefault(_key(p.name), p)
+
+    resolved, claimed, seen_names = [], set(), {}
+    for n, r in data:
+        name = _txt(r.get("parameter"))
+        if not name:
+            errors.append(f"Row {n}: parameter is required")
+            continue
+        rid = _num(r.get("id"), "id", n, errors, integer=True)
+        row = by_id.get(rid) if rid else None
+        if rid and not row:
+            errors.append(f"Row {n}: id {rid} is not a parameter. Leave id blank to add a new one.")
+            continue
+        if row is None:
+            match = by_name.get(_key(name))
+            if match is not None and match.id not in claimed:
+                row = match
+        if row is not None:
+            claimed.add(row.id)
+        if _key(name) in seen_names:
+            errors.append(f"Row {n}: '{name}' repeats row {seen_names[_key(name)]}")
+            continue
+        seen_names[_key(name)] = n
+
+        aliases = ", ".join(split_aliases(_txt(r.get("aliases")))) or None
+        vals = dict(name=name, section=_txt(r.get("section")), aliases=aliases,
+                    sort_order=_num(r.get("order"), "order", n, errors, integer=True))
+        act = _yes_no(r.get("active"), "active", n, errors)
+        if act is not None:
+            vals["is_active"] = act
+        resolved.append((n, row, vals))
+
+    # A name or alias may belong to one parameter only — judged on the list as it
+    # would stand after this import, so swapping two names in one sheet is fine.
+    final = {p.id: (p.name, p.aliases) for p in existing}
+    for n, row, vals in resolved:
+        if row is not None:
+            final[row.id] = (vals["name"], vals["aliases"])
+    owners = {}
+    def claim(who, label, nm, row_no=None):
+        k = _pnorm(nm)
+        if k in owners and owners[k][0] != who:
+            where = f"Row {row_no}: " if row_no else ""
+            errors.append(f"{where}'{nm}' is already used by '{owners[k][1]}'")
+        else:
+            owners.setdefault(k, (who, label))
+    row_of = {row.id: n for n, row, _ in resolved if row is not None}
+    for pid, (nm, al) in final.items():
+        for x in [nm] + split_aliases(al):
+            claim(("db", pid), nm, x, row_of.get(pid))
+    for n, row, vals in resolved:
+        if row is None:
+            for x in [vals["name"]] + split_aliases(vals["aliases"]):
+                claim(("new", n), vals["name"], x, n)
+
+    created = sum(1 for _, row, _ in resolved if row is None)
+    updated = len(resolved) - created
+    if errors or dry_run:
+        return _result(created, updated, errors, dry_run)
+
+    for _, row, vals in resolved:
+        if row is None:
+            row = Parameter()
             db.add(row)
         for k, v in vals.items():
             setattr(row, k, v)

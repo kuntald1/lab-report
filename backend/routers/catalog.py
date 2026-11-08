@@ -8,7 +8,8 @@ from typing import Optional, List
 
 from database import get_db
 from models.org import Role, User
-from models.clinical import Department, TestCatalog, Package, PackageTest, ReferenceRange
+from models.clinical import Department, TestCatalog, Package, PackageTest, ReferenceRange, Parameter
+from services.parameters import find_conflicts
 from auth.deps import get_current_user, get_scope, require_roles, apply_scope, Scope
 
 router = APIRouter()
@@ -190,3 +191,67 @@ def list_packages(db: Session = Depends(get_db), scope: Scope = Depends(get_scop
         tids = [pt.test_id for pt in db.query(PackageTest).filter(PackageTest.package_id == pkg.id).all()]
         out.append({"id": pkg.id, "name": pkg.name, "code": pkg.code, "price": pkg.price, "test_ids": tids})
     return out
+
+
+# --------------------------------------------------------------------------- parameter list
+class ParameterIn(BaseModel):
+    name: str
+    section: Optional[str] = None
+    sort_order: Optional[int] = None
+    aliases: Optional[str] = None        # comma-separated
+    is_active: Optional[bool] = None     # None = not sent: new = active, edit = unchanged
+
+
+def _clean_param(p: ParameterIn) -> dict:
+    d = p.model_dump()
+    d["name"] = (d.get("name") or "").strip()
+    d["section"] = (d.get("section") or "").strip() or None
+    d["aliases"] = ", ".join(a.strip() for a in (d.get("aliases") or "").replace(";", ",").split(",") if a.strip()) or None
+    if d.get("is_active") is None:
+        d.pop("is_active", None)
+    return d
+
+
+def _check_param(db, d, exclude_id=None):
+    if not d["name"]:
+        raise HTTPException(status_code=400, detail="Parameter name is required")
+    problems = list(find_conflicts(db, d["name"], d.get("aliases"), exclude_id))
+    if problems:
+        raise HTTPException(status_code=400, detail="; ".join(problems))
+
+
+@router.get("/parameters")
+def list_parameters(db: Session = Depends(get_db)):
+    return (db.query(Parameter)
+              .order_by(Parameter.section, Parameter.sort_order, Parameter.name).all())
+
+
+@router.post("/parameters", dependencies=[Depends(WRITE)])
+def create_parameter(p: ParameterIn, db: Session = Depends(get_db)):
+    d = _clean_param(p); _check_param(db, d)
+    r = Parameter(**d)
+    db.add(r); db.commit(); db.refresh(r)
+    return r
+
+
+@router.put("/parameters/{parameter_id}", dependencies=[Depends(WRITE)])
+def update_parameter(parameter_id: int, p: ParameterIn, db: Session = Depends(get_db)):
+    r = db.query(Parameter).filter(Parameter.id == parameter_id).first()
+    if not r:
+        raise HTTPException(status_code=404, detail="Parameter not found")
+    d = _clean_param(p); _check_param(db, d, exclude_id=parameter_id)
+    for k, v in d.items():
+        setattr(r, k, v)
+    db.commit(); db.refresh(r)
+    return r
+
+
+@router.delete("/parameters/{parameter_id}", dependencies=[Depends(WRITE)])
+def delete_parameter(parameter_id: int, db: Session = Depends(get_db)):
+    """Retires, never deletes — same rule as every other catalog record."""
+    r = db.query(Parameter).filter(Parameter.id == parameter_id).first()
+    if not r:
+        raise HTTPException(status_code=404, detail="Parameter not found")
+    r.is_active = False
+    db.commit()
+    return {"id": parameter_id, "is_active": False}
