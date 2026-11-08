@@ -11,7 +11,7 @@ events, so the entire turnaround-time breakdown is derived, never stored.
 """
 from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, Float, Text
 from sqlalchemy.orm import relationship
-from sqlalchemy.sql import func
+from sqlalchemy.sql import func, true as sql_true
 from database import Base
 
 
@@ -144,6 +144,10 @@ class ReferenceRange(Base):
     # NULL = applies whichever analyser reported it.
     device_id = Column(Integer, ForeignKey("devices.id"), nullable=True, index=True)
     method    = Column(String, nullable=True)
+    # Retire a range without deleting it — same switch tests and groups already
+    # have. An inactive row is never used to range or flag a result, but stays
+    # listed so it can be switched back on.
+    is_active = Column(Boolean, nullable=False, default=True, server_default=sql_true())
 
 
 # --------------------------------------------------------------------------- orders

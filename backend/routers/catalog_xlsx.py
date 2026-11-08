@@ -135,6 +135,21 @@ def _num(v, field, row_no, errors, integer=False):
     return n
 
 
+def _yes_no(v, field, row_no, errors):
+    """Cell -> True/False, or None for blank (blank means "leave as it is" on an
+    existing row and "active" on a new one). Anything unrecognised is an error:
+    guessing would switch a range on or off by accident."""
+    if v is None or str(v).strip() == "":
+        return None
+    k = _key(v)
+    if k in ("yes", "y", "true", "1", "active", "on"):
+        return True
+    if k in ("no", "n", "false", "0", "inactive", "off"):
+        return False
+    errors.append(f"Row {row_no}: {field} — '{v}' must be Yes or No")
+    return None
+
+
 def _rows(file_bytes, expected, errors, aliases=None):
     """Yield (row_no, {lowercased header: value}) for every non-empty row."""
     try:
@@ -235,19 +250,20 @@ def sample_groups():
 @router.get("/sample/reference-ranges")
 def sample_ranges():
     return _sample("reference-ranges-SAMPLE.xlsx", "Reference Ranges", RANGE_COLS, [
-        [None, "HGB", COMMON, "Male",     18, 65, None, None, 13, 17, "g/dL", 7, 21, None, None, None],
-        [None, "HGB", COMMON, "Female",   18, 65, None, None, 12, 15, "g/dL", 7, 21, None, None, None],
-        [None, "HGB", COMMON, "Children", None, None, 0, 12, 11, 14, "g/dL", None, None, None, None, None],
+        [None, "HGB", COMMON, "Male",     18, 65, None, None, 13, 17, "g/dL", 7, 21, None, None, None, "Yes"],
+        [None, "HGB", COMMON, "Female",   18, 65, None, None, 12, 15, "g/dL", 7, 21, None, None, None, "Yes"],
+        [None, "HGB", COMMON, "Children", None, None, 0, 12, 11, 14, "g/dL", None, None, None, None, None, "Yes"],
         [None, "HGB", "Complete Blood Count", "Any", None, None, None, None, 12, 16, "g/dL",
-         None, None, None, None, None],
+         None, None, None, None, None, "Yes"],
         [None, "WBC", COMMON, "Any", None, None, None, None, 4, 11, "10^3/uL", 2, 30,
-         "Flow cytometry (laser scatter)", None, None],
+         "Flow cytometry (laser scatter)", None, None, "Yes"],
     ],
     f'applies to — "{COMMON}" for a range shared by every test that reports the parameter,'
     " or the exact test name to make it apply to that one test only.",
     "The fourth row shows an override: the same parameter, narrowed to one test.",
     "patient group — Any, Male, Female or Children. Children takes the month columns.",
-    "Leave low and high blank and fill method to set only the methodology printed on the report.")
+    "Leave low and high blank and fill method to set only the methodology printed on the report.",
+    "active — Yes or No. No keeps the range but stops it being used on any report.")
 
 
 # --------------------------------------------------------------------------- tests
@@ -509,12 +525,18 @@ async def import_groups(file: UploadFile = File(...), dry_run: bool = Query(Fals
 RANGE_COLS = ["id", "parameter", "applies to", "patient group",
               "age from (years)", "age to (years)", "age from (months)", "age to (months)",
               "low", "high", "unit", "critical low", "critical high",
-              "method", "analyser", "text range"]
+              "method", "analyser", "text range", "active"]
 
 GROUP_IN  = {"any": "A", "male": "M", "female": "F", "children": "C",
              "a": "A", "m": "M", "f": "F", "c": "C"}
 GROUP_OUT = {"A": "Any", "M": "Male", "F": "Female", "C": "Children"}
 COMMON    = "Common (all tests)"
+
+
+def _range_key(param, test_id, sex, age_min, age_max, age_min_months, age_max_months, device_id):
+    """What makes two ranges the same range — see import_ranges."""
+    return (_key(param), test_id, (sex or "A").upper(), age_min, age_max,
+            age_min_months, age_max_months, device_id)
 
 
 @router.get("/export/reference-ranges")
@@ -534,13 +556,17 @@ def export_ranges(db: Session = Depends(get_db)):
                    GROUP_OUT.get((r.sex or "A").upper(), "Any"),
                    r.age_min, r.age_max, r.age_min_months, r.age_max_months,
                    r.low, r.high, r.unit, r.critical_low, r.critical_high,
-                   r.method, devs.get(r.device_id), r.text])
+                   r.method, devs.get(r.device_id), r.text,
+                   "No" if r.is_active is False else "Yes"])
     _notes(wb,
            'applies to — write "{COMMON}" for a range shared by every test that reports the parameter,'
            " or the exact test name to make it apply to that one test only.",
            "patient group — Any, Male, Female or Children.",
            "Leave low and high blank and fill method to set only the methodology.",
-           "Leave id blank to add a new range. Never change an id by hand.")
+           "active — Yes or No. No keeps the range but stops it being used on any report. Blank leaves it as it is.",
+           "Leave id blank to add a new range. A row with a blank id that matches an existing range "
+           "(same parameter, applies to, patient group, ages and analyser) updates that range "
+           "instead of adding a second copy. Never change an id by hand.")
     return _stream(wb, "reference-ranges.xlsx")
 
 
@@ -555,10 +581,18 @@ async def import_ranges(file: UploadFile = File(...), dry_run: bool = Query(Fals
         devs_by_name = {_key(d.name): d.id for d in db.query(Device).all()}
     except Exception:
         devs_by_name = {}
-    by_id = {r.id: r for r in db.query(ReferenceRange).all()}
+    existing = db.query(ReferenceRange).order_by(ReferenceRange.id).all()
+    by_id = {r.id: r for r in existing}
+    # A range is "the same range" when it is for the same parameter, test, patient
+    # group, age bands and analyser. Without this a blank id always meant "add",
+    # so importing one file twice doubled every range. Where the database
+    # already holds duplicates, the oldest row is the one a sheet row matches.
+    by_natural = {}
+    for r0 in existing:
+        by_natural.setdefault(_range_key(r0.param, r0.test_id, r0.sex, r0.age_min, r0.age_max,
+                                         r0.age_min_months, r0.age_max_months, r0.device_id), r0)
 
-    created = updated = 0
-    pending = []
+    pending = []          # (row_no, existing row or None, values, natural key)
     for n, r in data:
         param = _txt(r.get("parameter"))
         if not param:
@@ -613,16 +647,41 @@ async def import_ranges(file: UploadFile = File(...), dry_run: bool = Query(Fals
             unit=_txt(r.get("unit")), text=_txt(r.get("text range")),
             method=_txt(r.get("method")), device_id=dev_id,
         )
-        pending.append((row, vals))
-        if row:
-            updated += 1
-        else:
-            created += 1
+        act = _yes_no(r.get("active"), "active", n, errors)
+        if act is not None:
+            vals["is_active"] = act     # blank: new rows default to active, old rows stay as they are
+        pending.append((n, row, vals, _range_key(
+            param, test_id, sex, vals["age_min"], vals["age_max"],
+            vals["age_min_months"], vals["age_max_months"], dev_id)))
+
+    # Settle which blank-id rows are really edits of a range that already exists.
+    claimed = {id(row) for _, row, _, _ in pending if row is not None}
+    id_keys = {key: n for n, row, _, key in pending if row is not None}
+    seen_blank = {}
+    resolved = []
+    for n, row, vals, key in pending:
+        if row is None:
+            if key in id_keys:
+                errors.append(f"Row {n}: repeats row {id_keys[key]} (same parameter, applies to, "
+                              "patient group, ages and analyser). Edit that row instead.")
+            elif key in seen_blank:
+                errors.append(f"Row {n}: repeats row {seen_blank[key]} (same parameter, applies to, "
+                              "patient group, ages and analyser).")
+            else:
+                seen_blank[key] = n
+                match = by_natural.get(key)
+                if match is not None and id(match) not in claimed:
+                    row = match
+                    claimed.add(id(match))
+        resolved.append((row, vals))
+
+    created = sum(1 for row, _ in resolved if row is None)
+    updated = len(resolved) - created
 
     if errors or dry_run:
         return _result(created, updated, errors, dry_run)
 
-    for row, vals in pending:
+    for row, vals in resolved:
         if row is None:
             row = ReferenceRange()
             db.add(row)

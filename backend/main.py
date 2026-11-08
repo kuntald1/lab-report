@@ -31,6 +31,28 @@ import models.commission
 
 Base.metadata.create_all(bind=engine)
 
+
+def _ensure_columns():
+    """create_all adds missing TABLES but never a missing COLUMN on a table that
+    already exists, and every query on that model selects every mapped column —
+    so shipping code that maps a new column ahead of its migration would take the
+    whole API down, login included. Each statement here is idempotent; the same
+    SQL lives in migrations/ for the record. A failure is logged, not fatal."""
+    if engine.dialect.name != "postgresql":
+        return
+    from sqlalchemy import text
+    for stmt in (
+        "ALTER TABLE reference_ranges ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE",
+    ):
+        try:
+            with engine.begin() as conn:
+                conn.execute(text(stmt))
+        except Exception as exc:                     # noqa: BLE001
+            logging.getLogger(__name__).warning("ensure-column skipped (%s): %s", stmt, exc)
+
+
+_ensure_columns()
+
 app = FastAPI(title="MediCloud Middleware API", version="3.0.0")
 
 app.add_middleware(

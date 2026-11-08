@@ -101,6 +101,9 @@ class RangeIn(BaseModel):
     text: Optional[str] = None           # qualitative, e.g. "Negative"
     method: Optional[str] = None         # printed under METHODOLOGY
     device_id: Optional[int] = None      # NULL = whichever analyser reported it
+    # None = not sent: a new range is active, an edited one keeps whatever it was.
+    # (An older app build never sends this, and must not switch a range back on.)
+    is_active: Optional[bool] = None
 
 
 def _clean_range(p: RangeIn) -> dict:
@@ -110,6 +113,8 @@ def _clean_range(p: RangeIn) -> dict:
     d["sex"] = (d.get("sex") or "A").strip()[:1].upper()
     if d["sex"] not in ("M", "F", "A", "C"):
         d["sex"] = "A"
+    if d.get("is_active") is None:
+        d.pop("is_active", None)
     return d
 
 

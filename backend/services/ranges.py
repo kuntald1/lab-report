@@ -131,7 +131,10 @@ def matching_rows(db, params, test_ids, patient, device_id=None) -> dict:
     if not wanted:
         return {}
 
-    q = db.query(ReferenceRange).filter(ReferenceRange.param.isnot(None))
+    # isnot(False), not is_(True): a row from before the column existed reads
+    # NULL until the migration lands, and must keep working.
+    q = (db.query(ReferenceRange).filter(ReferenceRange.param.isnot(None))
+           .filter(ReferenceRange.is_active.isnot(False)))
     if test_ids:
         q = q.filter((ReferenceRange.test_id.is_(None)) |
                      (ReferenceRange.test_id.in_(test_ids)))

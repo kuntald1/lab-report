@@ -429,7 +429,7 @@ function iconBtn(color) {
 // into a per-test one can offer to copy rather than silently move it.
 const BLANK_RANGE = { param:'', test_id:'', scope:'common', _was:null, sex:'A', age_min:'', age_max:'',
                       age_min_months:'', age_max_months:'', low:'', high:'',
-                      critical_low:'', critical_high:'', unit:'', text:'', method:'', device_id:'' };
+                      critical_low:'', critical_high:'', unit:'', text:'', method:'', device_id:'', is_active:true };
 
 const SEX_LABEL = { M:'Male', F:'Female', A:'Any', C:'Children' };
 
@@ -510,6 +510,7 @@ function ReferenceRanges({ tests, showToast }) {
     unit: f.unit.trim() || null, text: f.text.trim() || null,
     method: f.method.trim() || null,
     device_id: f.device_id ? Number(f.device_id) : null,
+    is_active: f.is_active !== false,
   });
 
   /** id null = create a new row; otherwise update that one. */
@@ -669,8 +670,14 @@ function ReferenceRanges({ tests, showToast }) {
             </thead>
             <tbody>
               {g.rows.map(r => (
-                <tr key={r.id} style={{ borderTop:'1px solid #f1f4f9' }}>
-                  <td style={{ padding:'0.5rem', fontWeight:700 }}>{r.param || '—'}</td>
+                <tr key={r.id} style={{ borderTop:'1px solid #f1f4f9', opacity: r.is_active === false ? 0.5 : 1 }}>
+                  <td style={{ padding:'0.5rem', fontWeight:700 }}>{r.param || '—'}
+                    {r.is_active === false && (
+                      <span style={{ marginLeft:'0.5rem', fontSize:'0.6rem', fontWeight:700, textTransform:'uppercase',
+                                     letterSpacing:'0.06em', color:'#92400e', background:'#fffbeb',
+                                     border:'1px solid #fde68a', borderRadius:'100px', padding:'2px 8px' }}>Inactive</span>
+                    )}
+                  </td>
                   <td style={{ padding:'0.5rem' }}>{SEX_LABEL[(r.sex||'A').toUpperCase()] || r.sex}</td>
                   <td style={{ padding:'0.5rem', color:'#8892a4' }}>{ageText(r)}</td>
                   <td style={{ padding:'0.5rem', fontWeight:700 }}>{rangeText(r)} {r.unit || ''}</td>
@@ -892,7 +899,7 @@ function ReferenceRanges({ tests, showToast }) {
               </div>
             </div>
 
-            <div style={{ marginBottom:'1.4rem' }}>
+            <div style={{ marginBottom:'0.9rem' }}>
               <label style={lbl}>Text range</label>
               <input style={inp} value={form.text}
                      onChange={e=>setForm({ ...form, text:e.target.value })} placeholder='e.g. "Negative"' />
@@ -900,6 +907,16 @@ function ReferenceRanges({ tests, showToast }) {
                 For results that aren't a number. Printed instead of low–high when filled.
               </div>
             </div>
+
+            <label style={{ display:'flex', alignItems:'center', gap:'0.55rem', cursor:'pointer', marginBottom:'1.4rem', fontSize:'0.85rem', fontWeight:700, color:'#0f1218' }}>
+              <input type="checkbox" checked={form.is_active !== false}
+                     onChange={e=>setForm({ ...form, is_active:e.target.checked })}
+                     style={{ width:'16px', height:'16px', accentColor:'#f97316' }} />
+              Active
+              <span style={{ fontSize:'0.72rem', fontWeight:500, color:'#8892a4' }}>
+                Untick to keep this range but stop using it on reports.
+              </span>
+            </label>
 
             <div style={{ display:'flex', gap:'0.6rem', justifyContent:'flex-end' }}>
               <button onClick={()=>setForm(null)} style={{ background:'transparent', color:'#8892a4', border:'1px solid #e8ecf4', borderRadius:'10px', padding:'0.65rem 1.3rem', cursor:'pointer', fontWeight:600, fontFamily:'Manrope,sans-serif' }}>Cancel</button>

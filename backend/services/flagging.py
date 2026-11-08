@@ -20,7 +20,8 @@ def best_range(db, test_id, patient):
         if patient.gender:
             sex = patient.gender.strip()[:1].upper()
         age = patient.age
-    rows = db.query(ReferenceRange).filter(ReferenceRange.test_id == test_id).all()
+    rows = (db.query(ReferenceRange).filter(ReferenceRange.test_id == test_id)
+              .filter(ReferenceRange.is_active.isnot(False)).all())
     for r in rows:
         if r.sex not in ("A", sex):
             continue
