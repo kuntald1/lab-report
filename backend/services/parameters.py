@@ -66,3 +66,28 @@ def find_conflicts(db, name, aliases, exclude_id=None) -> list:
             if norm(n) in theirs:
                 msgs.append(f"'{n}' is already used by parameter '{p.name}'")
     return msgs
+
+
+def arrange(db, parameters) -> list:
+    """[(parameter dict, heading or None)] in print order.
+
+    Order: parameters the list gives an order to come first, by that order;
+    the rest keep the analyser's sequence after them. A report where no
+    parameter has an order or a heading comes back untouched, so a lab that
+    has not set the list up prints exactly as before."""
+    rows = list(parameters or [])
+    try:
+        info = {}
+        for p in active_parameters(db):
+            info[norm(p.name)] = (p.sort_order, (p.section or "").strip() or None)
+        if not any(o is not None or s for o, s in info.values()):
+            return [(p, None) for p in rows]
+        amap = alias_map(db)
+        meta = []
+        for i, p in enumerate(rows):
+            o, s = info.get(canon(amap, p.get("name") or p.get("param")), (None, None))
+            meta.append((i, p, o, s))
+        meta.sort(key=lambda m: (m[2] is None, m[2] if m[2] is not None else 0, m[0]))
+        return [(p, s) for _, p, _, s in meta]
+    except Exception:
+        return [(p, None) for p in rows]

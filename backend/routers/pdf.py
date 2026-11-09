@@ -24,6 +24,7 @@ from reportlab.graphics.barcode.qr import QrCodeWidget
 from reportlab.graphics.barcode import createBarcodeDrawing
 from reportlab.graphics.shapes import Drawing, Rect
 from reportlab.lib.utils import ImageReader
+from services.parameters import arrange as arrange_parameters
 from services.report_link import report_view_url
 from services.report_settings import get_report_settings, asset_path, asset_url
 import io
@@ -944,7 +945,12 @@ def generate_combined_pdf(results: list, db: Session, with_header: bool = True, 
                 Paragraph('METHODOLOGY', th_style),
             ]
             table_data = [col_headers]
-            for p in parameters:
+            heading_rows, _last_heading = [], None
+            for p, _heading in arrange_parameters(db, parameters):
+                if _heading and _heading != _last_heading:
+                    heading_rows.append(len(table_data))
+                    table_data.append([Paragraph(f'<b><u>{_heading}</u></b>', ParagraphStyle('tsec', fontName='Helvetica-Bold', fontSize=9, textColor=BLACK)), '', '', '', ''])
+                _last_heading = _heading or _last_heading
                 flag = p.get('flag', 'N')
                 value = p.get('value', '')
                 bold = flag in ('H', 'L')
@@ -998,7 +1004,7 @@ def generate_combined_pdf(results: list, db: Session, with_header: bool = True, 
                 ('TOPPADDING',    (0,0),(-1,-1), row_pad), ('BOTTOMPADDING', (0,0),(-1,-1), row_pad),
                 ('LEFTPADDING',   (0,0),(-1,-1), 4), ('RIGHTPADDING',  (0,0),(-1,-1), 4),
                 ('VALIGN',        (0,0),(-1,-1), 'MIDDLE'),
-            ]))
+            ] + [('SPAN', (0, _r), (-1, _r)) for _r in heading_rows]))
             section_flow.append(result_table)
         else:
             section_flow.append(Paragraph('No parameters found in this result.', normal_style))
