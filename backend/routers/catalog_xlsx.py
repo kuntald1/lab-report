@@ -28,7 +28,7 @@ from openpyxl.utils import get_column_letter
 
 from database import get_db
 from models.org import Role, User, Franchise
-from models.b2b import SampleTube, OrgGroup
+from models.b2b import SampleTube, OrgGroup, OrgGroupTest, OrgGroupPackage
 from models.clinical import TestCatalog, Package, PackageTest, ReferenceRange, Parameter
 from services.parameters import norm as _pnorm, split_aliases, names_of
 from models.models import Device
@@ -931,3 +931,135 @@ async def import_organizations(file: UploadFile = File(...), dry_run: bool = Que
             setattr(row, k, v)
     db.commit()
     return _result(created, updated, errors, False)
+
+
+
+# --------------------------------------------------------------------------- group pricing
+# What each Organization Group charges: one row per group per test (or test group).
+# Mirrors the Group / Org Pricing screen — pick a group, tick a test, set its own MRP and price.
+GP_COLS = ["group", "test", "mrp", "price"]
+
+
+def _gp_scope(q, tenant):
+    return q.filter(OrgGroup.tenant_id == tenant) if tenant is not None else q
+
+
+@router.get("/sample/group-pricing")
+def sample_group_pricing():
+    return _sample("group-pricing-SAMPLE.xlsx", "Group Pricing", GP_COLS, [
+        ["HCN31", "CHIKUNGUNYA (IGG)", 1200, 300],
+        ["HCN31", "ANA PROFILE", 7500, 1600],
+        ["B2B",   "ANA PROFILE", 7500, 1600],
+    ],
+    "group — the Organization Group's name. A group that does not exist yet is created.",
+    "test — the name of a test, or of a test group (package), exactly as it is in your catalog.",
+    "mrp — optional; blank uses the catalog test's MRP. price — what this group is charged.",
+    "A group's price here replaces nothing else: tests not in the sheet keep the price they have. "
+    "Which organizations belong to the group is set on the Organizations page.")
+
+
+@router.get("/export/group-pricing")
+def export_group_pricing(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    groups = {g.id: g.name for g in _gp_scope(db.query(OrgGroup).filter(OrgGroup.is_active.isnot(False)),
+                                                user.tenant_id).all()}
+    tests = {t.id: t.name for t in db.query(TestCatalog).all()}
+    pkgs = {p.id: p.name for p in db.query(Package).all()}
+    wb = Workbook()
+    ws = _sheet(wb, "Group Pricing", GP_COLS)
+    for gid, gname in sorted(groups.items(), key=lambda kv: kv[1].lower()):
+        for r in db.query(OrgGroupTest).filter(OrgGroupTest.org_group_id == gid).all():
+            ws.append([gname, tests.get(r.test_id), r.mrp, r.price])
+        for r in db.query(OrgGroupPackage).filter(OrgGroupPackage.org_group_id == gid).all():
+            ws.append([gname, pkgs.get(r.package_id), r.mrp, r.price])
+    _notes(wb,
+           "group — created if it does not exist. test — a test or test group, by name.",
+           "mrp blank = the catalog's MRP. Nothing is deleted: a test left out of the sheet keeps its price.")
+    return _stream(wb, "group-pricing.xlsx")
+
+
+@router.post("/import/group-pricing", dependencies=[Depends(WRITE)])
+async def import_group_pricing(file: UploadFile = File(...), dry_run: bool = Query(False),
+                               db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    errors = []
+    data = _rows(await file.read(), GP_COLS, errors)
+    tenant = user.tenant_id
+
+    groups = {_key(g.name): g for g in _gp_scope(db.query(OrgGroup).filter(OrgGroup.is_active.isnot(False)),
+                                                  tenant).all()}
+    tests, dup_tests = {}, set()
+    for t in db.query(TestCatalog).all():
+        k = _key(t.name)
+        if k in tests:
+            dup_tests.add(k)
+        tests.setdefault(k, t)
+    pkgs = {_key(p.name): p for p in db.query(Package).all()}
+
+    seen, resolved, new_groups = {}, [], {}
+    for n, r in data:
+        gname, item = _txt(r.get("group")), _txt(r.get("test"))
+        if not gname:
+            errors.append(f"Row {n}: group is required"); continue
+        if not item:
+            errors.append(f"Row {n}: test is required"); continue
+        price = _num(r.get("price"), "price", n, errors)
+        mrp = _num(r.get("mrp"), "mrp", n, errors)
+        if price is None:
+            errors.append(f"Row {n}: price is required") if r.get("price") in (None, "") else None
+            continue
+        if price < 0 or (mrp is not None and mrp < 0):
+            errors.append(f"Row {n}: mrp and price cannot be negative"); continue
+        kind = obj = None
+        if _key(item) in tests:
+            if _key(item) in dup_tests:
+                errors.append(f"Row {n}: '{item}' is the name of more than one test in your catalog")
+                continue
+            kind, obj = "test", tests[_key(item)]
+        elif _key(item) in pkgs:
+            kind, obj = "package", pkgs[_key(item)]
+        else:
+            errors.append(f"Row {n}: '{item}' is not a test or a test group in your catalog")
+            continue
+        pair = (_key(gname), kind, obj.id)
+        if pair in seen:
+            errors.append(f"Row {n}: '{item}' repeats row {seen[pair]} for group '{gname}'"); continue
+        seen[pair] = n
+        if _key(gname) not in groups:
+            new_groups.setdefault(_key(gname), gname)
+        resolved.append((n, _key(gname), kind, obj, mrp if mrp is not None else (obj.mrp or 0.0), price))
+
+    # what already exists, to tell added from updated
+    existing_t = {(r.org_group_id, r.test_id): r for r in db.query(OrgGroupTest).all()}
+    existing_p = {(r.org_group_id, r.package_id): r for r in db.query(OrgGroupPackage).all()}
+    created = updated = 0
+    for _, gk, kind, obj, mrp, price in resolved:
+        g = groups.get(gk)
+        have = None
+        if g is not None:
+            have = (existing_t if kind == "test" else existing_p).get((g.id, obj.id))
+        if have is None: created += 1
+        else: updated += 1
+    if errors or dry_run:
+        res = _result(created, updated, errors, dry_run)
+        res["new_groups"] = len(new_groups)
+        if dry_run and new_groups:
+            res["message"] += " and create %d new group(s): %s" % (len(new_groups), ", ".join(new_groups.values()))
+        return res
+
+    for gk, gname in new_groups.items():
+        g = OrgGroup(tenant_id=tenant, name=gname, is_active=True)
+        db.add(g); db.flush(); groups[gk] = g
+    for _, gk, kind, obj, mrp, price in resolved:
+        g = groups[gk]
+        if kind == "test":
+            row = existing_t.get((g.id, obj.id))
+            if row is None:
+                row = OrgGroupTest(org_group_id=g.id, test_id=obj.id); db.add(row)
+        else:
+            row = existing_p.get((g.id, obj.id))
+            if row is None:
+                row = OrgGroupPackage(org_group_id=g.id, package_id=obj.id); db.add(row)
+        row.mrp, row.price = mrp, price
+    db.commit()
+    res = _result(created, updated, errors, False)
+    res["new_groups"] = len(new_groups)
+    return res

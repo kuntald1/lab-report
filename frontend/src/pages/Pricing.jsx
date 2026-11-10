@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { authedFetch } from '../services/auth';
+import { ExcelBar } from './TestsCatalog';
 
 const inp = { background:'#fafbfc', border:'1.5px solid #e8ecf4', borderRadius:'9px', padding:'0.6rem 0.8rem', color:'#0f1218', fontFamily:'Manrope,sans-serif', fontSize:'0.85rem', outline:'none', width:'100%' };
 const small = { ...inp, padding:'0.4rem 0.6rem', textAlign:'right', width:'90px' };
@@ -154,10 +155,15 @@ export default function Pricing() {
       )}
       <style>{`@keyframes toastIn { from { opacity:0; transform:translateX(40px); } to { opacity:1; transform:translateX(0); } }`}</style>
 
-      <div style={{ marginBottom:'1.5rem' }}>
+      <div style={{ marginBottom:'1.5rem', display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:'1rem', flexWrap:'wrap' }}>
+        <div>
         <div style={{ display:'inline-flex', background:'rgba(249,115,22,0.08)', border:'1px solid rgba(249,115,22,0.2)', color:'#f97316', padding:'4px 12px', borderRadius:'100px', fontSize:'0.62rem', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:'0.6rem' }}>Master</div>
         <h1 style={{ fontFamily:'Manrope,sans-serif', fontSize:'2rem', fontWeight:800, color:'#0f1218', letterSpacing:'-0.025em' }}>Group / Org Pricing</h1>
         <p style={{ color:'#8892a4', fontSize:'0.82rem', marginTop:'0.2rem' }}>Tick the tests a group or organization carries, and set each one's own MRP &amp; price. These are independent copies — editing here never changes the base test or any other group.</p>
+        </div>
+        <div style={{ display:'flex', gap:'0.6rem', alignItems:'center', flexWrap:'wrap' }}>
+          <ExcelBar kind="group-pricing" noun="Group Pricing" showToast={showToast} onDone={()=>window.location.reload()} />
+        </div>
       </div>
 
       {/* Tests / Test Groups tab */}
