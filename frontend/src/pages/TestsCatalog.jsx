@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { authedFetch } from '../services/auth';
 
 const inp = { background:'#fafbfc', border:'1.5px solid #e8ecf4', borderRadius:'9px', padding:'0.65rem 0.9rem', color:'#0f1218', fontFamily:'Manrope,sans-serif', fontSize:'0.85rem', outline:'none', width:'100%' };
@@ -11,6 +11,8 @@ export default function TestsCatalog() {
   const [tests, setTests]     = useState([]);
   const [tubes, setTubes]     = useState([]);
   const [doctors, setDoctors] = useState([]);
+  const [departments, setDepartments] = useState([]);
+  const [openDept, setOpenDept] = useState({});   // department key -> expanded?
   const [search, setSearch]   = useState('');
   const [form, setForm]       = useState(null);   // null = modal closed; object = create/edit modal open
   const [saving, setSaving]   = useState(false);
@@ -24,9 +26,11 @@ export default function TestsCatalog() {
     load();
     authedFetch('/b2b/tubes').then(r=>r.ok?r.json():[]).then(setTubes).catch(()=>{});
     authedFetch('/b2b/doctors').then(r=>r.ok?r.json():[]).then(setDoctors).catch(()=>{});
+    authedFetch('/catalog/departments').then(r=>r.ok?r.json():[]).then(setDepartments).catch(()=>{});
   }, []);
 
   const tube       = (id) => tubes.find(t=>t.id===id) || null;
+  const deptName   = (id) => departments.find(d=>d.id===id)?.name || '';
   const doctorName = (id) => doctors.find(d=>d.id===id)?.name || '—';
   const tubeSwatch = (id) => {
     const t = tube(id);
@@ -41,13 +45,14 @@ export default function TestsCatalog() {
   };
 
   const BLANK_TEST = { name:'', code:'', unit:'', method:'', mrp:'', price:'', normal_value:'',
-                        sample_tube_id:'', assigned_doctor_id:'', disclaimer:'', interpretation:'',
+                        sample_tube_id:'', assigned_doctor_id:'', department_id:'', disclaimer:'', interpretation:'',
                         parameters:'' };
   const openNew  = () => setForm({ ...BLANK_TEST });
   const openEdit = (t) => setForm({
     id: t.id, name: t.name || '', code: t.code || '', unit: t.unit || '', method: t.method || '',
     mrp: t.mrp ?? '', price: t.price ?? '', normal_value: t.normal_value || '',
     sample_tube_id: t.sample_tube_id ?? '', assigned_doctor_id: t.assigned_doctor_id ?? '',
+    department_id: t.department_id ?? '',
     disclaimer: t.disclaimer || '', interpretation: t.interpretation || '',
     parameters: t.parameters || '',
   });
@@ -62,6 +67,7 @@ export default function TestsCatalog() {
       normal_value: form.normal_value || null,
       sample_tube_id: form.sample_tube_id ? parseInt(form.sample_tube_id) : null,
       assigned_doctor_id: form.assigned_doctor_id ? parseInt(form.assigned_doctor_id) : null,
+      department_id: form.department_id ? parseInt(form.department_id) : null,
       disclaimer: form.disclaimer || null,
       interpretation: form.interpretation || null,
       parameters: form.parameters || null,
@@ -78,6 +84,20 @@ export default function TestsCatalog() {
   };
 
   const filtered = tests.filter(t => !search || t.name.toLowerCase().includes(search.toLowerCase()));
+
+  // Department-wise groups, A-Z, with tests that have no department last.
+  const deptGroups = (() => {
+    const m = new Map();
+    for (const t of filtered) {
+      const k = t.department_id ? String(t.department_id) : 'none';
+      if (!m.has(k)) m.set(k, { key:k, name: t.department_id ? (deptName(t.department_id) || 'Department #'+t.department_id) : 'No department', rows:[] });
+      m.get(k).rows.push(t);
+    }
+    return [...m.values()].sort((a,b) => a.key==='none' ? 1 : b.key==='none' ? -1 : a.name.localeCompare(b.name));
+  })();
+  // While searching, every group that has a match is shown open.
+  const isOpen = (k) => search ? true : !!openDept[k];
+  const setAllDepts = (v) => setOpenDept(Object.fromEntries(deptGroups.map(g => [g.key, v])));
 
   const doDelete = async () => {
     const t = confirmDel; if (!t) return;
@@ -120,7 +140,7 @@ export default function TestsCatalog() {
         <div>
           <div style={{ display:'inline-flex', background:'rgba(249,115,22,0.08)', border:'1px solid rgba(249,115,22,0.2)', color:'#f97316', padding:'4px 12px', borderRadius:'100px', fontSize:'0.62rem', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:'0.6rem' }}>Master</div>
           <h1 style={{ fontFamily:'Manrope,sans-serif', fontSize:'2rem', fontWeight:800, color:'#0f1218', letterSpacing:'-0.025em' }}>Tests Catalog</h1>
-          <p style={{ color:'#8892a4', fontSize:'0.82rem', marginTop:'0.2rem' }}>{tests.length} tests · set MRP, price, normal value, sample tube &amp; assigned doctor</p>
+          <p style={{ color:'#8892a4', fontSize:'0.82rem', marginTop:'0.2rem' }}>{tests.length} tests · set department, MRP, price, normal value, sample tube &amp; assigned doctor</p>
         </div>
         {tab === 'tests' && (
           <div style={{ display:'flex', gap:'0.5rem', alignItems:'center', flexWrap:'wrap' }}>
@@ -140,27 +160,40 @@ export default function TestsCatalog() {
        tab === 'ranges' ? <ReferenceRanges tests={tests} showToast={showToast} /> :
        tab === 'groups' ? <TestGroups tests={tests} showToast={showToast} /> : (<>
       <div style={{ ...S.card, marginBottom:'1.2rem', padding:'1rem 1.5rem' }}>
-        <input style={{ ...inp, maxWidth:'360px' }} placeholder="Search tests…" value={search} onChange={e=>setSearch(e.target.value)} />
+        <div style={{ display:'flex', gap:'0.6rem', alignItems:'center', flexWrap:'wrap' }}>
+          <input style={{ ...inp, maxWidth:'360px' }} placeholder="Search tests…" value={search} onChange={e=>setSearch(e.target.value)} />
+          <button onClick={()=>setAllDepts(true)} style={{ background:'transparent', color:'#475569', border:'1px solid #e8ecf4', borderRadius:'10px', padding:'0.6rem 1rem', cursor:'pointer', fontWeight:600, fontFamily:'Manrope,sans-serif', fontSize:'0.8rem' }}>Expand all</button>
+          <button onClick={()=>setAllDepts(false)} style={{ background:'transparent', color:'#475569', border:'1px solid #e8ecf4', borderRadius:'10px', padding:'0.6rem 1rem', cursor:'pointer', fontWeight:600, fontFamily:'Manrope,sans-serif', fontSize:'0.8rem' }}>Collapse all</button>
+        </div>
       </div>
 
       <div style={{ ...S.card, padding:0, overflow:'hidden' }}>
         <table style={{ width:'100%', borderCollapse:'collapse' }}>
           <thead>
             <tr style={{ background:'#fafbfc', borderBottom:'1.5px solid #e8ecf4' }}>
-              {['Test','MRP','Price','Normal Value','Sample Tube','Assigned Doctor','Actions'].map(h => (
+              {['Test','Department','MRP','Price','Normal Value','Sample Tube','Assigned Doctor','Actions'].map(h => (
                 <th key={h} style={{ textAlign:'left', padding:'0.8rem 1.2rem', fontSize:'0.65rem', color:'#8892a4', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.07em' }}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {filtered.length === 0 && (
-              <tr><td colSpan={7} style={{ textAlign:'center', padding:'3rem', color:'#8892a4' }}>No tests found.</td></tr>
+              <tr><td colSpan={8} style={{ textAlign:'center', padding:'3rem', color:'#8892a4' }}>No tests found.</td></tr>
             )}
-            {filtered.map(t => (
+            {deptGroups.map(g => (<Fragment key={g.key}>
+              <tr onClick={()=>setOpenDept({ ...openDept, [g.key]: !isOpen(g.key) })}
+                  style={{ background:'#eef1f6', cursor:'pointer', borderBottom:'1px solid #e2e7f0' }}>
+                <td colSpan={8} style={{ padding:'0.7rem 1.2rem', fontWeight:700, fontSize:'0.84rem', color:'#0f1218' }}>
+                  <span style={{ display:'inline-block', width:'1.1rem', color:'#8892a4' }}>{isOpen(g.key) ? '▾' : '▸'}</span>
+                  {g.name} <span style={{ color:'#8892a4', fontWeight:600 }}>({g.rows.length})</span>
+                </td>
+              </tr>
+              {isOpen(g.key) && g.rows.map(t => (
               <tr key={t.id} style={{ borderBottom:'1px solid #f4f6fa' }}
                 onMouseEnter={e=>e.currentTarget.style.background='#fafbfc'}
                 onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
                 <td style={{ padding:'0.9rem 1.2rem', fontWeight:700, color:'#0f1218', fontSize:'0.86rem' }}>{t.name}</td>
+                <td style={{ padding:'0.9rem 1.2rem', color:'#475569', fontSize:'0.82rem' }}>{deptName(t.department_id) || '—'}</td>
                 <td style={{ padding:'0.9rem 1.2rem', color:'#8892a4', fontSize:'0.83rem' }}>{inr(t.mrp)}</td>
                 <td style={{ padding:'0.9rem 1.2rem', color:'#16a34a', fontWeight:600, fontSize:'0.83rem' }}>{inr(t.price)}</td>
                 <td style={{ padding:'0.9rem 1.2rem', color:'#475569', fontSize:'0.82rem' }}>{t.normal_value || '—'}</td>
@@ -177,7 +210,8 @@ export default function TestsCatalog() {
                   </div>
                 </td>
               </tr>
-            ))}
+              ))}
+            </Fragment>))}
           </tbody>
         </table>
       </div>
@@ -206,6 +240,14 @@ export default function TestsCatalog() {
             <div style={{ marginBottom:'0.8rem' }}>
               <label style={lbl}>Normal Value / Reference Range</label>
               <input style={inp} value={form.normal_value} onChange={e=>setForm({...form,normal_value:e.target.value})} placeholder="e.g. < 200 mg/dL" />
+            </div>
+
+            <div style={{ marginBottom:'0.8rem' }}>
+              <label style={lbl}>Department</label>
+              <select style={inp} value={form.department_id} onChange={e=>setForm({...form,department_id:e.target.value})}>
+                <option value="">— None —</option>
+                {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+              </select>
             </div>
 
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.7rem', marginBottom:'0.9rem' }}>

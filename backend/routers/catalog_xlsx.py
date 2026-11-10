@@ -29,7 +29,7 @@ from openpyxl.utils import get_column_letter
 from database import get_db
 from models.org import Role, User, Franchise
 from models.b2b import SampleTube, OrgGroup, OrgGroupTest, OrgGroupPackage
-from models.clinical import TestCatalog, Package, PackageTest, ReferenceRange, Parameter
+from models.clinical import TestCatalog, Package, PackageTest, ReferenceRange, Parameter, Department
 from services.parameters import norm as _pnorm, split_aliases, names_of
 from models.models import Device
 from auth.deps import get_current_user, get_scope, require_roles, apply_scope, Scope
@@ -270,12 +270,12 @@ def sample_ranges():
 # --------------------------------------------------------------------------- tests
 # The Tests sheet mirrors the Add Test form, column for column.
 #
-# department and sample type are stored but read by nothing, and the target TAT
-# is better derived from the received -> tested timestamps than typed per test,
-# so none of the three belongs in a sheet a lab has to fill in. They stay in the
-# database: a value already there is left alone, this sheet simply does not
-# carry it. assigned doctor is here because the form has it.
-TEST_COLS = ["id", "code", "name", "sample tube", "unit", "method",
+# sample type is stored but read by nothing, and the target TAT is better
+# derived from the received -> tested timestamps than typed per test, so
+# neither belongs in a sheet a lab has to fill in. They stay in the database: a
+# value already there is left alone, this sheet simply does not carry it.
+# assigned doctor and department are here because the form has them.
+TEST_COLS = ["id", "code", "name", "department", "sample tube", "unit", "method",
              "mrp", "price", "normal value", "parameters",
              "assigned doctor", "disclaimer", "interpretation"]
 
@@ -286,17 +286,20 @@ def export_tests(db: Session = Depends(get_db), scope: Scope = Depends(get_scope
     tubes = {t.id: t.name for t in db.query(SampleTube).all()}
     docs  = {u.id: (u.full_name or u.email) for u in db.query(User)
              .filter(User.role == Role.PATHOLOGIST).all()}
+    depts = {d.id: d.name for d in db.query(Department).all()}
 
     wb = Workbook()
     ws = _sheet(wb, "Tests", TEST_COLS)
     for t in rows:
-        ws.append([t.id, t.code, t.name, tubes.get(t.sample_tube_id), t.unit, t.method,
+        ws.append([t.id, t.code, t.name, depts.get(t.department_id),
+                   tubes.get(t.sample_tube_id), t.unit, t.method,
                    t.mrp, t.price, t.normal_value, t.parameters,
                    docs.get(t.assigned_doctor_id), t.disclaimer, t.interpretation])
     _notes(wb,
            "Leave id blank to add a new test. Never change an id by hand.",
            "A row whose id is filled updates that test; nothing is ever deleted by importing.",
            "sample tube must match a name already in your Sample Tubes master.",
+           "department must match a name already in your Departments master. Blank leaves the test's department as it is.",
            "assigned doctor — a pathologist already on your account, by name or e-mail."
            " Blank leaves the test unassigned.",
            '"parameters" — an analyser sends everything it measures at once. The Erba EC 90 always reports Sodium, Potassium and Chloride, so a test billed as Sodium alone would print all three.',
@@ -314,6 +317,10 @@ async def import_tests(file: UploadFile = File(...), dry_run: bool = Query(False
     tenant = user.tenant_id
 
     tubes = {_key(t.name): t.id for t in db.query(SampleTube).all()}
+    dq = db.query(Department).filter(Department.is_active.is_(True))
+    if tenant is not None:
+        dq = dq.filter(Department.tenant_id == tenant)
+    depts = {_key(d.name): d.id for d in dq.all()}
     docs  = {}
     for u in db.query(User).filter(User.role == Role.PATHOLOGIST).all():
         for label in (u.full_name, u.email):     # either is accepted in the cell
@@ -349,6 +356,12 @@ async def import_tests(file: UploadFile = File(...), dry_run: bool = Query(False
             tube_id = tubes.get(_key(tname))
             if tube_id is None:
                 errors.append(f"Row {n}: sample tube '{tname}' does not exist")
+        dept_id = None
+        pname = _txt(r.get("department"))
+        if pname:
+            dept_id = depts.get(_key(pname))
+            if dept_id is None:
+                errors.append(f"Row {n}: department '{pname}' does not exist in Departments")
         dname = _txt(r.get("assigned doctor"))
         if dname:
             doc_id = docs.get(_key(dname))
@@ -369,6 +382,8 @@ async def import_tests(file: UploadFile = File(...), dry_run: bool = Query(False
             disclaimer=_txt(r.get("disclaimer")),
             interpretation=_txt(r.get("interpretation")),
         )
+        if dept_id is not None:          # blank leaves the department already on the test
+            vals["department_id"] = dept_id
         pending.append((row, vals))
         if row:
             updated += 1
