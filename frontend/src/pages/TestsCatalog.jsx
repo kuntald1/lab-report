@@ -271,7 +271,7 @@ export default function TestsCatalog() {
  * and a sheet with any error at all writes nothing — the server reports every
  * bad row at once rather than one per attempt.
  */
-export function ExcelBar({ kind, noun, showToast, onDone }) {
+export function ExcelBar({ kind, noun, showToast, onDone, caption }) {
   const [busy, setBusy]       = useState('');
   const [preview, setPreview] = useState(null);   // { file, created, updated }
   const [errs, setErrs]       = useState(null);   // { message, errors[], error_count }
@@ -341,6 +341,7 @@ export function ExcelBar({ kind, noun, showToast, onDone }) {
 
   return (
     <>
+      {caption && <span style={{ fontSize:'0.7rem', fontWeight:700, color:'#8892a4', textTransform:'uppercase', letterSpacing:'0.06em' }}>{caption}</span>}
       <button onClick={() => download('export')} disabled={!!busy} style={btnStyle}
               title={`Download your ${noun} as Excel`}>
         {busy === 'export' ? 'Preparing…' : '⭳  Export Excel'}

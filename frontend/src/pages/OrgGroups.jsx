@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { authedFetch } from '../services/auth';
+import { ExcelBar } from './TestsCatalog';
 
 const inp = { background:'#fafbfc', border:'1.5px solid #e8ecf4', borderRadius:'9px', padding:'0.65rem 0.9rem', color:'#0f1218', fontFamily:'Manrope,sans-serif', fontSize:'0.85rem', outline:'none', width:'100%' };
 const lbl = { fontSize:'0.7rem', color:'#8892a4', fontWeight:600, textTransform:'uppercase', letterSpacing:'0.06em', display:'block', marginBottom:'0.35rem' };
@@ -80,9 +81,12 @@ export default function OrgGroups() {
           <h1 style={{ fontFamily:'Manrope,sans-serif', fontSize:'2rem', fontWeight:800, color:'#0f1218', letterSpacing:'-0.025em' }}>Organization Groups</h1>
           <p style={{ color:'#8892a4', fontSize:'0.82rem', marginTop:'0.2rem' }}>{groups.length} groups · e.g. B2B, Rural, Golden</p>
         </div>
+        <div style={{ display:'flex', gap:'0.6rem', alignItems:'center', flexWrap:'wrap', justifyContent:'flex-end' }}>
+        <ExcelBar kind="org-groups" noun="Organization Groups" showToast={showToast} onDone={load} />
         <button onClick={openCreate} style={{ background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', border:'none', borderRadius:'10px', padding:'0.65rem 1.4rem', fontWeight:700, cursor:'pointer', fontSize:'0.85rem', fontFamily:'Manrope,sans-serif', boxShadow:'0 4px 16px rgba(249,115,22,0.3)' }}>
           + Add Group
         </button>
+        </div>
       </div>
 
       {showForm && (

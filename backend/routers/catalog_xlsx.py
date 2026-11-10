@@ -1063,3 +1063,151 @@ async def import_group_pricing(file: UploadFile = File(...), dry_run: bool = Que
     res = _result(created, updated, errors, False)
     res["new_groups"] = len(new_groups)
     return res
+
+
+
+# --------------------------------------------------------------------------- organization groups
+OG_COLS = ["id", "group name"]
+
+
+@router.get("/sample/org-groups")
+def sample_org_groups():
+    return _sample("org-groups-SAMPLE.xlsx", "Org Groups", OG_COLS,
+                   [[None, "HCN31"], [None, "B2B"]],
+                   "group name — the Organization Group's name. Groups that already exist are left as they are.")
+
+
+@router.get("/export/org-groups")
+def export_org_groups(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    wb = Workbook()
+    ws = _sheet(wb, "Org Groups", OG_COLS)
+    q = _gp_scope(db.query(OrgGroup).filter(OrgGroup.is_active.isnot(False)), user.tenant_id)
+    for g in q.order_by(OrgGroup.name).all():
+        ws.append([g.id, g.name])
+    _notes(wb, "Leave id blank to add a new group; a blank id with a name that already exists is left as it is. "
+               "Nothing is deleted.")
+    return _stream(wb, "org-groups.xlsx")
+
+
+@router.post("/import/org-groups", dependencies=[Depends(WRITE)])
+async def import_org_groups(file: UploadFile = File(...), dry_run: bool = Query(False),
+                            db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    errors = []
+    data = _rows(await file.read(), ["group name"], errors)
+    existing = _gp_scope(db.query(OrgGroup), user.tenant_id).all()
+    by_id = {g.id: g for g in existing}
+    by_name = {}
+    for g in existing:
+        by_name.setdefault(_key(g.name), g)
+    resolved, seen = [], {}
+    for n, r in data:
+        name = _txt(r.get("group name"))
+        if not name:
+            errors.append(f"Row {n}: group name is required"); continue
+        rid = _num(r.get("id"), "id", n, errors, integer=True)
+        row = by_id.get(rid) if rid else None
+        if rid and not row:
+            errors.append(f"Row {n}: id {rid} is not an organization group. Leave id blank to add a new one.")
+            continue
+        renames = row is not None            # matched by id: the sheet may be renaming it
+        if row is None:
+            row = by_name.get(_key(name))
+        if _key(name) in seen:
+            errors.append(f"Row {n}: '{name}' repeats row {seen[_key(name)]}"); continue
+        seen[_key(name)] = n
+        resolved.append((row, name, renames))
+    created = sum(1 for row, _, _ in resolved if row is None)
+    updated = len(resolved) - created
+    if errors or dry_run:
+        return _result(created, updated, errors, dry_run)
+    for row, name, renames in resolved:
+        if row is None:
+            db.add(OrgGroup(tenant_id=user.tenant_id, name=name, is_active=True))
+        else:
+            if renames:
+                row.name = name
+            row.is_active = True     # a group named in the sheet is wanted
+    db.commit()
+    return _result(created, updated, errors, False)
+
+
+# --------------------------------------------------------------------------- who is in each group
+GM_COLS = ["group", "organization code", "organization name"]
+
+
+@router.get("/sample/group-members")
+def sample_group_members():
+    return _sample("group-members-SAMPLE.xlsx", "Assign Organizations", GM_COLS, [
+        ["HCN31", "HCN1002", "DEBASISH BOWMICK"],
+        ["HCN31", "HCN04", "AMIRUL SHEKH"],
+    ],
+    "Each row puts one organization into a group. The group and the organization must already exist.",
+    "An organization is found by its code and name, as shown on the Organizations page. "
+    "An organization can be in one group only: a row moves it there from wherever it was.")
+
+
+@router.get("/export/group-members")
+def export_group_members(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    groups = {g.id: g.name for g in db.query(OrgGroup).all()}
+    wb = Workbook()
+    ws = _sheet(wb, "Assign Organizations", GM_COLS)
+    q = _org_scope(db.query(Franchise).filter(Franchise.org_group_id.isnot(None),
+                                              Franchise.is_active.isnot(False)),
+                   Scope(role=user.role, tenant_id=user.tenant_id))
+    for o in sorted(q.all(), key=lambda o: (groups.get(o.org_group_id, "").lower(), (o.name or "").lower())):
+        ws.append([groups.get(o.org_group_id), o.code, o.name])
+    _notes(wb, "Nothing is removed from a group by leaving a row out. To take an organization out of a group, "
+               "edit it on the Organizations page.")
+    return _stream(wb, "group-members.xlsx")
+
+
+@router.post("/import/group-members", dependencies=[Depends(WRITE)])
+async def import_group_members(file: UploadFile = File(...), dry_run: bool = Query(False),
+                               db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    errors = []
+    data = _rows(await file.read(), ["group", "organization name"], errors)
+    groups = {_key(g.name): g for g in _gp_scope(db.query(OrgGroup).filter(OrgGroup.is_active.isnot(False)),
+                                                  user.tenant_id).all()}
+    orgs = _org_scope(db.query(Franchise).filter(Franchise.is_active.isnot(False)),
+                      Scope(role=user.role, tenant_id=user.tenant_id)).all()
+    by_pair, by_name = {}, collections_default_list()
+    for o in orgs:
+        by_pair.setdefault((_key(o.code), _key(o.name)), o)
+        by_name[_key(o.name)].append(o)
+    resolved, seen = [], {}
+    for n, r in data:
+        gname, name, code = _txt(r.get("group")), _txt(r.get("organization name")), _txt(r.get("organization code"))
+        if not gname or not name:
+            errors.append(f"Row {n}: group and organization name are required"); continue
+        g = groups.get(_key(gname))
+        if g is None:
+            errors.append(f"Row {n}: '{gname}' is not an Organization Group. Create it first."); continue
+        o = by_pair.get((_key(code), _key(name)))
+        if o is None and not code and len(by_name[_key(name)]) == 1:
+            o = by_name[_key(name)][0]
+        if o is None:
+            errors.append(f"Row {n}: no organization '{(code + ' - ') if code else ''}{name}'. "
+                          "Add it on the Organizations page first.")
+            continue
+        if o.id in seen:
+            errors.append(f"Row {n}: '{name}' is already placed by row {seen[o.id]}"); continue
+        seen[o.id] = n
+        resolved.append((o, g))
+    moved = sum(1 for o, g in resolved if o.org_group_id not in (None, g.id))
+    added = sum(1 for o, g in resolved if o.org_group_id is None)
+    already = len(resolved) - added - moved
+    if errors or dry_run:
+        res = _result(added, moved + already, errors, dry_run)
+        if not errors and dry_run:
+            res["message"] = "Would place %d (%d already in that group, %d moved from another group)" % (
+                len(resolved), already, moved)
+        return res
+    for o, g in resolved:
+        o.org_group_id = g.id
+    db.commit()
+    return _result(added, moved + already, errors, False)
+
+
+def collections_default_list():
+    import collections
+    return collections.defaultdict(list)

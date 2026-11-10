@@ -162,7 +162,8 @@ export default function Pricing() {
         <p style={{ color:'#8892a4', fontSize:'0.82rem', marginTop:'0.2rem' }}>Tick the tests a group or organization carries, and set each one's own MRP &amp; price. These are independent copies — editing here never changes the base test or any other group.</p>
         </div>
         <div style={{ display:'flex', gap:'0.6rem', alignItems:'center', flexWrap:'wrap' }}>
-          <ExcelBar kind="group-pricing" noun="Group Pricing" showToast={showToast} onDone={()=>window.location.reload()} />
+          <ExcelBar kind="group-pricing" noun="Group Pricing" caption="Prices" showToast={showToast} onDone={()=>window.location.reload()} />
+          <ExcelBar kind="group-members" noun="Group members" caption="Assign organizations" showToast={showToast} onDone={()=>window.location.reload()} />
         </div>
       </div>
 
