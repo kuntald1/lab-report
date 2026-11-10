@@ -863,9 +863,13 @@ async def import_organizations(file: UploadFile = File(...), dry_run: bool = Que
 
     existing = _org_scope(db.query(Franchise), Scope(role=user.role, tenant_id=tenant)).all()
     by_id = {o.id: o for o in existing}
-    by_name = {}
+    # Two organizations can share a name and differ in code (HCN04 and HCN09 are
+    # both AMIRUL SHEKH), so an organization is recognised by code + name.
+    by_pair, by_bare = {}, {}
     for o in existing:
-        by_name.setdefault(_key(o.name), o)
+        by_pair.setdefault((_key(o.code), _key(o.name)), o)
+        if not o.code:
+            by_bare.setdefault(_key(o.name), o)
     groups = {_key(g.name): g.id for g in db.query(OrgGroup).all()}
 
     resolved, claimed, seen = [], set(), {}
@@ -879,16 +883,20 @@ async def import_organizations(file: UploadFile = File(...), dry_run: bool = Que
         if rid and not row:
             errors.append(f"Row {n}: id {rid} is not an organization. Leave id blank to add a new one.")
             continue
+        code_cell = _txt(r.get("organization code"))
+        pair = (_key(code_cell), _key(name))
         if row is None:
-            m = by_name.get(_key(name))
+            m = by_pair.get(pair)
+            if m is None and code_cell:
+                m = by_bare.get(_key(name))      # an existing one that has no code yet
             if m is not None and m.id not in claimed:
                 row = m
         if row is not None:
             claimed.add(row.id)
-        if _key(name) in seen:
-            errors.append(f"Row {n}: '{name}' repeats row {seen[_key(name)]}")
+        if pair in seen:
+            errors.append(f"Row {n}: '{name}' with this code repeats row {seen[pair]}")
             continue
-        seen[_key(name)] = n
+        seen[pair] = n
 
         vals = dict(name=name)
         for col, field in (("organization code", "code"), ("contact person", "contact_person"),
