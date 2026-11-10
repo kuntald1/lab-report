@@ -1,15 +1,19 @@
 import { useEffect, useState } from 'react';
 import { authedFetch } from '../services/auth';
+import { ExcelBar } from './TestsCatalog';
 
 const inp = { background:'#fafbfc', border:'1.5px solid #e8ecf4', borderRadius:'9px', padding:'0.65rem 0.9rem', color:'#0f1218', fontFamily:'Manrope,sans-serif', fontSize:'0.85rem', outline:'none', width:'100%' };
 const lbl = { fontSize:'0.7rem', color:'#8892a4', fontWeight:600, textTransform:'uppercase', letterSpacing:'0.06em', display:'block', marginBottom:'0.35rem' };
 const S   = { card: { background:'#fff', border:'1px solid #e8ecf4', borderRadius:'14px', padding:'1.5rem', boxShadow:'0 2px 16px rgba(15,18,24,0.07)' } };
 
 const BLANK = {
-  name:'', org_group_id:'', address:'', pan:'', aadhaar:'', gstin:'',
+  code:'', name:'', org_group_id:'', address:'', pan:'', aadhaar:'', gstin:'',
   contact_person:'', phone:'', email:'', credit_limit:'',
 };
 
+// "CODE - NAME" when a code is set; skipped when the name already starts with it.
+const orgLabel = (o) => (o.code && !String(o.name||'').toUpperCase().startsWith(String(o.code).trim().toUpperCase()))
+  ? `${o.code} - ${o.name}` : o.name;
 const inr = (n) => '₹' + (Number(n)||0).toLocaleString('en-IN');
 
 export default function Organizations() {
@@ -94,7 +98,7 @@ export default function Organizations() {
   const startEdit  = (o) => {
     setEditingId(o.id);
     setForm({
-      name:o.name||'', org_group_id:o.org_group_id ?? '', address:o.address||'',
+      code:o.code||'', name:o.name||'', org_group_id:o.org_group_id ?? '', address:o.address||'',
       pan:o.pan||'', aadhaar:o.aadhaar||'', gstin:o.gstin||'',
       contact_person:o.contact_person||'', phone:o.phone||'', email:o.email||'',
       credit_limit:o.credit_limit ?? '',
@@ -107,6 +111,7 @@ export default function Organizations() {
     if (!form.name.trim()) return alert('Organization name required');
     setSaving(true);
     const payload = {
+      code: form.code.trim() || null,
       name: form.name.trim(),
       org_group_id: form.org_group_id ? parseInt(form.org_group_id) : null,
       address: form.address || null,
@@ -257,9 +262,12 @@ export default function Organizations() {
           <h1 style={{ fontFamily:'Manrope,sans-serif', fontSize:'2rem', fontWeight:800, color:'#0f1218', letterSpacing:'-0.025em' }}>Organizations</h1>
           <p style={{ color:'#8892a4', fontSize:'0.82rem', marginTop:'0.2rem' }}>{orgs.length} organizations · referral partners &amp; collection centres</p>
         </div>
+        <div style={{ display:'flex', gap:'0.6rem', alignItems:'center', flexWrap:'wrap', justifyContent:'flex-end' }}>
+        <ExcelBar kind="organizations" noun="Organizations" showToast={showToast} onDone={load} />
         <button onClick={openCreate} style={{ background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', border:'none', borderRadius:'10px', padding:'0.65rem 1.4rem', fontWeight:700, cursor:'pointer', fontSize:'0.85rem', fontFamily:'Manrope,sans-serif', boxShadow:'0 4px 16px rgba(249,115,22,0.3)' }}>
           + Add Organization
         </button>
+        </div>
       </div>
 
       {showForm && (
@@ -269,6 +277,7 @@ export default function Organizations() {
             {editingId ? 'Edit Organization' : 'New Organization'}
           </div>
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.9rem', marginBottom:'1rem' }}>
+            <div><label style={lbl}>Organization Code</label><input style={inp} placeholder="e.g. HCN41" value={form.code} onChange={e=>setForm({...form,code:e.target.value})} /></div>
             <div><label style={lbl}>Organization Name *</label><input style={inp} placeholder="e.g. XYZ Diagnostics" value={form.name} onChange={e=>setForm({...form,name:e.target.value})} /></div>
             <div><label style={lbl}>Group</label>
               <select style={inp} value={form.org_group_id} onChange={e=>setForm({...form,org_group_id:e.target.value})}>
@@ -313,7 +322,7 @@ export default function Organizations() {
               <tr key={o.id} style={{ borderBottom:'1px solid #f4f6fa' }}
                 onMouseEnter={e=>e.currentTarget.style.background='#fafbfc'}
                 onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
-                <td style={{ padding:'0.9rem 1.3rem', fontWeight:700, color:'#0f1218', fontSize:'0.88rem' }}>{o.name}</td>
+                <td style={{ padding:'0.9rem 1.3rem', fontWeight:700, color:'#0f1218', fontSize:'0.88rem' }}>{orgLabel(o)}</td>
                 <td style={{ padding:'0.9rem 1.3rem' }}>
                   {o.org_group_id
                     ? <span style={{ background:'rgba(99,102,241,0.1)', color:'#6366f1', padding:'0.2rem 0.7rem', borderRadius:'20px', fontSize:'0.72rem', fontWeight:700 }}>{groupName(o.org_group_id)}</span>

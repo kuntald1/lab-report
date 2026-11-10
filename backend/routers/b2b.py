@@ -325,6 +325,7 @@ def set_group_packages(group_id: int, items: List[PricedPackageIn], request: Req
 # =================================================================== organizations
 class OrganizationIn(BaseModel):
     name: str
+    code: Optional[str] = None
     org_group_id: Optional[int] = None
     address: Optional[str] = None
     pan: Optional[str] = None
@@ -337,7 +338,7 @@ class OrganizationIn(BaseModel):
 
 
 def _org_dict(o: Franchise) -> dict:
-    return {"id": o.id, "name": o.name, "org_group_id": o.org_group_id,
+    return {"id": o.id, "name": o.name, "code": o.code, "org_group_id": o.org_group_id,
             "address": o.address, "pan": o.pan, "aadhaar": o.aadhaar, "gstin": o.gstin,
             "contact_person": o.contact_person, "phone": o.phone, "email": o.email,
             "credit_limit": o.credit_limit, "is_active": o.is_active}

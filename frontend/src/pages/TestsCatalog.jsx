@@ -271,7 +271,7 @@ export default function TestsCatalog() {
  * and a sheet with any error at all writes nothing — the server reports every
  * bad row at once rather than one per attempt.
  */
-function ExcelBar({ kind, noun, showToast, onDone }) {
+export function ExcelBar({ kind, noun, showToast, onDone }) {
   const [busy, setBusy]       = useState('');
   const [preview, setPreview] = useState(null);   // { file, created, updated }
   const [errs, setErrs]       = useState(null);   // { message, errors[], error_count }

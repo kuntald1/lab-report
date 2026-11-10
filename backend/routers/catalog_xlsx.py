@@ -27,8 +27,8 @@ from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.utils import get_column_letter
 
 from database import get_db
-from models.org import Role, User
-from models.b2b import SampleTube
+from models.org import Role, User, Franchise
+from models.b2b import SampleTube, OrgGroup
 from models.clinical import TestCatalog, Package, PackageTest, ReferenceRange, Parameter
 from services.parameters import norm as _pnorm, split_aliases, names_of
 from models.models import Device
@@ -803,6 +803,121 @@ async def import_parameters(file: UploadFile = File(...), dry_run: bool = Query(
     for _, row, vals in resolved:
         if row is None:
             row = Parameter()
+            db.add(row)
+        for k, v in vals.items():
+            setattr(row, k, v)
+    db.commit()
+    return _result(created, updated, errors, False)
+
+
+
+# --------------------------------------------------------------------------- organizations
+# One column per field on the Add/Edit Organization form, in the form's order.
+ORG_COLS = ["id", "organization code", "organization name", "group", "contact person",
+            "phone", "email", "credit limit", "pan", "aadhaar", "gstin", "address"]
+
+
+def _org_scope(q, scope):
+    if scope.tenant_id is not None:
+        q = q.filter(Franchise.tenant_id == scope.tenant_id)
+    return q
+
+
+@router.get("/sample/organizations")
+def sample_organizations():
+    return _sample("organizations-SAMPLE.xlsx", "Organizations", ORG_COLS, [
+        [None, "HCN41", "CHANDRANATH CHAKRABARTY", "B2B", None, "9876543210", "name@example.com",
+         None, None, None, None, "Dankuni, Hooghly, West Bengal"],
+        [None, None, "SUNRISE MEDICAL", None, None, None, None, None, None, None, None, None],
+    ],
+    "organization name is the only required column. organization code is optional; when it is filled the "
+    "organization shows as 'CODE - NAME' (unless the name already begins with the code).",
+    "group — the name of an Organization Group that already exists. Blank = standalone.",
+    "credit limit — a whole number. Blank on a new row means 0; blank on an existing row leaves it as it is.",
+    "A blank cell on an existing row leaves that field as it is. Nothing is ever deleted.")
+
+
+@router.get("/export/organizations")
+def export_organizations(db: Session = Depends(get_db), scope: Scope = Depends(get_scope)):
+    from sqlalchemy import or_
+    q = db.query(Franchise).filter(or_(Franchise.is_active.is_(True), Franchise.is_active.is_(None)))
+    groups = {g.id: g.name for g in db.query(OrgGroup).all()}
+    wb = Workbook()
+    ws = _sheet(wb, "Organizations", ORG_COLS)
+    for o in _org_scope(q, scope).order_by(Franchise.name).all():
+        ws.append([o.id, o.code, o.name, groups.get(o.org_group_id), o.contact_person, o.phone,
+                   o.email, o.credit_limit, o.pan, o.aadhaar, o.gstin, o.address])
+    _notes(wb,
+           "organization name is required. group must be the name of an existing Organization Group.",
+           "Leave id blank to add a new organization; a blank id with a name that already exists updates "
+           "that organization. A blank cell on an existing row leaves the field as it is. Nothing is deleted.")
+    return _stream(wb, "organizations.xlsx")
+
+
+@router.post("/import/organizations", dependencies=[Depends(WRITE)])
+async def import_organizations(file: UploadFile = File(...), dry_run: bool = Query(False),
+                               db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    errors = []
+    data = _rows(await file.read(), ["organization name"], errors)
+    tenant = user.tenant_id
+
+    existing = _org_scope(db.query(Franchise), Scope(role=user.role, tenant_id=tenant)).all()
+    by_id = {o.id: o for o in existing}
+    by_name = {}
+    for o in existing:
+        by_name.setdefault(_key(o.name), o)
+    groups = {_key(g.name): g.id for g in db.query(OrgGroup).all()}
+
+    resolved, claimed, seen = [], set(), {}
+    for n, r in data:
+        name = _txt(r.get("organization name"))
+        if not name:
+            errors.append(f"Row {n}: organization name is required")
+            continue
+        rid = _num(r.get("id"), "id", n, errors, integer=True)
+        row = by_id.get(rid) if rid else None
+        if rid and not row:
+            errors.append(f"Row {n}: id {rid} is not an organization. Leave id blank to add a new one.")
+            continue
+        if row is None:
+            m = by_name.get(_key(name))
+            if m is not None and m.id not in claimed:
+                row = m
+        if row is not None:
+            claimed.add(row.id)
+        if _key(name) in seen:
+            errors.append(f"Row {n}: '{name}' repeats row {seen[_key(name)]}")
+            continue
+        seen[_key(name)] = n
+
+        vals = dict(name=name)
+        for col, field in (("organization code", "code"), ("contact person", "contact_person"),
+                           ("phone", "phone"), ("email", "email"), ("pan", "pan"),
+                           ("aadhaar", "aadhaar"), ("gstin", "gstin"), ("address", "address")):
+            v = _txt(r.get(col))
+            if v is not None:
+                vals[field] = v
+        g = _txt(r.get("group"))
+        if g is not None:
+            gid = groups.get(_key(g))
+            if gid is None:
+                errors.append(f"Row {n}: group '{g}' is not an Organization Group. Create it first, "
+                              "or leave the cell blank.")
+            else:
+                vals["org_group_id"] = gid
+        cl = _num(r.get("credit limit"), "credit limit", n, errors, integer=True)
+        if cl is not None:
+            vals["credit_limit"] = cl
+        resolved.append((n, row, vals))
+
+    created = sum(1 for _, row, _ in resolved if row is None)
+    updated = len(resolved) - created
+    if errors or dry_run:
+        return _result(created, updated, errors, dry_run)
+
+    for _, row, vals in resolved:
+        if row is None:
+            row = Franchise(tenant_id=tenant, is_active=True)
             db.add(row)
         for k, v in vals.items():
             setattr(row, k, v)
