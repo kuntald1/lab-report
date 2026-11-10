@@ -6,7 +6,7 @@ from database import get_db
 from models.models import LabResult, Patient
 from models.org import Tenant, ReferralDoctor, Franchise, User
 from models.billing import BillItem
-from models.clinical import SampleEvent, EventType, TestCatalog
+from models.clinical import SampleEvent, EventType, TestCatalog, Department
 from models.commission import DoctorCommission
 from services.ranges import (apply_catalog_ranges, test_ids_for_result,
                              filter_parameters_for_tests)
@@ -416,6 +416,7 @@ def _validating_doctor(db: Session, results: list, tenant_id, cfg: dict) -> dict
         'qualification': cfg['pathologist_qualification'],
         'registration_no': cfg['registration_no'],
         'signature_filename': None,
+        'department': '',
     }
     accession_numbers = [r.accession_number for r in results if r.accession_number]
     if not accession_numbers:
@@ -458,7 +459,14 @@ def _validating_doctor(db: Session, results: list, tenant_id, cfg: dict) -> dict
 
     # From here on the validator is a known, named person — never fall back
     # to the tenant's generic identity for their missing fields, just omit them.
+    # The department the validator is assigned to (Users & Staff / Departments), printed
+    # under their name. Blank when none is assigned — then nothing prints.
+    dept = ''
+    if validator and validator.department_id:
+        d = db.query(Department).filter(Department.id == validator.department_id).first()
+        dept = (d.name or '').strip() if d else ''
     return {
+        'department': dept,
         'name': (doctor.name if doctor and doctor.name else name),
         'qualification': (doctor.qualification or '') if doctor else '',
         'registration_no': (doctor.registration_no or '') if doctor else '',
@@ -1060,7 +1068,7 @@ def generate_combined_pdf(results: list, db: Session, with_header: bool = True, 
         # per panel (a report with a doctor validating 5 tests should show
         # their signature once, not five times).
         signer = _validating_doctor(db, [r], patient.tenant_id if patient else None, cfg)
-        signer_key = (signer['name'], signer['qualification'], signer['registration_no'], signer['signature_filename'])
+        signer_key = (signer['name'], signer['qualification'], signer['registration_no'], signer['signature_filename'], signer['department'])
         if signer_key not in seen_signers:
             seen_signers.add(signer_key)
             signers.append(signer)
@@ -1091,6 +1099,8 @@ def generate_combined_pdf(results: list, db: Session, with_header: bool = True, 
             else:
                 cell.append(HRFlowable(width=3.8*cm, thickness=0.8, color=MUTED, hAlign='LEFT'))
             cell.append(Paragraph(signer['name'], sig_name))
+            if signer['department']:
+                cell.append(Paragraph(signer['department'], sig_sub))
             if signer['qualification']:
                 cell.append(Paragraph(signer['qualification'], sig_sub))
             if signer['registration_no']:
