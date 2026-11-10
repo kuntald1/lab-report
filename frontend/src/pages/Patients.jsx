@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import SearchSelect from '../components/SearchSelect';
 import { authedFetch, auth } from '../services/auth';
 
 const statusColor = { collected:'#0ea5e9', dispatched:'#6366f1', received:'#8b5cf6', tested:'#f59e0b', validated:'#16a34a', reported:'#0f766e' };
@@ -53,6 +54,10 @@ export default function Patients({ onBill = () => {} }) {
   }, []);
 
   const branchName    = (id) => branches.find(b=>b.id===id)?.name || (id ? `Branch ${id}` : '—');
+  // "CODE - NAME" (code left off when the name already starts with it), A-Z, so the list can be searched by either.
+  const franchiseOptions = franchises
+    .map(f => ({ value: f.id, label: (f.code && !String(f.name||'').toUpperCase().startsWith(String(f.code).trim().toUpperCase())) ? `${f.code} - ${f.name}` : f.name }))
+    .sort((a, b) => a.label.localeCompare(b.label));
   const franchiseName = (id) => franchises.find(f=>f.id===id)?.name || (id ? `Franchise ${id}` : '—');
 
   const filteredPatients = (() => {
@@ -236,10 +241,13 @@ export default function Patients({ onBill = () => {} }) {
                   {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
                 </select></div>
               <div><label style={lbl}>Franchise <span style={{ textTransform:'none', letterSpacing:0, fontWeight:400 }}>(also used for B2B billing)</span></label>
-                <select style={{...inp, background: (isFranchise||isPhlebotomist)?'#f1f3f7':(branchWarning?'#fff7ed':''), color: isFranchise?'#0f1218':(isPhlebotomist?'#8892a4':''), border: branchWarning?'1.5px solid #f97316':undefined}} disabled={isFranchise || isPhlebotomist} value={isFranchise ? (me?.franchise_id || form.registered_franchise_id) : form.registered_franchise_id} onChange={e=>{ setForm({...form,registered_franchise_id:e.target.value, organization_id:e.target.value}); setBranchWarning(false); }}>
-                  <option value="">— Direct / Walk-in —</option>
-                  {franchises.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
-                </select></div>
+                <SearchSelect
+                  style={{...inp, background: (isFranchise||isPhlebotomist)?'#f1f3f7':(branchWarning?'#fff7ed':''), color: isFranchise?'#0f1218':(isPhlebotomist?'#8892a4':''), border: branchWarning?'1.5px solid #f97316':undefined}}
+                  disabled={isFranchise || isPhlebotomist}
+                  emptyLabel="— Direct / Walk-in —" placeholder="Search by name or code…"
+                  value={isFranchise ? (me?.franchise_id || form.registered_franchise_id) : form.registered_franchise_id}
+                  options={franchiseOptions}
+                  onChange={v=>{ setForm({...form,registered_franchise_id:v, organization_id:v}); setBranchWarning(false); }} /></div>
               {branchWarning && !isFranchise && (
                 <div style={{ gridColumn:'1 / -1', background:'rgba(249,115,22,0.08)', border:'1px solid rgba(249,115,22,0.3)', borderRadius:'8px', padding:'0.6rem 0.9rem', color:'#c2410c', fontSize:'0.8rem', fontWeight:600 }}>
                   ⚠ Please select either a Branch or a Franchise before saving.
