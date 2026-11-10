@@ -43,7 +43,7 @@ export default function CostEstimate() {
   useEffect(() => {
     authedFetch('/b2b/organizations').then(r=>r.ok?r.json():[]).then(d=>setOrgs(Array.isArray(d)?d:[])).catch(()=>{});
     authedFetch('/b2b/tests').then(r=>r.ok?r.json():[]).then(d=>setTests(Array.isArray(d)?d:[])).catch(()=>{});
-    authedFetch('/b2b/packages').then(r=>r.ok?r.json():[]).then(d=>setGroups(Array.isArray(d)?d:[])).catch(()=>{});
+    authedFetch('/b2b/test-groups').then(r=>r.ok?r.json():[]).then(d=>setGroups(Array.isArray(d)?d:[])).catch(()=>{});
   }, []);
 
   // Price the WHOLE catalog for whoever is selected, not just the basket. A
