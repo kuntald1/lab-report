@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../services/api';
 import { authedFetch, auth } from '../services/auth';
+import SearchSelect from '../components/SearchSelect';
 
 // only these roles are allowed to edit a result's values — matches the backend guard exactly
 const CAN_EDIT_RESULTS = ['super_admin', 'lab_admin', 'pathologist', 'technician'];
@@ -26,6 +27,10 @@ const apiErrorText = (detail) => {
 const lifeColor = { collected:'#0ea5e9', dispatched:'#6366f1', received:'#8b5cf6', tested:'#f59e0b', validated:'#16a34a', reported:'#0f766e', sample_rejected:'#dc2626' };
 
 const S = { card: { background:'#fff', border:'1px solid #e8ecf4', borderRadius:'14px', boxShadow:'0 2px 16px rgba(15,18,24,0.07)' } };
+const fInp = { background:'#fafbfc', border:'1.5px solid #e8ecf4', borderRadius:'9px', padding:'0.55rem 0.8rem', color:'#0f1218', fontFamily:'Manrope,sans-serif', fontSize:'0.82rem', outline:'none', width:'100%' };
+const fLbl = { fontSize:'0.66rem', color:'#8892a4', fontWeight:600, textTransform:'uppercase', letterSpacing:'0.05em', display:'block', marginBottom:'0.3rem' };
+// the test-stage filter — same list as Sample / Test Details
+const RESULT_STAGES = ['', 'dispatched', 'received', 'tested', 'validated', 'reported'];
 const flagColor  = f => f==='H'?'#dc2626':f==='L'?'#2563eb':'#16a34a';
 const flagBg     = f => f==='H'?'#fef2f2':f==='L'?'#eff6ff':'#f0fdf4';
 const flagBorder = f => f==='H'?'#fecaca':f==='L'?'#bfdbfe':'#bbf7d0';
@@ -76,16 +81,44 @@ export default function Results() {
   const [sel,     setSel]     = useState(null);
   const [loading, setLoading] = useState(false);
   const [pdfMenu, setPdfMenu] = useState(null);   // 'single' | 'combined' | null — which download dropdown is open
-  const [q, setQ] = useState({ barcode:'', accession_number:'', patient_name:'' });
+  const EMPTY_Q = { organization_id:'', branch_id:'', date_from:'', date_to:'', patient_name:'', patient_id:'', barcode:'', accession_number:'', stage:'' };
+  const [q, setQ] = useState(EMPTY_Q);
+  const [orgs, setOrgs]         = useState([]);
+  const [branches, setBranches] = useState([]);
+  const [zipBusy, setZipBusy]   = useState(false);
+  const isFranchiseUser = (auth.user()?.role || '').toLowerCase() === 'franchise';
 
-  const load = () => {
+  const queryString = (filters) => {
     const qs = new URLSearchParams();
-    if (q.barcode) qs.set('barcode', q.barcode);
-    if (q.accession_number) qs.set('accession_number', q.accession_number);
-    if (q.patient_name.trim()) qs.set('patient_name', q.patient_name.trim());
-    authedFetch('/results/?' + qs.toString()).then(r=>r.ok?r.json():[]).then(d=>setResults(Array.isArray(d)?d:[])).catch(()=>setResults([]));
+    Object.entries(filters).forEach(([k,v]) => { const t = String(v ?? '').trim(); if (t) qs.set(k, t); });
+    return qs.toString();
   };
-  useEffect(() => { load(); }, []);
+  const load = (filters = q) => {
+    authedFetch('/results/?' + queryString(filters)).then(r=>r.ok?r.json():[]).then(d=>setResults(Array.isArray(d)?d:[])).catch(()=>setResults([]));
+  };
+  useEffect(() => {
+    load();
+    if (!isFranchiseUser) {
+      authedFetch('/admin/franchises').then(r=>r.ok?r.json():[]).then(d=>setOrgs(Array.isArray(d)?d:[])).catch(()=>{});
+      authedFetch('/admin/branches').then(r=>r.ok?r.json():[]).then(d=>setBranches(Array.isArray(d)?d:[])).catch(()=>{});
+    }
+  }, []);   // eslint-disable-line
+  const clearFilters = () => { setQ(EMPTY_Q); load(EMPTY_Q); };
+
+  // Every finished report in the date range (one PDF per patient), zipped.
+  const downloadZip = async () => {
+    if (!q.date_from || !q.date_to) { alert('Pick a From and a To date first.'); return; }
+    setZipBusy(true);
+    try {
+      const { accession_number, ...rest } = q;          // the ZIP is by patient/date, not one tube
+      const res = await authedFetch('/results/reports-zip?' + queryString(rest));
+      if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(apiErrorText(e.detail) || 'Could not build the ZIP'); }
+      const blob = await res.blob(); const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = `Reports_${q.date_from}_to_${q.date_to}.zip`; a.click();
+      setTimeout(()=>URL.revokeObjectURL(url), 60000);
+    } catch (e) { alert(String(e.message || 'Could not build the ZIP')); }
+    setZipBusy(false);
+  };
   useEffect(() => { setEditing(false); }, [sel?.id]);
 
   // ---- outsourced-test attachments ----
@@ -246,18 +279,42 @@ export default function Results() {
         <p style={{ color:'#8892a4', fontSize:'0.82rem', marginTop:'0.2rem' }}>{results.length} results — click to view details</p>
       </div>
 
-      <div style={{ display:'flex', gap:'0.6rem', alignItems:'flex-end', marginBottom:'1.2rem', flexWrap:'wrap' }}>
-        <div><div style={{ fontSize:'0.68rem', fontWeight:700, color:'#8892a4', marginBottom:'0.25rem' }}>Barcode</div>
-          <input value={q.barcode} onChange={e=>setQ({...q,barcode:e.target.value})} onKeyDown={e=>e.key==='Enter'&&load()}
-            style={{ padding:'0.5rem 0.7rem', borderRadius:8, border:'1px solid #e8ecf4', fontSize:'0.84rem' }} /></div>
-        <div><div style={{ fontSize:'0.68rem', fontWeight:700, color:'#8892a4', marginBottom:'0.25rem' }}>Accession No.</div>
-          <input value={q.accession_number} onChange={e=>setQ({...q,accession_number:e.target.value})} onKeyDown={e=>e.key==='Enter'&&load()}
-            style={{ padding:'0.5rem 0.7rem', borderRadius:8, border:'1px solid #e8ecf4', fontSize:'0.84rem' }} /></div>
-        <div><div style={{ fontSize:'0.68rem', fontWeight:700, color:'#8892a4', marginBottom:'0.25rem' }}>Patient Name</div>
-          <input value={q.patient_name} onChange={e=>setQ({...q,patient_name:e.target.value})} onKeyDown={e=>e.key==='Enter'&&load()}
-            placeholder="e.g. Sysmex"
-            style={{ padding:'0.5rem 0.7rem', borderRadius:8, border:'1px solid #e8ecf4', fontSize:'0.84rem' }} /></div>
-        <button onClick={load} style={{ padding:'0.5rem 1.1rem', borderRadius:9, border:'none', cursor:'pointer', fontWeight:700, fontSize:'0.82rem', color:'#fff', background:'linear-gradient(135deg,#f97316,#fbbf24)' }}>Search</button>
+      {/* filters — same set as Bills, plus accession number and status */}
+      <div style={{ ...S.card, padding:'1.3rem', marginBottom:'1.2rem' }}>
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(160px, 1fr))', gap:'0.7rem', alignItems:'end' }}>
+          {!isFranchiseUser && <>
+            <div><label style={fLbl}>Organization</label>
+              <SearchSelect style={fInp} value={q.organization_id} onChange={v=>setQ({...q,organization_id:v})} emptyLabel="All" placeholder="Type code or name…"
+                options={orgs.map(o => ({ value:o.id, label:(o.code && !String(o.name||'').toUpperCase().startsWith(String(o.code).trim().toUpperCase())) ? `${o.code} - ${o.name}` : o.name }))
+                  .sort((a,b)=>a.label.localeCompare(b.label))} /></div>
+            <div><label style={fLbl}>Branch</label>
+              <select style={fInp} value={q.branch_id} onChange={e=>setQ({...q,branch_id:e.target.value})}>
+                <option value="">All</option>
+                {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+              </select></div>
+          </>}
+          <div><label style={fLbl}>From</label><input style={fInp} type="date" value={q.date_from} onChange={e=>setQ({...q,date_from:e.target.value})} /></div>
+          <div><label style={fLbl}>To</label><input style={fInp} type="date" value={q.date_to} onChange={e=>setQ({...q,date_to:e.target.value})} /></div>
+          <div><label style={fLbl}>Patient Name</label><input style={fInp} placeholder="name" value={q.patient_name} onChange={e=>setQ({...q,patient_name:e.target.value})} onKeyDown={e=>e.key==='Enter'&&load()} /></div>
+          <div><label style={fLbl}>Patient ID</label><input style={fInp} placeholder="id" value={q.patient_id} onChange={e=>setQ({...q,patient_id:e.target.value})} onKeyDown={e=>e.key==='Enter'&&load()} /></div>
+          <div><label style={fLbl}>Barcode</label><input style={fInp} placeholder="barcode" value={q.barcode} onChange={e=>setQ({...q,barcode:e.target.value})} onKeyDown={e=>e.key==='Enter'&&load()} /></div>
+          <div><label style={fLbl}>Accession No.</label><input style={fInp} placeholder="accession" value={q.accession_number} onChange={e=>setQ({...q,accession_number:e.target.value})} onKeyDown={e=>e.key==='Enter'&&load()} /></div>
+          <div><label style={fLbl}>Status</label>
+            <select style={fInp} value={q.stage} onChange={e=>setQ({...q,stage:e.target.value})}>
+              {RESULT_STAGES.map(s => <option key={s} value={s}>{s ? s[0].toUpperCase()+s.slice(1) : 'All'}</option>)}
+            </select></div>
+        </div>
+        <div style={{ display:'flex', gap:'0.6rem', marginTop:'1rem', flexWrap:'wrap', alignItems:'center' }}>
+          <button onClick={()=>load()} style={{ background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', border:'none', borderRadius:'9px', padding:'0.6rem 1.4rem', fontWeight:700, cursor:'pointer', fontFamily:'Manrope,sans-serif' }}>Apply Filters</button>
+          <button onClick={clearFilters} style={{ background:'transparent', color:'#8892a4', border:'1px solid #e8ecf4', borderRadius:'9px', padding:'0.6rem 1.2rem', cursor:'pointer', fontFamily:'Manrope,sans-serif' }}>Clear</button>
+          {isLabStaff && (
+            <button onClick={downloadZip} disabled={zipBusy}
+              title={q.date_from && q.date_to ? 'All finished reports in this date range — one PDF per patient' : 'Pick From and To dates first'}
+              style={{ marginLeft:'auto', background:'#fff', color:'#0e7d6b', border:'1.5px solid #0e7d6b', borderRadius:'9px', padding:'0.6rem 1.2rem', fontWeight:700, cursor: zipBusy ? 'wait' : 'pointer', fontFamily:'Manrope,sans-serif', opacity: (q.date_from && q.date_to) ? 1 : 0.6 }}>
+              {zipBusy ? 'Building ZIP…' : '🗜️ Download Zip'}
+            </button>
+          )}
+        </div>
       </div>
 
       <div style={{ display:'grid', gridTemplateColumns: sel ? '1fr 1.1fr' : '1fr', gap:'1.5rem', alignItems:'start' }}>

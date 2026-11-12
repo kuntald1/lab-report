@@ -10,12 +10,14 @@ const fmtDate = (d) => d ? new Date(d).toLocaleString('en-IN', { dateStyle:'medi
 const statusStyle = { paid:['#16a34a','Paid'], partial:['#f59e0b','Partial'], unpaid:['#dc2626','Unpaid'], credit:['#6366f1','On Credit'], cancelled:['#64748b','Cancelled'] };
 // a bill can only be cancelled while every test is still at one of these stages
 const CANCELLABLE = ['collected','received'];
+// the test-stage filter — same list as Sample / Test Details
+const STAGES = ['', 'dispatched', 'received', 'tested', 'validated', 'reported'];
 
 export default function Bills() {
   const [bills, setBills]       = useState([]);
   const [orgs, setOrgs]         = useState([]);
   const [branches, setBranches] = useState([]);
-  const [f, setF]               = useState({ organization_id:'', branch_id:'', barcode:'', patient_name:'', patient_id:'', date_from:'', date_to:'' });
+  const [f, setF]               = useState({ organization_id:'', branch_id:'', barcode:'', patient_name:'', patient_id:'', date_from:'', date_to:'', stage:'' });
   const [loading, setLoading]   = useState(false);
   const [detail, setDetail]     = useState(null);     // bill open in modal
   const [payAmt, setPayAmt]     = useState('');
@@ -394,10 +396,14 @@ export default function Bills() {
           <div><label style={lbl}>Patient Name</label><input style={inp} placeholder="name" value={f.patient_name} onChange={e=>setF({...f,patient_name:e.target.value})} onKeyDown={e=>{ if (e.key==='Enter') load(); }} /></div>
           <div><label style={lbl}>Patient ID</label><input style={inp} type="number" placeholder="id" value={f.patient_id} onChange={e=>setF({...f,patient_id:e.target.value})} /></div>
           <div><label style={lbl}>Barcode</label><input style={inp} placeholder="barcode" value={f.barcode} onChange={e=>setF({...f,barcode:e.target.value})} onKeyDown={e=>{ if (e.key==='Enter') load(); }} /></div>
+          <div><label style={lbl}>Status</label>
+            <select style={inp} value={f.stage} onChange={e=>setF({...f,stage:e.target.value})}>
+              {STAGES.map(s => <option key={s} value={s}>{s ? s[0].toUpperCase()+s.slice(1) : 'All'}</option>)}
+            </select></div>
         </div>
         <div style={{ display:'flex', gap:'0.6rem', marginTop:'1rem' }}>
           <button onClick={load} style={{ background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', border:'none', borderRadius:'9px', padding:'0.6rem 1.4rem', fontWeight:700, cursor:'pointer', fontFamily:'Manrope,sans-serif' }}>Apply Filters</button>
-          <button onClick={()=>{ setF({ organization_id:'', branch_id:'', barcode:'', patient_name:'', patient_id:'', date_from:'', date_to:'' }); setTimeout(load,0); }} style={{ background:'transparent', color:'#8892a4', border:'1px solid #e8ecf4', borderRadius:'9px', padding:'0.6rem 1.2rem', cursor:'pointer', fontFamily:'Manrope,sans-serif' }}>Clear</button>
+          <button onClick={()=>{ setF({ organization_id:'', branch_id:'', barcode:'', patient_name:'', patient_id:'', date_from:'', date_to:'', stage:'' }); setTimeout(load,0); }} style={{ background:'transparent', color:'#8892a4', border:'1px solid #e8ecf4', borderRadius:'9px', padding:'0.6rem 1.2rem', cursor:'pointer', fontFamily:'Manrope,sans-serif' }}>Clear</button>
         </div>
       </div>
 

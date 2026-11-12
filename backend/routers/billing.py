@@ -349,7 +349,8 @@ def list_bills(db: Session = Depends(get_db), scope: Scope = Depends(get_scope),
                organization_id: Optional[int] = None, patient_id: Optional[int] = None,
                branch_id: Optional[int] = None, barcode: Optional[str] = None,
                patient_name: Optional[str] = None,
-               date_from: Optional[str] = None, date_to: Optional[str] = None):
+               date_from: Optional[str] = None, date_to: Optional[str] = None,
+               stage: Optional[str] = None):
     q = db.query(Bill)
     if scope.tenant_id is not None:
         q = q.filter(Bill.tenant_id == scope.tenant_id)
@@ -383,6 +384,13 @@ def list_bills(db: Session = Depends(get_db), scope: Scope = Depends(get_scope),
         q = q.filter(Bill.created_at >= date_from)
     if date_to:
         q = q.filter(Bill.created_at <= date_to + " 23:59:59")
+    if stage:
+        # a bill matches when any of its tests is at that stage, or when the
+        # patient's overall status is ('dispatched' exists only at patient level)
+        from sqlalchemy import or_ as _or
+        item_bills = [b for (b,) in db.query(BillItem.bill_id).filter(BillItem.status == stage).distinct().all()]
+        pids = [p for (p,) in db.query(Patient.id).filter(Patient.status == stage).all()]
+        q = q.filter(_or(Bill.id.in_(item_bills or [-1]), Bill.patient_id.in_(pids or [-1])))
     rows = q.order_by(Bill.id.desc()).limit(500).all()
     return [_bill_dict(db, b) for b in rows]
 

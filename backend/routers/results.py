@@ -8,6 +8,7 @@ from models.org import User, Role, Franchise
 from services.credit import is_franchise_locked
 from services.ranges import apply_catalog_ranges, test_ids_for_result
 from services.calculated import add_calculated
+from services.result_filters import filter_results, filter_patients
 from parsers.astm_parser import auto_parse
 from pydantic import BaseModel
 from typing import Optional, List, Any
@@ -74,8 +75,13 @@ def get_all_results(db: Session = Depends(get_db), scope: Scope = Depends(get_sc
                     user: User = Depends(get_current_user),
                     barcode: Optional[str] = None, patient_id: Optional[str] = None,
                     accession_number: Optional[str] = None,
-                    patient_name: Optional[str] = None):
+                    patient_name: Optional[str] = None,
+                    organization_id: Optional[int] = None, branch_id: Optional[int] = None,
+                    date_from: Optional[str] = None, date_to: Optional[str] = None,
+                    stage: Optional[str] = None):
     q = apply_scope(db.query(LabResult), LabResult, scope)
+    q = filter_results(q, db, organization_id=organization_id, branch_id=branch_id,
+                       date_from=date_from, date_to=date_to, stage=stage)
 
     # LabResult has no franchise column, so a franchise login must be scoped to
     # its own patients explicitly. We also compute whether THIS franchise is over
@@ -161,6 +167,10 @@ def get_all_results(db: Session = Depends(get_db), scope: Scope = Depends(get_sc
             )
         if barcode:
             pq = pq.filter(Patient.barcode.ilike(f"%{barcode}%"))
+        pq = filter_patients(pq, organization_id=organization_id, branch_id=branch_id,
+                             date_from=date_from, date_to=date_to, stage=stage)
+        if patient_id and patient_id.strip().isdigit():
+            pq = pq.filter(Patient.id == int(patient_id.strip()))
         if name_pids is not None:
             pq = pq.filter(Patient.id.in_(name_pids or [-1]))
         manual_patients = [p for p in pq.order_by(Patient.created_at.desc()).limit(200).all()

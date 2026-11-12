@@ -3,6 +3,8 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func as sqlfunc
 from database import get_db
+from typing import Optional
+from auth.deps import get_current_user, get_scope
 from models.models import LabResult, Patient
 from models.org import Tenant, ReferralDoctor, Franchise, User
 from models.billing import BillItem, DeletedBillItem
@@ -1289,6 +1291,98 @@ def download_combined_pdf(ids: str, with_header: bool = True, db: Session = Depe
         media_type="application/pdf",
         headers={"Content-Disposition": f"attachment; filename=Healthycian_Combined_{results[0].barcode}{suffix}.pdf"}
     )
+
+
+# ----------------------------------------------------------------- reports ZIP
+@router.get("/reports-zip")
+def download_reports_zip(date_from: str, date_to: str,
+                         organization_id: Optional[int] = None, branch_id: Optional[int] = None,
+                         stage: Optional[str] = None, barcode: Optional[str] = None,
+                         patient_name: Optional[str] = None, patient_id: Optional[str] = None,
+                         with_header: bool = True,
+                         db: Session = Depends(get_db),
+                         user=Depends(get_current_user), scope=Depends(get_scope)):
+    """Every report PDF in a date range, one PDF per patient (all of that
+    patient's in-house results combined, like "Combine & Download"), zipped.
+
+    Uses the same filters as the Results list. With no Status picked, only
+    finished reports go in (validated / reported) — a ZIP of drafts is not
+    something to hand to a franchise. Outsourced tests are left out; their
+    attachments are separate files."""
+    import zipfile, re
+    from collections import OrderedDict
+    from sqlalchemy import or_
+    from auth.deps import apply_scope
+    from models.org import Role
+    from services.result_filters import filter_results
+
+    if user.role == Role.FRANCHISE:
+        raise HTTPException(403, "the report ZIP is for lab staff")
+    if not date_from or not date_to:
+        raise HTTPException(400, "pick a From and a To date")
+
+    q = apply_scope(db.query(LabResult), LabResult, scope)
+    q = filter_results(q, db, organization_id=organization_id, branch_id=branch_id,
+                       date_from=date_from, date_to=date_to, stage=stage)
+    if barcode and barcode.strip():
+        b = barcode.strip()
+        pids = [p for (p,) in db.query(Patient.id).filter(Patient.barcode.ilike(f"%{b}%")).all()]
+        q = q.filter(or_(LabResult.barcode.ilike(f"%{b}%"), LabResult.accession_number.ilike(f"%{b}%"),
+                         LabResult.patient_id.in_(pids or [-1])))
+    if patient_name and patient_name.strip():
+        pids = [p for (p,) in db.query(Patient.id).filter(Patient.patient_name.ilike(f"%{patient_name.strip()}%")).all()]
+        q = q.filter(LabResult.patient_id.in_(pids or [-1]))
+    if patient_id and str(patient_id).strip().isdigit():
+        q = q.filter(LabResult.patient_id == int(str(patient_id).strip()))
+    if not stage:
+        done_accs = [a for (a,) in db.query(BillItem.accession_number)
+                                     .filter(BillItem.status.in_(("validated", "reported")),
+                                             BillItem.accession_number.isnot(None)).distinct().all()]
+        done_pids = [p for (p,) in db.query(Patient.id).filter(Patient.status.in_(("validated", "reported"))).all()]
+        q = q.filter(or_(LabResult.accession_number.in_(done_accs or ["\x00"]),
+                         LabResult.patient_id.in_(done_pids or [-1])))
+    q = q.filter(or_(LabResult.status.is_(None), LabResult.status != "outsource"))
+    results = q.order_by(LabResult.patient_id.asc(), LabResult.id.asc()).limit(5000).all()
+
+    by_patient = OrderedDict()
+    for r in results:
+        by_patient.setdefault(r.patient_id or f"bc:{r.barcode}", []).append(r)
+    if not by_patient:
+        raise HTTPException(404, "No finished reports between these dates for these filters.")
+    if len(by_patient) > 300:
+        raise HTTPException(400, f"{len(by_patient)} patients in this range — narrow the dates (300 at most per ZIP).")
+
+    buf = io.BytesIO()
+    made, skipped, used = 0, [], set()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for _, rs in by_patient.items():
+            first = rs[0]
+            who = first.patient.patient_name if first.patient else "Unknown"
+            bc = (first.patient.barcode if first.patient else None) or first.barcode or "NA"
+            try:
+                pdf_bytes = generate_combined_pdf(rs, db, with_header=with_header)
+            except HTTPException:
+                skipped.append(f"{bc} - {who}: test(s) deleted from the bill")
+                continue
+            except Exception as e:                       # one bad report must not sink the whole ZIP
+                skipped.append(f"{bc} - {who}: {e}")
+                continue
+            name = re.sub(r"[^A-Za-z0-9_.-]+", "_", f"{bc}_{who}").strip("_")[:80] or "report"
+            fname, n = f"{name}.pdf", 2
+            while fname in used:
+                fname, n = f"{name}_{n}.pdf", n + 1
+            used.add(fname)
+            zf.writestr(fname, pdf_bytes)
+            made += 1
+        if skipped:
+            zf.writestr("_not_included.txt", "These could not be included:\n" + "\n".join(skipped) + "\n")
+    if made == 0:
+        raise HTTPException(404, "None of the reports in this range could be generated.")
+
+    buf.seek(0)
+    return StreamingResponse(buf, media_type="application/zip", headers={
+        "Content-Disposition": f'attachment; filename="Reports_{date_from}_to_{date_to}.zip"',
+        "X-Report-Count": str(made)})
 
 
 @router.get("/{result_id}/pdf")
