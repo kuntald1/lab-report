@@ -898,6 +898,9 @@ def generate_combined_pdf(results: list, db: Session, with_header: bool = True, 
         ('COLLECTION TIME', _collection_time(patient)),
         ('RECEIVING TIME',  _fmt_dt(receiving_dt)),
         ('REPORTING TIME',  _fmt_dt(reporting_dt)),
+        # the patient's barcode (what the lab searches by); Sample ID on the
+        # right is the tube's accession number, which can differ from it
+        ('BARCODE NO',      (patient.barcode if patient else None) or '—'),
     ])
     qr_block = [
         _qr_drawing(report_view_url(first.id), 2.1),

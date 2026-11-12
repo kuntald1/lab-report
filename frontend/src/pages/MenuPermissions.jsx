@@ -31,6 +31,7 @@ const MENU_ITEMS = [
   { id:'mycommission', label:'My Commission', group:'Reports (Doctor)' },
   { id:'historyneeded', label:'History Needed', group:'Reports (Lab)' },
   { id:'samplereport', label:'Sample Report', group:'Reports (Lab)' },
+  { id:'deletedtests', label:'Deleted Tests', group:'Reports (Lab)' },
 ];
 const GROUPS = [...new Set(MENU_ITEMS.map(m=>m.group))];
 

@@ -252,6 +252,99 @@ def sample_details(
                        "balance": round(tot_billed - tot_collected, 2)}}
 
 
+# ============================================================ DELETED TESTS
+@router.get("/deleted-tests")
+def deleted_tests(
+    franchise_id: Optional[int] = None,
+    branch_id: Optional[int] = None,
+    date_from: Optional[str] = None,     # on the date the test was deleted
+    date_to: Optional[str] = None,
+    patient_id: Optional[str] = None,
+    patient_name: Optional[str] = None,
+    barcode: Optional[str] = None,       # patient barcode or the tube's accession number
+    status: Optional[str] = None,        # the test's stage when it was deleted
+    db: Session = Depends(get_db),
+    scope: Scope = Depends(get_scope),
+):
+    """Every test (or test group) an admin took off a bill, newest first.
+
+    A group is one row with its member tests listed, priced at the group price
+    it took off the bill. An organisation login sees only its own bills."""
+    q = (db.query(DeletedBillItem, Bill, Patient)
+           .join(Bill, Bill.id == DeletedBillItem.bill_id)
+           .outerjoin(Patient, Patient.id == Bill.patient_id))
+    if scope.tenant_id is not None:
+        q = q.filter(Bill.tenant_id == scope.tenant_id)
+    from models.org import Role
+    if scope.role == Role.FRANCHISE and scope.franchise_id is not None:
+        q = q.filter(Bill.organization_id == scope.franchise_id)
+    elif franchise_id:
+        q = q.filter(or_(Bill.organization_id == franchise_id,
+                         Patient.registered_franchise_id == franchise_id))
+    if branch_id:
+        q = q.filter(Bill.branch_id == branch_id)
+    if patient_id and str(patient_id).isdigit():
+        q = q.filter(Bill.patient_id == int(patient_id))
+    if patient_name and patient_name.strip():
+        q = q.filter(Patient.patient_name.ilike(f"%{patient_name.strip()}%"))
+    if barcode and barcode.strip():
+        b = barcode.strip()
+        q = q.filter(or_(Patient.barcode.ilike(f"%{b}%"),
+                         DeletedBillItem.accession_number.ilike(f"%{b}%")))
+    if status:
+        q = q.filter(DeletedBillItem.status == status)
+    if date_from:
+        q = q.filter(DeletedBillItem.deleted_at >= date_from)
+    if date_to:
+        q = q.filter(DeletedBillItem.deleted_at <= date_to + " 23:59:59")
+    hits = q.order_by(DeletedBillItem.deleted_at.desc(), DeletedBillItem.id.asc()).limit(2000).all()
+
+    users = {}
+    for u in db.query(User).filter(User.id.in_({d.deleted_by for d, _, _ in hits if d.deleted_by} or {-1})).all():
+        users[u.id] = getattr(u, "full_name", None) or getattr(u, "name", None) or u.email
+    orgs = _name_map(db, Franchise, {b.organization_id for _, b, _ in hits})
+    try:
+        from models.org import Branch  # type: ignore
+        branches = _name_map(db, Branch, {b.branch_id for _, b, _ in hits})
+    except Exception:
+        branches = {}
+
+    rows, by_group = [], {}
+    for d, b, p in hits:
+        if d.package_id:
+            # one deletion of a group = its members, removed together by one person
+            gkey = (b.id, d.package_id, d.deleted_by, d.deleted_at.replace(microsecond=0) if d.deleted_at else None)
+            if gkey in by_group:
+                g = by_group[gkey]
+                g["members"].append(d.test_name)
+                g["amount"] = round(g["amount"] + (d.price or 0.0), 2)
+                continue
+        row = {
+            "id": d.id, "deleted_at": d.deleted_at,
+            "deleted_by": users.get(d.deleted_by), "reason": d.reason,
+            "bill_id": b.id, "bill_no": b.bill_no,
+            "patient_id": b.patient_id,
+            "patient_name": p.patient_name if p else None,
+            "barcode": p.barcode if p else None,
+            "accession_number": d.accession_number,
+            "name": (d.package_name or "Group") if d.package_id else d.test_name,
+            "is_group": bool(d.package_id),
+            "members": [d.test_name] if d.package_id else [],
+            "amount": round(d.price or 0.0, 2),
+            "status": d.status,
+            "franchise": orgs.get(b.organization_id) or "Direct / Walk-in",
+            "branch": branches.get(b.branch_id) or (str(b.branch_id) if b.branch_id else "—"),
+        }
+        rows.append(row)
+        if d.package_id:
+            by_group[gkey] = row
+
+    return {"rows": rows,
+            "totals": {"deletions": len(rows),
+                       "bills": len({r["bill_id"] for r in rows}),
+                       "amount": round(sum(r["amount"] for r in rows), 2)}}
+
+
 # ============================================================ DASHBOARD (revenue)
 def _norm_method(raw: Optional[str]) -> str:
     """Map stored payment methods to canonical buckets: CASH / UPI / CARD / CREDIT / ONLINE."""

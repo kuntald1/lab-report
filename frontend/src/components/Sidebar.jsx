@@ -28,6 +28,7 @@ const nav = [
   { id:'mycommission', icon:'💰', label:'My Commission', section:'reports', who:'doctor' },
   { id:'historyneeded', icon:'📥', label:'History Needed', section:'reports', who:'lab' },
   { id:'samplereport', icon:'📊', label:'Sample Report', section:'reports', who:'lab' },
+  { id:'deletedtests', icon:'🗑️', label:'Deleted Tests', section:'reports', who:'lab' },
 ];
 
 // Sidebar widths, exported so the page area can keep its left margin in step
