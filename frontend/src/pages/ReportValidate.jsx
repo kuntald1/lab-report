@@ -43,6 +43,8 @@ export default function ReportValidate() {
   const [editParams, setEditParams] = useState([]);
   const [editResultNote, setEditResultNote] = useState('');
   const [savingResult, setSavingResult] = useState(false);
+  const [calcBusy, setCalcBusy]   = useState(false);
+  const [calcDirty, setCalcDirty] = useState(false);   // a value was edited since the last Calculate
 
   const showToast = (kind, msg) => { setToast({ kind, msg }); setTimeout(()=>setToast(null), 3200); };
 
@@ -57,9 +59,27 @@ export default function ReportValidate() {
     authedFetch(`/reports/${p.id}`).then(r=>r.ok?r.json():null).then(setDetail).catch(()=>{});
   };
 
-  const startEditResult = (r) => { setEditingResultId(r.id); setEditParams((r.parsed_data?.parameters||[]).map(p=>({...p}))); setEditResultNote(r.note || ''); };
+  const startEditResult = (r) => { setCalcDirty(false); setEditingResultId(r.id); setEditParams((r.parsed_data?.parameters||[]).map(p=>({...p}))); setEditResultNote(r.note || ''); };
   const cancelEditResult = () => setEditingResultId(null);
-  const changeEditParam = (i, field, val) => setEditParams(prev => prev.map((p,idx)=> idx===i ? {...p, [field]: val} : p));
+  const changeEditParam = (i, field, val) => {
+    if (field === 'value') setCalcDirty(true);
+    // a flag picked by hand must survive the Calculate round trip
+    setEditParams(prev => prev.map((p,idx)=> idx===i ? {...p, [field]: val, ...(field==='flag' ? { flag_manual: true } : {})} : p));
+  };
+
+  // Recompute VLDL / lipid ratios from the values as typed (nothing is saved until Save).
+  const calculateEdit = async (resultId) => {
+    setCalcBusy(true);
+    try {
+      const res = await authedFetch(`/results/${resultId}/calculate`, { method:'POST',
+        headers:{'Content-Type':'application/json'}, body: JSON.stringify({ parameters: editParams }) });
+      if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(apiErrorText(e.detail) || 'Calculate failed'); }
+      const out = await res.json();
+      setEditParams(out.parameters);
+      setCalcDirty(false);
+    } catch (e) { showToast('error', String(e.message||'Calculate failed')); }
+    setCalcBusy(false);
+  };
 
   const saveEditResult = async (resultId) => {
     setSavingResult(true);
@@ -231,7 +251,8 @@ export default function ReportValidate() {
                   {editingResultId === r.id ? (
                     <EditableResult params={editParams} onChange={changeEditParam}
                       note={editResultNote} onNoteChange={setEditResultNote}
-                      onSave={()=>saveEditResult(r.id)} onCancel={cancelEditResult} saving={savingResult} />
+                      onSave={()=>saveEditResult(r.id)} onCancel={cancelEditResult} saving={savingResult}
+                      onCalculate={()=>calculateEdit(r.id)} calcBusy={calcBusy} calcDirty={calcDirty} />
                   ) : (
                     <ResultPreview data={r.parsed_data} note={r.note} />
                   )}
@@ -277,11 +298,16 @@ export default function ReportValidate() {
 }
 
 // Editable version of ResultPreview — used while a doctor is correcting a value pre-validation
-function EditableResult({ params, onChange, note, onNoteChange, onSave, onCancel, saving }) {
+function EditableResult({ params, onChange, note, onNoteChange, onSave, onCancel, saving, onCalculate, calcBusy, calcDirty }) {
   const cell = { padding:'0.3rem 0.6rem', fontSize:'0.78rem', borderBottom:'1px solid #f4f6fa' };
   if (!params || params.length === 0) return <div style={{ fontSize:'0.78rem', color:'#8892a4' }}>No parsed values to edit.</div>;
   return (
     <div style={{ border:'1px solid #f97316', borderRadius:'8px', overflow:'hidden' }}>
+      <div style={{ display:'flex', alignItems:'center', gap:'0.6rem', justifyContent:'flex-end', padding:'0.5rem 0.6rem', background:'#fffbf7' }}>
+        {calcDirty && <span style={{ fontSize:'0.68rem', color:'#c2410c', fontWeight:700 }}>Values changed — click Calculate to refresh VLDL / ratios</span>}
+        <button onClick={onCalculate} disabled={calcBusy} title="Recalculate VLDL and the lipid ratios from the values below"
+          style={{ background: calcDirty ? 'linear-gradient(135deg,#f97316,#fbbf24)' : '#fff', color: calcDirty ? '#fff' : '#c2410c', border:'1px solid rgba(249,115,22,0.4)', borderRadius:'7px', padding:'0.35rem 0.75rem', fontWeight:700, cursor:'pointer', fontSize:'0.74rem', fontFamily:'Manrope,sans-serif' }}>{calcBusy ? 'Calculating…' : '🧮 Calculate'}</button>
+      </div>
       <table style={{ width:'100%', borderCollapse:'collapse' }}>
         <thead>
           <tr style={{ background:'#fafbfc' }}>
@@ -293,7 +319,7 @@ function EditableResult({ params, onChange, note, onNoteChange, onSave, onCancel
         <tbody>
           {params.map((p, i) => (
             <tr key={i}>
-              <td style={{ ...cell, color:'#0f1218', fontWeight:600 }}>{p.name}</td>
+              <td style={{ ...cell, color:'#0f1218', fontWeight:600 }}>{p.name}{p.calculated && <span style={{ marginLeft:'0.4rem', fontSize:'0.58rem', fontWeight:700, color:'#c2410c', background:'rgba(249,115,22,0.1)', borderRadius:4, padding:'1px 5px' }}>calculated</span>}</td>
               <td style={cell}>
                 <input value={p.value} onChange={e=>onChange(i,'value',e.target.value)}
                   style={{ width:'80px', padding:'0.3rem 0.4rem', borderRadius:5, border:'1.5px solid #f97316', fontSize:'0.78rem', fontWeight:700 }} />

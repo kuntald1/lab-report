@@ -199,9 +199,30 @@ export default function Results() {
   const [editNote, setEditNote]   = useState('');
   const [saving, setSaving]       = useState(false);
 
-  const startEdit = () => { setEditParams((sel.parsed_data?.parameters||[]).map(p=>({...p}))); setEditNote(sel.note || ''); setEditing(true); };
+  const [calcBusy, setCalcBusy]   = useState(false);
+  const [calcDirty, setCalcDirty]  = useState(false);   // a value was edited since the last Calculate
+
+  const startEdit = () => { setEditParams((sel.parsed_data?.parameters||[]).map(p=>({...p}))); setEditNote(sel.note || ''); setCalcDirty(false); setEditing(true); };
   const cancelEdit = () => setEditing(false);
-  const changeParam = (i, field, val) => setEditParams(prev => prev.map((p,idx)=> idx===i ? {...p, [field]: val} : p));
+  const changeParam = (i, field, val) => {
+    if (field === 'value') setCalcDirty(true);
+    // a flag picked by hand must survive the Calculate round trip
+    setEditParams(prev => prev.map((p,idx)=> idx===i ? {...p, [field]: val, ...(field==='flag' ? { flag_manual: true } : {})} : p));
+  };
+
+  // Recompute VLDL / lipid ratios from the values as typed (nothing is saved until Save).
+  const calculate = async () => {
+    setCalcBusy(true);
+    try {
+      const res = await authedFetch(`/results/${sel.id}/calculate`, { method:'POST',
+        headers:{'Content-Type':'application/json'}, body: JSON.stringify({ parameters: editParams }) });
+      if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(apiErrorText(e.detail) || 'Calculate failed'); }
+      const out = await res.json();
+      setEditParams(out.parameters);
+      setCalcDirty(false);
+    } catch (err) { alert(String(err.message || 'Calculate failed')); }
+    setCalcBusy(false);
+  };
 
   const saveEdit = async () => {
     setSaving(true);
@@ -369,9 +390,14 @@ export default function Results() {
             )}
             {editing ? (
               <div style={{ display:'flex', flexDirection:'column', gap:'0.5rem' }}>
+                <div style={{ display:'flex', alignItems:'center', gap:'0.6rem', justifyContent:'flex-end' }}>
+                  {calcDirty && <span style={{ fontSize:'0.7rem', color:'#c2410c', fontWeight:700 }}>Values changed — click Calculate to refresh VLDL / ratios</span>}
+                  <button onClick={calculate} disabled={calcBusy} title="Recalculate VLDL and the lipid ratios from the values below"
+                    style={{ background: calcDirty ? 'linear-gradient(135deg,#f97316,#fbbf24)' : '#fff', color: calcDirty ? '#fff' : '#c2410c', border:'1px solid rgba(249,115,22,0.4)', borderRadius:'8px', padding:'0.4rem 0.8rem', fontWeight:700, cursor:'pointer', fontSize:'0.76rem', fontFamily:'Manrope,sans-serif' }}>{calcBusy ? 'Calculating…' : '🧮 Calculate'}</button>
+                </div>
                 {editParams.map((p,i) => (
                   <div key={i} style={{ background:'#fafbfc', border:'1px solid #e8ecf4', borderRadius:'9px', padding:'0.6rem 0.8rem', display:'grid', gridTemplateColumns:'1.3fr 0.8fr 0.6fr 0.7fr', gap:'0.4rem', alignItems:'center' }}>
-                    <div style={{ fontSize:'0.8rem', fontWeight:700, color:'#0f1218' }}>{p.name}</div>
+                    <div style={{ fontSize:'0.8rem', fontWeight:700, color:'#0f1218' }}>{p.name}{p.calculated && <span style={{ marginLeft:'0.4rem', fontSize:'0.6rem', fontWeight:700, color:'#c2410c', background:'rgba(249,115,22,0.1)', borderRadius:4, padding:'1px 5px' }}>calculated</span>}</div>
                     <input value={p.value} onChange={e=>changeParam(i,'value',e.target.value)}
                       style={{ padding:'0.4rem 0.5rem', borderRadius:6, border:'1.5px solid #f97316', fontSize:'0.82rem', fontWeight:700 }} />
                     <select value={p.flag||'N'} onChange={e=>changeParam(i,'flag',e.target.value)}

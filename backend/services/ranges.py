@@ -13,6 +13,7 @@ A flag a person set by hand is never overwritten — see `flag_manual`.
 from models.clinical import ReferenceRange
 from models.billing import BillItem
 from services.parameters import alias_map, canon, names_of, norm as _pnorm, active_parameters
+from services.calculated import add_calculated
 
 
 def _norm(p) -> str:
@@ -180,6 +181,10 @@ def apply_catalog_ranges(db, parameters, test_ids, patient, device_id=None) -> l
     """
     if not parameters:
         return parameters or []
+
+    # Calculated rows (VLDL, lipid ratios) join before ranges are looked up, so
+    # they get their reference range and flag like any measured parameter.
+    parameters = add_calculated(parameters)
 
     matches = matching_rows(db, [p.get("param") or p.get("name") for p in parameters],
                             test_ids, patient, device_id)

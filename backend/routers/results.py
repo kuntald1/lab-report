@@ -7,6 +7,7 @@ from auth.audit import write_audit
 from models.org import User, Role, Franchise
 from services.credit import is_franchise_locked
 from services.ranges import apply_catalog_ranges, test_ids_for_result
+from services.calculated import add_calculated
 from parsers.astm_parser import auto_parse
 from pydantic import BaseModel
 from typing import Optional, List, Any
@@ -287,11 +288,41 @@ class ParameterEdit(BaseModel):
     # catalog-range lookup then leaves alone. Accepted here so an unchanged
     # parameter keeps its mark when the page saves the whole list back.
     flag_manual: Optional[bool] = None
+    # Set when the row was worked out from other rows (VLDL, lipid ratios) rather
+    # than measured, so the Calculate button knows which rows it may refresh.
+    calculated: Optional[bool] = None
 
 
 class ResultEdit(BaseModel):
     parameters: List[ParameterEdit]
     note: Optional[str] = None
+
+
+class CalculateRequest(BaseModel):
+    parameters: List[ParameterEdit]
+
+
+@router.post("/{result_id}/calculate")
+def calculate_result(result_id: int, payload: CalculateRequest,
+                     db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """The Calculate button: recompute VLDL and the lipid ratios from the values
+    as they stand in the edit form (not yet saved), refresh ranges and flags,
+    and hand the list back. Nothing is stored here — the person still presses
+    Save, so a calculation they don't like is just discarded with the edit."""
+    if user.role not in (Role.SUPER_ADMIN, Role.LAB_ADMIN, Role.PATHOLOGIST, Role.TECHNICIAN):
+        raise HTTPException(status_code=403, detail="not allowed to edit results")
+    result = db.query(LabResult).filter(LabResult.id == result_id).first()
+    if not result:
+        raise HTTPException(status_code=404, detail="Result not found")
+
+    params = [p.model_dump(exclude_none=True) for p in payload.parameters]
+    calculated = add_calculated(params, overwrite=True)
+    try:
+        calculated = apply_catalog_ranges(db, calculated, test_ids_for_result(db, result),
+                                          result.patient, result.device_id)
+    except Exception:
+        pass
+    return {"parameters": calculated, "changed": calculated is not params}
 
 
 @router.put("/{result_id}")
@@ -329,6 +360,8 @@ def update_result(result_id: int, payload: ResultEdit, request: Request,
         d["flag_manual"] = True if (changed or was_manual) else None
         if d["flag_manual"] is None:
             d.pop("flag_manual")
+        if not d.get("calculated"):
+            d.pop("calculated", None)
         new_params.append(d)
 
     parsed["parameters"] = new_params

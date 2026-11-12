@@ -36,6 +36,7 @@ from models.commission import DoctorCommission
 from models.reports import HistoryRequest
 from services.whatsapp import send_whatsapp
 from services.lifecycle import record_events_only
+from services.ranges import apply_catalog_ranges, test_ids_for_result
 
 router = APIRouter()
 ADMIN_ROLES = (Role.SUPER_ADMIN, Role.LAB_ADMIN)
@@ -184,6 +185,21 @@ def validated_reports(date_from: Optional[str] = None, date_to: Optional[str] = 
     return sorted(grouped.values(), key=lambda d: d["validated_at"] or "", reverse=True)[:500]
 
 
+def _ranged(db, result, patient):
+    """parsed_data with the lab's reference ranges and the calculated rows (VLDL,
+    lipid ratios) applied — the same view the Results screen gives, so the doctor
+    validating sees what will be printed. Falls back to the stored data."""
+    parsed = result.parsed_data
+    if not parsed or not parsed.get("parameters"):
+        return parsed
+    try:
+        params = apply_catalog_ranges(db, parsed["parameters"], test_ids_for_result(db, result),
+                                      patient, result.device_id)
+        return parsed if params is parsed["parameters"] else {**parsed, "parameters": params}
+    except Exception:
+        return parsed
+
+
 @router.get("/{patient_id}")
 def report_bundle(patient_id: int, db: Session = Depends(get_db),
                   user: User = Depends(get_current_user)):
@@ -198,7 +214,13 @@ def report_bundle(patient_id: int, db: Session = Depends(get_db),
     seen, results = set(), []
     for r in all_results:
         day = r.created_at.date().isoformat() if r.created_at else ""
-        key = ((r.test_name or "").strip().lower(), day)
+        # The parameter names are part of the key: an analyser that sends each
+        # test of one sample separately (Maglumi: TSH, TT3, TT4 all named
+        # "Immunology (1 params)") would otherwise have two of the three hidden
+        # from the doctor. The same test re-run still shares a key and collapses.
+        names = tuple(sorted(str(x.get("param") or x.get("name") or "")
+                             for x in ((r.parsed_data or {}).get("parameters") or [])))
+        key = ((r.test_name or "").strip().lower(), day, names)
         if key in seen:
             continue
         seen.add(key)
@@ -234,7 +256,7 @@ def report_bundle(patient_id: int, db: Session = Depends(get_db),
         "clinical_history": p.clinical_history,
         "history_checklist": p.history_checklist,
         "validated_by": p.validated_by, "validated_at": p.validated_at,
-        "results": [{"id": r.id, "test_name": r.test_name, "parsed_data": r.parsed_data,
+        "results": [{"id": r.id, "test_name": r.test_name, "parsed_data": _ranged(db, r, p),
                      "accession_number": r.accession_number, "note": r.note,
                      "status": r.status, "created_at": r.created_at} for r in results],
         "open_history_request": ({"id": open_req.id, "note": open_req.note,
