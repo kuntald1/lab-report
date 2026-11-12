@@ -13,7 +13,8 @@ Only what the formulas need is looked at, and a row is produced only when every
 input is present and numeric. A result that lacks, say, HDL simply gets no
 ratios — never a made-up number.
 
-Rows made here carry `calculated: True`. That is what lets the Calculate button
+Rows made here carry `calculated: True` and methodology "calculated" (unless
+the lab's catalog names one for that parameter, which then wins). That is what lets the Calculate button
 refresh them after somebody edits an input, without ever touching a value an
 analyser actually measured.
 """
@@ -120,9 +121,16 @@ def add_calculated(parameters, overwrite: bool = False):
                 continue
             out.append({"param": f["name"], "name": f["name"], "value": value,
                         "unit": f["unit"], "ref_min": "", "ref_max": "",
-                        "flag": "N", "status": "Normal", "calculated": True})
+                        "flag": "N", "status": "Normal", "calculated": True,
+                        "method": "calculated"})
             changed = True
-        elif overwrite and out[existing].get("calculated"):
+            continue
+        if out[existing].get("calculated") and not out[existing].get("method"):
+            # A calculated row saved from the edit screen comes back without its
+            # methodology (the edit form doesn't carry it), so put it back.
+            out[existing] = {**out[existing], "method": "calculated"}
+            changed = True
+        if overwrite and out[existing].get("calculated"):
             row = dict(out[existing])
             if value is None:
                 # An input was removed or became non-numeric: drop the stale row

@@ -34,6 +34,7 @@ export default function Billing({ isAdmin = true, initialPatientId = '', onManag
   const [patientId, setPatientId] = useState(initialPatientId || '');
   const [picked, setPicked]     = useState({});     // {test_id: {name, mrp, price, source}}
   const [search, setSearch]     = useState('');
+  const [pickTab, setPickTab]   = useState('tests');   // 'tests' | 'groups' — which list the search box filters
   const [discType, setDiscType] = useState('');     // '' | 'flat' | 'percent'
   const [discVal, setDiscVal]   = useState('');
   const [onCredit, setOnCredit] = useState(isFranchise);
@@ -542,13 +543,22 @@ export default function Billing({ isAdmin = true, initialPatientId = '', onManag
           {/* left: test catalog */}
           <div style={{ ...S.card, padding:0, overflow:'hidden' }}>
             <div style={{ padding:'1rem 1.3rem', borderBottom:'1px solid #f4f6fa' }}>
-              <input style={inp} placeholder="Search tests to add…" value={search} onChange={e=>setSearch(e.target.value)} />
+              <div style={{ display:'flex', gap:'0.4rem', marginBottom:'0.7rem' }}>
+                {[['tests','Individual Tests'],['groups','Test Groups']].map(([k,l]) => (
+                  <button key={k} onClick={()=>setPickTab(k)}
+                    style={{ flex:1, padding:'0.45rem 0.6rem', borderRadius:'8px', cursor:'pointer', fontWeight:700, fontSize:'0.78rem', fontFamily:'Manrope,sans-serif',
+                      border: pickTab===k ? '1px solid #f97316' : '1px solid #e5e8ef',
+                      background: pickTab===k ? 'rgba(249,115,22,0.1)' : '#fff',
+                      color: pickTab===k ? '#c2410c' : '#8892a4' }}>{l}</button>
+                ))}
+              </div>
+              <input style={inp} placeholder={pickTab==='groups' ? 'Search test groups…' : 'Search individual tests…'} value={search} onChange={e=>setSearch(e.target.value)} />
             </div>
             <div style={{ maxHeight:'420px', overflowY:'auto' }}>
-              {groups.filter(g => !search || g.name.toLowerCase().includes(search.toLowerCase())).length > 0 && (
-                <div style={{ padding:'0.5rem 1.3rem', fontSize:'0.62rem', fontWeight:800, color:'#c2410c', textTransform:'uppercase', letterSpacing:'0.07em', background:'rgba(249,115,22,0.04)' }}>Test Groups</div>
+              {pickTab==='groups' && groups.filter(g => !search || g.name.toLowerCase().includes(search.toLowerCase())).length === 0 && (
+                <div style={{ padding:'1.2rem 1.3rem', color:'#8892a4', fontSize:'0.85rem' }}>No test groups found.</div>
               )}
-              {groups.filter(g => !search || g.name.toLowerCase().includes(search.toLowerCase())).map(g => (
+              {pickTab==='groups' && groups.filter(g => !search || g.name.toLowerCase().includes(search.toLowerCase())).map(g => (
                 <div key={'g'+g.id} onClick={()=>addGroup(g)}
                   style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'0.7rem 1.3rem', borderBottom:'1px solid #f7f8fb', cursor: pickedGroups[g.id]?'default':'pointer', background: pickedGroups[g.id]?'rgba(22,163,74,0.05)':'transparent' }}>
                   <span>
@@ -560,10 +570,7 @@ export default function Billing({ isAdmin = true, initialPatientId = '', onManag
                   </span>
                 </div>
               ))}
-              {groups.length > 0 && (
-                <div style={{ padding:'0.5rem 1.3rem', fontSize:'0.62rem', fontWeight:800, color:'#8892a4', textTransform:'uppercase', letterSpacing:'0.07em', background:'#fafbfc' }}>Individual Tests</div>
-              )}
-              {filtered.map(t => (
+              {pickTab==='tests' && filtered.map(t => (
                 <div key={t.id} onClick={()=>addTest(t)}
                   style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'0.7rem 1.3rem', borderBottom:'1px solid #f7f8fb', cursor: (picked[t.id]||groupMemberIds.has(t.id))?'default':'pointer', background: picked[t.id]?'rgba(22,163,74,0.05)':(groupMemberIds.has(t.id)?'#fafbfc':'transparent'), opacity: groupMemberIds.has(t.id)?0.55:1 }}>
                   <span style={{ fontSize:'0.85rem', fontWeight:600, color:'#0f1218' }}>{t.name}</span>
