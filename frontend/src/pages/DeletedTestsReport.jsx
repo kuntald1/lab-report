@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { authedFetch, auth } from '../services/auth';
+import SearchSelect from '../components/SearchSelect';
 
 // Tests (or whole test groups) an admin took off a bill — who, when, why and how
 // much came off. Same filter bar as Sample / Test Details; the dates are the
@@ -24,7 +25,7 @@ export default function DeletedTestsReport() {
   const [franchises, setFranchises] = useState([]);
 
   useEffect(() => {
-    authedFetch('/franchises').then(r=>r.ok?r.json():[]).then(d=>setFranchises(Array.isArray(d)?d:(d.items||[]))).catch(()=>{});
+    authedFetch('/admin/franchises').then(r=>r.ok?r.json():[]).then(d=>setFranchises(Array.isArray(d)?d:(d.items||[]))).catch(()=>{});
     load(f);
   }, []); // eslint-disable-line
 
@@ -63,10 +64,11 @@ export default function DeletedTestsReport() {
       <div style={{ ...S.card, marginBottom:'1.2rem' }}>
         <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))', gap:'0.8rem', alignItems:'end' }}>
           <div><label style={lbl}>Franchise</label>
-            <select style={{...inp, background: isFranchise?'#f1f3f7':''}} disabled={isFranchise} value={f.franchise_id} onChange={e=>set('franchise_id',e.target.value)}>
-              <option value="">All</option>
-              {franchises.map(fr => <option key={fr.id} value={fr.id}>{fr.name}</option>)}
-            </select>
+            <SearchSelect style={{...inp, background: isFranchise?'#f1f3f7':''}} disabled={isFranchise} value={f.franchise_id}
+              onChange={v=>set('franchise_id',v)} emptyLabel="All" placeholder="Type code or name…"
+              options={franchises
+                .map(fr => ({ value: fr.id, label: (fr.code && !String(fr.name||'').toUpperCase().startsWith(String(fr.code).trim().toUpperCase())) ? `${fr.code} - ${fr.name}` : fr.name }))
+                .sort((a,b)=>a.label.localeCompare(b.label))} />
           </div>
           <div><label style={lbl}>Branch ID</label><input style={inp} value={f.branch_id} onChange={e=>set('branch_id',e.target.value)} placeholder="e.g. 1" /></div>
           <div><label style={lbl}>Deleted from</label><input style={inp} type="date" value={f.date_from} onChange={e=>set('date_from',e.target.value)} /></div>
