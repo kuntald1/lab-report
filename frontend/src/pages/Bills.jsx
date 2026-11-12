@@ -35,6 +35,9 @@ export default function Bills() {
   const [cancelOpen, setCancelOpen]     = useState(false);  // reason box visible
   const [cancelReason, setCancelReason] = useState('');
   const [cancelBusy, setCancelBusy]     = useState(false);
+  const [rmAsk, setRmAsk]       = useState(null);   // {item, preview} while the delete confirmation is open
+  const [rmReason, setRmReason] = useState('');
+  const [rmBusy, setRmBusy]     = useState(false);
 
   const isAdmin = ['super_admin','lab_admin'].includes((auth.user()?.role || '').toLowerCase());
 
@@ -165,6 +168,34 @@ export default function Bills() {
     setDiscBusy(false);
   };
 
+  // Delete a test (or a whole group) from the bill: first ask the server what
+  // would happen (dry run), show it in the confirmation, then do it.
+  const askRemove = async (item) => {
+    if (!detail) return;
+    setRmBusy(true);
+    try {
+      const res = await authedFetch(`/billing/bills/${detail.id}/items/${item.id}/remove?dry_run=true`, { method:'POST',
+        headers:{'Content-Type':'application/json'}, body: JSON.stringify({}) });
+      if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.detail||'failed'); }
+      setRmReason(''); setRmAsk({ item, preview: await res.json() });
+    } catch (e) { showToast('error', String(e.message||'Cannot delete this test')); }
+    setRmBusy(false);
+  };
+  const confirmRemove = async () => {
+    if (!detail || !rmAsk) return;
+    setRmBusy(true);
+    try {
+      const res = await authedFetch(`/billing/bills/${detail.id}/items/${rmAsk.item.id}/remove`, { method:'POST',
+        headers:{'Content-Type':'application/json'}, body: JSON.stringify({ reason: rmReason.trim() || null }) });
+      if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.detail||'failed'); }
+      const updated = await res.json();
+      setDetail(updated); setPayAmt(String(Math.max(0,(updated.total||0)-(updated.paid||0)))); load();
+      showToast('success', `${rmAsk.preview.label} deleted from ${updated.bill_no}`);
+      setRmAsk(null);
+    } catch (e) { showToast('error', String(e.message||'Delete failed')); }
+    setRmBusy(false);
+  };
+
   const cancelBill = async () => {
     if (!detail) return;
     const reason = cancelReason.trim();
@@ -277,6 +308,46 @@ export default function Bills() {
 
   return (
     <div>
+      {rmAsk && (() => {
+        const p = rmAsk.preview;
+        return (
+          <div onClick={()=>!rmBusy && setRmAsk(null)} style={{ position:'fixed', inset:0, zIndex:10001, background:'rgba(15,18,24,0.55)', display:'flex', alignItems:'center', justifyContent:'center', padding:'1rem' }}>
+            <div onClick={e=>e.stopPropagation()} style={{ background:'#fff', borderRadius:'16px', width:'100%', maxWidth:'440px', boxShadow:'0 24px 60px rgba(15,18,24,0.3)', overflow:'hidden', fontFamily:'Manrope,sans-serif' }}>
+              <div style={{ padding:'1.2rem 1.4rem 0.9rem', display:'flex', gap:'0.8rem', alignItems:'flex-start' }}>
+                <div style={{ width:42, height:42, flexShrink:0, borderRadius:'12px', background:'rgba(220,38,38,0.1)', color:'#dc2626', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'1.2rem' }}>🗑</div>
+                <div>
+                  <div style={{ fontWeight:800, fontSize:'1.02rem', color:'#0f1218' }}>Delete {p.is_group ? 'test group' : 'test'}?</div>
+                  <div style={{ fontSize:'0.84rem', color:'#4b5563', marginTop:'0.2rem' }}><b>{p.label}</b> will be removed from {detail?.bill_no}{p.is_group ? ` — all ${p.removed.length} tests in it:` : '.'}</div>
+                  {p.is_group && <div style={{ fontSize:'0.74rem', color:'#8892a4', marginTop:'0.25rem' }}>{p.removed.map(r=>r.test_name).join(', ')}</div>}
+                </div>
+              </div>
+              <div style={{ margin:'0 1.4rem', border:'1px solid #f0f2f6', borderRadius:'10px', padding:'0.7rem 0.9rem', fontSize:'0.82rem' }}>
+                <Row k="Amount removed" v={'– '+inr(p.removed_amount)} color="#dc2626" />
+                {p.discount_amount > 0 && <Row k="Discount" v={'– '+inr(p.discount_amount)} />}
+                <Row k="New total" v={<span><s style={{ color:'#b0b7c3', fontWeight:500, marginRight:6 }}>{inr(p.old_total)}</s>{inr(p.new_total)}</span>} bold />
+                {p.refund > 0 && <Row k="Refund to patient" v={inr(p.refund)} color="#b45309" bold />}
+                <Row k="Due after delete" v={inr(p.new_due)} color="#dc2626" />
+                {p.organization_id && p.ledger_change !== 0 && <Row k="Organisation ledger" v={(p.ledger_change < 0 ? '– ' : '+ ') + inr(Math.abs(p.ledger_change))} color="#6366f1" />}
+              </div>
+              {(p.reported || p.refund > 0) && (
+                <div style={{ margin:'0.8rem 1.4rem 0', background:'rgba(245,158,11,0.08)', border:'1px solid rgba(245,158,11,0.3)', borderRadius:'9px', padding:'0.55rem 0.75rem', fontSize:'0.74rem', color:'#92400e' }}>
+                  {p.reported && <div>This test is already validated/reported — it will also disappear from the report.</div>}
+                  {p.refund > 0 && <div>{inr(p.refund)} is more than the new total — it will be recorded as a refund; hand it back at the counter.</div>}
+                </div>
+              )}
+              <div style={{ padding:'0.9rem 1.4rem 0' }}>
+                <label style={lbl}>Reason (optional)</label>
+                <input style={inp} value={rmReason} onChange={e=>setRmReason(e.target.value)} placeholder="e.g. Test not required / added by mistake" />
+              </div>
+              <div style={{ display:'flex', gap:'0.6rem', justifyContent:'flex-end', padding:'1.1rem 1.4rem 1.2rem' }}>
+                <button disabled={rmBusy} onClick={()=>setRmAsk(null)} style={{ background:'#fff', border:'1px solid #e5e8ef', borderRadius:'9px', padding:'0.55rem 1.1rem', fontWeight:700, cursor:'pointer', color:'#4b5563', fontFamily:'Manrope,sans-serif' }}>Keep it</button>
+                <button disabled={rmBusy} onClick={confirmRemove} style={{ background:'#dc2626', border:'none', borderRadius:'9px', padding:'0.55rem 1.1rem', fontWeight:700, cursor:'pointer', color:'#fff', fontFamily:'Manrope,sans-serif' }}>{rmBusy ? 'Deleting…' : 'Yes, delete'}</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {toast && (
         <div style={{ position:'fixed', top:'1.5rem', right:'1.5rem', zIndex:9999, display:'flex', alignItems:'center', gap:'0.75rem', background:'#fff', borderRadius:'13px', padding:'0.9rem 1.2rem', minWidth:'260px', boxShadow:'0 12px 40px rgba(15,18,24,0.18)', border:'1px solid #eef1f6', borderLeft:`4px solid ${toast.kind==='success'?'#16a34a':'#dc2626'}`, animation:'toastIn 0.3s cubic-bezier(0.16,1,0.3,1)' }}>
           <div style={{ width:'30px', height:'30px', borderRadius:'9px', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center', fontSize:'1rem', background: toast.kind==='success'?'rgba(22,163,74,0.12)':'rgba(220,38,38,0.12)' }}>{toast.kind==='success'?'✓':'✕'}</div>
@@ -402,7 +473,11 @@ export default function Bills() {
                     <div key={'g'+pid} style={{ borderBottom:'1px solid #f7f8fb', padding:'0.5rem 0.9rem' }}>
                       <div style={{ display:'flex', justifyContent:'space-between', fontSize:'0.83rem' }}>
                         <span style={{ fontWeight:700, color:'#0f1218' }}>{g.name} <span style={{ fontSize:'0.6rem', background:'rgba(249,115,22,0.12)', color:'#c2410c', padding:'0.1rem 0.45rem', borderRadius:'20px', fontWeight:700 }}>GROUP</span></span>
-                        <span style={{ fontWeight:700 }}>{inr(g.price)}</span>
+                        <span style={{ display:'flex', alignItems:'center', gap:'0.5rem' }}>
+                          <span style={{ fontWeight:700 }}>{inr(g.price)}</span>
+                          {isAdmin && detail.status !== 'cancelled' && detail.items.length > g.members.length &&
+                            <DeleteBtn title={`Delete ${g.name} (all ${g.members.length} tests)`} busy={rmBusy} onClick={()=>askRemove(g.members[0])} />}
+                        </span>
                       </div>
                       <div style={{ paddingLeft:'0.5rem', marginTop:'0.25rem' }}>
                         {g.members.map((m,i)=>(
@@ -418,7 +493,11 @@ export default function Bills() {
                     <div key={i} style={{ padding:'0.5rem 0.9rem', borderBottom:'1px solid #f7f8fb', fontSize:'0.83rem' }}>
                       <div style={{ display:'flex', justifyContent:'space-between' }}>
                         <span>{it.test_name} <span style={{ fontSize:'0.65rem', color:'#8892a4' }}>({it.price_source})</span></span>
-                        <span style={{ fontWeight:600 }}>{inr(it.price)}</span>
+                        <span style={{ display:'flex', alignItems:'center', gap:'0.5rem' }}>
+                          <span style={{ fontWeight:600 }}>{inr(it.price)}</span>
+                          {isAdmin && detail.status !== 'cancelled' && detail.items.length > 1 &&
+                            <DeleteBtn title={`Delete ${it.test_name}`} busy={rmBusy} onClick={()=>askRemove(it)} />}
+                        </span>
                       </div>
                       <div style={{ display:'flex', justifyContent:'flex-end', marginTop:'0.2rem' }}>
                         <AccessionField it={it} accEdit={accEdit} setAccEdit={setAccEdit} accBusy={accBusy} onSave={saveAccession} onPrint={printSingleLabel} />
@@ -581,6 +660,13 @@ export default function Bills() {
         </div>
       )}
     </div>
+  );
+}
+
+function DeleteBtn({ title, onClick, busy }) {
+  return (
+    <button title={title} disabled={busy} onClick={onClick}
+      style={{ width:24, height:24, display:'inline-flex', alignItems:'center', justifyContent:'center', border:'1px solid rgba(220,38,38,0.25)', background:'rgba(220,38,38,0.06)', color:'#dc2626', borderRadius:'6px', cursor:'pointer', fontSize:'0.72rem', padding:0 }}>🗑</button>
   );
 }
 

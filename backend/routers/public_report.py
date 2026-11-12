@@ -232,6 +232,8 @@ def public_patient_combined_pdf(patient_id: int, token: str = Query(...), passwo
         raise HTTPException(404, "Every test in this selection is outsourced — nothing in-house to report yet")
     try:
         pdf_bytes = generate_combined_pdf(normal_results, db)
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(500, f"PDF generation failed: {e}")
     return StreamingResponse(

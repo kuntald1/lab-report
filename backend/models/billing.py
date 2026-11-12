@@ -65,3 +65,28 @@ class Payment(Base):
     note           = Column(String, nullable=True)
     created_by     = Column(Integer, ForeignKey("users.id"), nullable=True)
     created_at     = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class DeletedBillItem(Base):
+    """A test taken off a bill after it was raised (admin-only).
+
+    The bill_items row itself is removed, so every screen, queue and report that
+    reads the bill simply stops seeing the test. This table keeps what was
+    removed — and by whom, when and why — so the change can be traced, and so a
+    report can tell "this sample's only test was deleted" apart from "this
+    analyser result was never billed" (the second still prints in full)."""
+    __tablename__ = "deleted_bill_items"
+    id               = Column(Integer, primary_key=True, index=True)
+    tenant_id        = Column(Integer, nullable=True, index=True)
+    bill_id          = Column(Integer, ForeignKey("bills.id"), nullable=False, index=True)
+    bill_item_id     = Column(Integer, nullable=True)            # the removed bill_items.id
+    test_id          = Column(Integer, nullable=True)
+    test_name        = Column(String, nullable=True)
+    package_id       = Column(Integer, nullable=True)
+    package_name     = Column(String, nullable=True)
+    accession_number = Column(String, nullable=True, index=True)
+    price            = Column(Float, default=0.0)
+    status           = Column(String, nullable=True)             # the test's stage when it was removed
+    reason           = Column(String, nullable=True)
+    deleted_by       = Column(Integer, ForeignKey("users.id"), nullable=True)
+    deleted_at       = Column(DateTime(timezone=True), server_default=func.now())

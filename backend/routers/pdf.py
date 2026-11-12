@@ -5,7 +5,7 @@ from sqlalchemy import func as sqlfunc
 from database import get_db
 from models.models import LabResult, Patient
 from models.org import Tenant, ReferralDoctor, Franchise, User
-from models.billing import BillItem
+from models.billing import BillItem, DeletedBillItem
 from models.clinical import SampleEvent, EventType, TestCatalog, Department
 from models.commission import DoctorCommission
 from services.ranges import (apply_catalog_ranges, test_ids_for_result,
@@ -739,6 +739,17 @@ def generate_pdf(result: LabResult) -> bytes:
 LONG_PANEL_ROWS = 12
 
 
+def tests_all_deleted(db, result) -> bool:
+    """True when this result's sample had tests billed and every one of them
+    has since been deleted from the bill."""
+    acc = getattr(result, "accession_number", None)
+    if not acc:
+        return False
+    if db.query(BillItem.id).filter(BillItem.accession_number == acc).first():
+        return False
+    return db.query(DeletedBillItem.id).filter(DeletedBillItem.accession_number == acc).first() is not None
+
+
 def generate_combined_pdf(results: list, db: Session, with_header: bool = True, _tighten: int = 0):
     """The official letterhead-style sample report: one shared header +
     patient-info block, then one dynamic section per test/panel (any number
@@ -759,6 +770,14 @@ def generate_combined_pdf(results: list, db: Session, with_header: bool = True, 
     content lines up identically over physical letterhead stationery as it
     does in the normal "with header" PDF.
     """
+    # A sample whose every billed test was deleted from the bill no longer
+    # belongs on any report. (A result that was simply never billed is not
+    # affected — it still prints in full, as before.)
+    results = [r for r in results if not tests_all_deleted(db, r)]
+    if not results:
+        raise HTTPException(status_code=404,
+                            detail="The test(s) for this sample were deleted from the bill — nothing to report.")
+
     buffer = io.BytesIO()
     first = results[0]
     patient = first.patient
@@ -1256,6 +1275,8 @@ def download_combined_pdf(ids: str, with_header: bool = True, db: Session = Depe
 
     try:
         pdf_bytes = generate_combined_pdf(normal_results, db, with_header=with_header)
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"PDF generation failed: {str(e)}")
 

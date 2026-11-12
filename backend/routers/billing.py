@@ -24,7 +24,7 @@ from auth.audit import write_audit
 from models.org import User, Franchise, Role
 from models.models import Patient
 from models.clinical import TestCatalog, Package, PackageTest
-from models.billing import Bill, BillItem, Payment
+from models.billing import Bill, BillItem, Payment, DeletedBillItem
 from models.b2b import OrgLedger
 from services.pricing import resolve_price, resolve_package_price
 
@@ -612,6 +612,157 @@ def add_payment(bill_id: int, payload: PaymentIn, request: Request,
     write_audit(db, action="payment", user=user, entity="bill", entity_id=bill.id,
                 after={"method": payload.method, "amount": payload.amount}, ip=_ip(request))
     return _bill_dict(db, bill)
+
+
+# ----------------------------------------------------------------- delete a test
+# An admin may take a test — or a whole test group — off a bill at any stage,
+# even after the report went out. The line is removed (so queues, reports and
+# labels stop seeing it), the money follows, and the removal is kept in
+# deleted_bill_items + the audit log.
+class RemoveItemIn(BaseModel):
+    reason: Optional[str] = None
+
+
+def _money(x) -> float:
+    return round(float(x or 0.0), 2)
+
+
+@router.post("/bills/{bill_id}/items/{item_id}/remove")
+def remove_bill_item(bill_id: int, item_id: int, payload: RemoveItemIn, request: Request,
+                     dry_run: bool = Query(False),
+                     db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Remove one test, or — when the line belongs to a test group — the whole
+    group (a group has one price, so its members can't be priced apart).
+
+    dry_run=true works everything out and returns it without saving: the
+    confirmation dialog shows exactly what will happen before anyone agrees.
+
+      * subtotal drops by the removed lines' prices
+      * a percent discount is re-applied to the new subtotal; a flat discount
+        stays, and the remaining amount must stay ABOVE it
+      * the last test can't be removed — that is Cancel Bill
+      * paid more than the new total -> a negative 'refund' payment for the
+        difference (cash back at the counter), as Cancel Bill does
+      * the organisation's ledger follows what the bill posted there: a lower
+        bill amount, and any refund of money it had recorded as paid
+      * unpaid referral-doctor commission on the removed tests is withdrawn;
+        commission already paid out is left as it is
+    """
+    if user.role not in ADMIN_ROLES:
+        raise HTTPException(403, "only an admin can delete a test from a bill")
+    bill = db.query(Bill).filter(Bill.id == bill_id).first()
+    if not bill:
+        raise HTTPException(404, "bill not found")
+    if bill.status == "cancelled":
+        raise HTTPException(400, "this bill is cancelled")
+    item = db.query(BillItem).filter(BillItem.id == item_id, BillItem.bill_id == bill.id).first()
+    if not item:
+        raise HTTPException(404, "test not found on this bill")
+
+    all_items = db.query(BillItem).filter(BillItem.bill_id == bill.id).all()
+    if item.package_id:
+        removing = [i for i in all_items if i.package_id == item.package_id]
+        label = item.package_name or "test group"
+    else:
+        removing = [item]
+        label = item.test_name
+    if len(removing) == len(all_items):
+        raise HTTPException(400, "this is the only test on the bill — use Cancel Bill instead")
+
+    old_sub, old_total = _money(bill.subtotal), _money(bill.total)
+    removed_amount = _money(sum((i.price or 0.0) for i in removing))
+    new_sub = _money(old_sub - removed_amount)
+
+    d_amount = _money(bill.discount_amount)
+    if bill.discount_type == "percent":
+        d_amount = _money(new_sub * ((bill.discount_value or 0.0) / 100.0))
+    if d_amount > 0 and new_sub <= d_amount:
+        raise HTTPException(
+            400, f"cannot delete {label} — the remaining amount ₹{new_sub:.2f} must be more than "
+                 f"the discount ₹{d_amount:.2f}. Reduce or remove the discount first.")
+    new_total = _money(new_sub - d_amount)
+
+    paid = _money(bill.paid)
+    refund = _money(max(0.0, paid - new_total))
+
+    # what this bill put on the organisation's statement
+    posted = []
+    if bill.organization_id:
+        posted = (db.query(OrgLedger)
+                    .filter(OrgLedger.organization_id == bill.organization_id,
+                            OrgLedger.ref == bill.bill_no).all())
+    billed_to_org = any(e.entry_type == "bill" for e in posted)
+    paid_via_ledger = any(e.entry_type == "payment" for e in posted)
+    ledger_change = 0.0                      # effect on the org's outstanding
+    if billed_to_org:
+        ledger_change -= _money(old_total - new_total)
+    if paid_via_ledger and refund > 0:
+        ledger_change += refund
+
+    summary = {
+        "removed": [{"id": i.id, "test_name": i.test_name, "package_name": i.package_name,
+                     "accession_number": i.accession_number, "status": i.status} for i in removing],
+        "label": label, "is_group": bool(item.package_id),
+        "removed_amount": removed_amount,
+        "old_subtotal": old_sub, "new_subtotal": new_sub,
+        "discount_amount": d_amount,
+        "old_total": old_total, "new_total": new_total,
+        "paid": paid, "refund": refund, "new_due": _money(max(0.0, new_total - (paid - refund))),
+        "organization_id": bill.organization_id,
+        "ledger_change": _money(ledger_change),
+        "reported": any((i.status or "") in ("validated", "reported") for i in removing),
+    }
+    if dry_run:
+        return summary
+
+    reason = (payload.reason or "").strip() or None
+    for i in removing:
+        db.add(DeletedBillItem(tenant_id=bill.tenant_id, bill_id=bill.id, bill_item_id=i.id,
+                               test_id=i.test_id, test_name=i.test_name,
+                               package_id=i.package_id, package_name=i.package_name,
+                               accession_number=i.accession_number, price=i.price or 0.0,
+                               status=i.status, reason=reason, deleted_by=user.id))
+        # unpaid commission on this test is withdrawn; paid-out commission stays on record
+        try:
+            from models.commission import DoctorCommission
+            (db.query(DoctorCommission)
+               .filter(DoctorCommission.bill_id == bill.id,
+                       DoctorCommission.accession_number == i.accession_number,
+                       DoctorCommission.test_name == i.test_name,
+                       DoctorCommission.is_paid.isnot(True))
+               .delete(synchronize_session=False))
+        except Exception:
+            pass
+        db.delete(i)
+
+    bill.subtotal = new_sub
+    bill.discount_amount = d_amount
+    bill.total = new_total
+    if refund > 0:
+        db.add(Payment(tenant_id=bill.tenant_id, bill_id=bill.id, method="refund",
+                       amount=-refund, status="success",
+                       note=f"refund — {label} removed from bill" + (f" ({reason})" if reason else ""),
+                       created_by=user.id))
+        db.flush()
+
+    if bill.organization_id and billed_to_org and abs(old_total - new_total) > 0.005:
+        bal = _org_outstanding(db, bill.organization_id) - _money(old_total - new_total)
+        db.add(OrgLedger(organization_id=bill.organization_id, entry_type="adjustment",
+                         amount=-_money(old_total - new_total), balance_after=bal, ref=bill.bill_no))
+        db.flush()
+    if bill.organization_id and paid_via_ledger and refund > 0:
+        bal = _org_outstanding(db, bill.organization_id) + refund
+        db.add(OrgLedger(organization_id=bill.organization_id, entry_type="adjustment",
+                         amount=refund, balance_after=bal, ref=bill.bill_no))
+
+    _recompute_bill(db, bill)
+    db.commit(); db.refresh(bill)
+    write_audit(db, action="remove_test", user=user, entity="bill", entity_id=bill.id,
+                before={"total": old_total, "subtotal": old_sub,
+                        "tests": [i["test_name"] for i in summary["removed"]]},
+                after={"total": new_total, "subtotal": new_sub, "refund": refund,
+                       "removed": label, "reason": reason}, ip=_ip(request))
+    return {**_bill_dict(db, bill), "removal": summary}
 
 
 # ----------------------------------------------------------------- bill PDF
