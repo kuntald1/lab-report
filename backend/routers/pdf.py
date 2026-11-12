@@ -1056,7 +1056,13 @@ def generate_combined_pdf(results: list, db: Session, with_header: bool = True, 
         # across pages instead fills the report from the top; repeatRows above
         # carries the column headings over, and CondPageBreak stops the panel
         # title being stranded alone at the bottom of a page.
-        if len(parameters) > LONG_PANEL_ROWS:
+        #
+        # The first panel is never glued either. It starts right under the
+        # patient box, so if it is too tall for what is left of page 1 (a short
+        # panel can still be tall when each row carries a multi-line range, as
+        # a lipid profile does) gluing would move all of it to page 2 and leave
+        # page 1 holding nothing but the header.
+        if len(parameters) > LONG_PANEL_ROWS or idx == 0:
             story.append(CondPageBreak(4 * cm))
             story.extend(section_flow)
         else:
