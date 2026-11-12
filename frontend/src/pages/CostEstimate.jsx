@@ -33,6 +33,9 @@ export default function CostEstimate() {
   const [priced, setPriced]   = useState({ tests:{}, groups:{} });
   const [search, setSearch]   = useState('');
   const [discount, setDiscount]   = useState('');
+  const [discType, setDiscType]   = useState('flat');     // 'flat' (₹) | 'percent'
+  const [qty, setQty]             = useState({});         // {'group:5': 2, 'test:12': 3} — missing = 1
+  const [pdfBusy, setPdfBusy]     = useState(false);
   const [patientName, setPatientName] = useState('');
   const [toNumber, setToNumber]   = useState('');
   const [sending, setSending]     = useState(false);
@@ -77,23 +80,59 @@ export default function CostEstimate() {
     return r ? r.price : it.price;
   };
 
-  const toggle = (kind, id) => setPicked(p => {
-    const list = p[kind];
-    return { ...p, [kind]: list.includes(id) ? list.filter(x=>x!==id) : [...list, id] };
-  });
+  const toggle = (kind, id) => {
+    // un-ticking forgets the quantity, so ticking it again starts from 1
+    const key = `${kind === 'groups' ? 'group' : 'test'}:${id}`;
+    if (picked[kind].includes(id)) setQty(q => { const n = { ...q }; delete n[key]; return n; });
+    setPicked(p => {
+      const list = p[kind];
+      return { ...p, [kind]: list.includes(id) ? list.filter(x=>x!==id) : [...list, id] };
+    });
+  };
+
+  const qtyOf  = (kind, id) => qty[`${kind}:${id}`] || 1;
+  const setQ   = (kind, id, n) => setQty(q => ({ ...q, [`${kind}:${id}`]: Math.max(1, Math.min(99, n)) }));
 
   const rows = useMemo(() => [
     ...picked.groups.map(id => ({ kind:'group', id,
-      name: groups.find(g=>g.id===id)?.name || `#${id}`, ...(priced.groups[id] || {}) })),
+      name: groups.find(g=>g.id===id)?.name || `#${id}`, ...(priced.groups[id] || {}), qty: qtyOf('group', id) })),
     ...picked.tests.map(id => ({ kind:'test', id,
-      name: tests.find(t=>t.id===id)?.name || `#${id}`, ...(priced.tests[id] || {}) })),
-  ], [picked, priced, tests, groups]);
+      name: tests.find(t=>t.id===id)?.name || `#${id}`, ...(priced.tests[id] || {}), qty: qtyOf('test', id) })),
+  ], [picked, priced, tests, groups, qty]);   // eslint-disable-line
 
-  const mrpTotal   = rows.reduce((s,r)=>s + (Number(r.mrp)||0), 0);
-  const priceTotal = rows.reduce((s,r)=>s + (Number(r.price)||0), 0);
-  // Mirrors the server: never negative, never more than the total.
-  const disc    = Math.max(0, Math.min(Number(discount)||0, priceTotal));
+  const mrpTotal   = rows.reduce((s,r)=>s + (Number(r.mrp)||0) * r.qty, 0);
+  const priceTotal = rows.reduce((s,r)=>s + (Number(r.price)||0) * r.qty, 0);
+  // Mirrors the server: never negative, never more than the total; % held to 0–100.
+  const discRaw = Number(discount)||0;
+  const disc    = discType === 'percent'
+    ? Math.min(priceTotal, Math.round(priceTotal * Math.max(0, Math.min(discRaw, 100))) / 100)
+    : Math.max(0, Math.min(discRaw, priceTotal));
   const payable = priceTotal - disc;
+
+  // what the server needs to price exactly what is on screen
+  const payload = () => ({
+    organization_id: orgId ? parseInt(orgId) : null,
+    test_ids: picked.tests, group_ids: picked.groups,
+    test_qty:  Object.fromEntries(picked.tests.map(id => [String(id), qtyOf('test', id)])),
+    group_qty: Object.fromEntries(picked.groups.map(id => [String(id), qtyOf('group', id)])),
+    discount_type: discType, discount_value: Number(discount)||0,
+    patient_name: patientName || null,
+  });
+
+  const downloadPdf = async () => {
+    if (!rows.length) return showToast('error', 'Pick at least one test or group');
+    setPdfBusy(true);
+    try {
+      const res = await authedFetch('/estimates/pdf', { method:'POST',
+        headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload()) });
+      if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.detail || 'PDF failed'); }
+      const blob = await res.blob(); const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url;
+      a.download = `Estimate_${(patientName||'quote').replace(/[^A-Za-z0-9_-]/g,'')}.pdf`; a.click();
+      setTimeout(()=>URL.revokeObjectURL(url), 30000);
+    } catch (e) { showToast('error', String(e.message || 'Could not make the PDF')); }
+    setPdfBusy(false);
+  };
 
   const org      = orgs.find(o=>String(o.id)===String(orgId));
   const orgPhone = org?.phone || '';
@@ -108,12 +147,7 @@ export default function CostEstimate() {
     try {
       const res = await authedFetch('/estimates/send', { method:'POST',
         headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({
-          organization_id: orgId ? parseInt(orgId) : null,
-          test_ids: picked.tests, group_ids: picked.groups,
-          discount: disc, patient_name: patientName || null,
-          to_number: (toNumber || '').trim() || null,
-        }) });
+        body: JSON.stringify({ ...payload(), to_number: (toNumber || '').trim() || null }) });
       if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.detail || 'send failed'); }
       showToast('success', `Estimate sent to ${to}`);
     } catch (e) { showToast('error', String(e.message || 'Could not send')); }
@@ -201,7 +235,7 @@ export default function CostEstimate() {
           ) : (
             <div style={{ borderTop:'1px solid #f1f4f9', marginBottom:'0.9rem' }}>
               {rows.map(r => (
-                <div key={r.kind+r.id} style={{ display:'flex', justifyContent:'space-between', alignItems:'baseline',
+                <div key={r.kind+r.id} style={{ display:'flex', justifyContent:'space-between', alignItems:'center',
                                                 gap:'0.6rem', padding:'0.5rem 0', borderBottom:'1px solid #f7f8fb' }}>
                   <div style={{ minWidth:0 }}>
                     <div style={{ fontSize:'0.83rem', color:'#0f1218', fontWeight:600 }}>{r.name}</div>
@@ -210,11 +244,15 @@ export default function CostEstimate() {
                                      padding:'0.1rem 0.45rem', borderRadius:'20px', fontWeight:700 }}>GROUP</span>
                     )}
                   </div>
-                  <div style={{ textAlign:'right', whiteSpace:'nowrap' }}>
-                    {Number(r.mrp) > Number(r.price) && (
-                      <span style={{ color:'#c4cad6', fontSize:'0.74rem', textDecoration:'line-through', marginRight:'0.4rem' }}>{inr(r.mrp)}</span>
-                    )}
-                    <span style={{ fontWeight:700, color:'#16a34a', fontSize:'0.86rem' }}>{inr(r.price)}</span>
+                  <div style={{ display:'flex', alignItems:'center', gap:'0.7rem', whiteSpace:'nowrap' }}>
+                    <QtyStepper value={r.qty} onChange={n=>setQ(r.kind, r.id, n)} />
+                    <div style={{ textAlign:'right', minWidth:'86px' }}>
+                      <div style={{ fontWeight:700, color:'#16a34a', fontSize:'0.86rem' }}>{inr((Number(r.price)||0) * r.qty)}</div>
+                      <div style={{ color:'#8892a4', fontSize:'0.7rem' }}>
+                        {Number(r.mrp) > Number(r.price) && <span style={{ textDecoration:'line-through', marginRight:'0.3rem', color:'#c4cad6' }}>{inr(r.mrp)}</span>}
+                        {r.qty > 1 ? `${inr(r.price)} × ${r.qty}` : ''}
+                      </div>
+                    </div>
                   </div>
                 </div>
               ))}
@@ -225,10 +263,22 @@ export default function CostEstimate() {
           <Row label="Price total" value={inr(priceTotal)} />
 
           <div style={{ margin:'0.8rem 0' }}>
-            <label style={lbl}>Discount <span style={{ textTransform:'none', fontWeight:400 }}>(₹ off the total)</span></label>
-            <input style={inp} type="number" min="0" value={discount} placeholder="0"
-                   onChange={e=>setDiscount(e.target.value)} />
-            {Number(discount) > priceTotal && priceTotal > 0 && (
+            <label style={lbl}>Discount</label>
+            <div style={{ display:'flex', gap:'0.5rem' }}>
+              <div style={{ display:'flex', border:'1.5px solid #e8ecf4', borderRadius:'9px', overflow:'hidden', flexShrink:0 }}>
+                {[['flat','₹'],['percent','%']].map(([k,l]) => (
+                  <button key={k} type="button" onClick={()=>setDiscType(k)}
+                    style={{ border:'none', padding:'0 0.95rem', fontWeight:800, cursor:'pointer', fontSize:'0.9rem',
+                             background: discType===k ? '#f97316' : '#fafbfc', color: discType===k ? '#fff' : '#8892a4' }}>{l}</button>
+                ))}
+              </div>
+              <input style={inp} type="number" min="0" max={discType==='percent' ? 100 : undefined} value={discount} placeholder="0"
+                     onChange={e=>setDiscount(e.target.value)} />
+            </div>
+            {discType === 'percent' && disc > 0 && (
+              <div style={{ fontSize:'0.72rem', color:'#475569', marginTop:'0.25rem' }}>{Math.min(discRaw,100)}% of {inr(priceTotal)} = {inr(disc)} off</div>
+            )}
+            {((discType === 'flat' && discRaw > priceTotal) || (discType === 'percent' && discRaw > 100)) && priceTotal > 0 && (
               <div style={{ fontSize:'0.72rem', color:'#c2410c', marginTop:'0.25rem' }}>
                 Capped at the total — payable cannot go below zero.
               </div>
@@ -240,6 +290,13 @@ export default function CostEstimate() {
             <span style={{ fontWeight:800, color:'#0f1218', fontSize:'0.92rem' }}>Payable</span>
             <span style={{ fontWeight:800, color:'#f97316', fontSize:'1.3rem' }}>{inr(payable)}</span>
           </div>
+
+          <button onClick={downloadPdf} disabled={pdfBusy || !rows.length}
+            style={{ width:'100%', marginBottom:'1rem', background:'#fff', color: rows.length ? '#0e7d6b' : '#c4cad6',
+                     border:`1.5px solid ${rows.length ? '#0e7d6b' : '#e8ecf4'}`, borderRadius:'10px', padding:'0.7rem 1rem',
+                     fontWeight:700, cursor: rows.length && !pdfBusy ? 'pointer' : 'default', fontFamily:'Manrope,sans-serif', fontSize:'0.88rem' }}>
+            {pdfBusy ? 'Preparing PDF…' : '⬇  Download PDF'}
+          </button>
 
           <div style={{ borderTop:'1px solid #f1f4f9', paddingTop:'1rem' }}>
             <label style={lbl}>Send on WhatsApp</label>
@@ -273,6 +330,18 @@ export default function CostEstimate() {
         </div>
       </div>
     </>
+  );
+}
+
+function QtyStepper({ value, onChange }) {
+  const b = { width:'26px', height:'26px', border:'none', background:'#f1f4f9', color:'#0f1218', fontWeight:800, cursor:'pointer', fontSize:'0.95rem', lineHeight:1 };
+  return (
+    <div title="Quantity" style={{ display:'inline-flex', alignItems:'center', border:'1px solid #e8ecf4', borderRadius:'8px', overflow:'hidden' }}>
+      <button type="button" style={b} onClick={()=>onChange(value-1)} disabled={value<=1}>−</button>
+      <input value={value} onChange={e=>{ const n = parseInt(e.target.value,10); if (!isNaN(n)) onChange(n); }}
+        style={{ width:'32px', height:'26px', border:'none', textAlign:'center', fontWeight:700, fontSize:'0.82rem', outline:'none', fontFamily:'Manrope,sans-serif' }} />
+      <button type="button" style={b} onClick={()=>onChange(value+1)}>+</button>
+    </div>
   );
 }
 
