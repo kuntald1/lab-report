@@ -40,9 +40,9 @@ export default function DeletedTestsReport() {
 
   const exportCsv = () => {
     const q = (x) => `"${String(x ?? '').replace(/"/g,'""')}"`;
-    const head = ['Deleted On','Deleted By','Reason','Bill No','Patient ID','Barcode','Patient','Test / Group','Tests in Group','Accession No','Stage','Franchise','Branch','Amount'];
+    const head = ['Type','Deleted On','Deleted By','Reason','Bill No','Patient ID','Barcode','Patient','Test / Group','Tests','Accession No','Stage','Franchise','Branch','Amount'];
     const lines = [head.join(',')];
-    data.rows.forEach(r => lines.push([q(fmt(r.deleted_at)), q(r.deleted_by), q(r.reason), r.bill_no, r.patient_id, r.barcode, q(r.patient_name),
+    data.rows.forEach(r => lines.push([r.kind === 'bill_cancelled' ? 'Bill cancelled' : 'Test deleted', q(fmt(r.deleted_at)), q(r.deleted_by), q(r.reason), r.bill_no, r.patient_id, r.barcode, q(r.patient_name),
       q(r.name), q((r.members||[]).join(' | ')), r.accession_number||'', r.status||'', q(r.franchise), q(r.branch), r.amount].join(',')));
     const blob = new Blob([lines.join('\n')], { type:'text/csv' });
     const url = URL.createObjectURL(blob); const a = document.createElement('a');
@@ -57,7 +57,7 @@ export default function DeletedTestsReport() {
       <div style={{ marginBottom:'1.3rem' }}>
         <div style={{ display:'inline-flex', background:'rgba(220,38,38,0.07)', border:'1px solid rgba(220,38,38,0.2)', color:'#dc2626', padding:'4px 12px', borderRadius:'100px', fontSize:'0.62rem', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:'0.5rem' }}>Reports</div>
         <h1 style={{ fontFamily:'Manrope,sans-serif', fontSize:'2rem', fontWeight:800, color:'#0f1218', letterSpacing:'-0.025em' }}>Deleted Tests</h1>
-        <div style={{ color:'#8892a4', fontSize:'0.82rem', marginTop:'0.2rem' }}>Tests and test groups removed from bills — who removed them, when and why.</div>
+        <div style={{ color:'#8892a4', fontSize:'0.82rem', marginTop:'0.2rem' }}>Tests and test groups removed from bills, and bills cancelled outright — who did it, when and why.</div>
       </div>
 
       {/* filters */}
@@ -90,7 +90,7 @@ export default function DeletedTestsReport() {
 
       {/* totals */}
       <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))', gap:'0.8rem', marginBottom:'1.2rem' }}>
-        {[['Deletions', data.totals.deletions||0, '#dc2626'], ['Bills affected', data.totals.bills||0, '#6366f1'], ['Amount removed', money(data.totals.amount), '#0f1218']].map(([k,v,c]) => (
+        {[['Tests deleted', data.totals.deletions||0, '#dc2626'], ['Bills cancelled', data.totals.cancelled_bills||0, '#64748b'], ['Bills affected', data.totals.bills||0, '#6366f1'], ['Amount removed', money(data.totals.amount), '#0f1218']].map(([k,v,c]) => (
           <div key={k} style={{ ...S.card, padding:'1rem 1.2rem' }}>
             <div style={{ fontSize:'1.4rem', fontWeight:800, color:c, fontFamily:'Manrope,sans-serif' }}>{v}</div>
             <div style={{ fontSize:'0.72rem', color:'#8892a4', fontWeight:600, marginTop:'0.2rem' }}>{k}</div>
@@ -123,8 +123,9 @@ export default function DeletedTestsReport() {
                   <div style={{ display:'flex', alignItems:'center', gap:'0.4rem', flexWrap:'wrap' }}>
                     <span style={{ textDecoration:'line-through', color:'#475569', fontWeight:600 }}>{r.name}</span>
                     {r.is_group && <span style={{ fontSize:'0.58rem', background:'rgba(249,115,22,0.12)', color:'#c2410c', padding:'0.1rem 0.45rem', borderRadius:'20px', fontWeight:700 }}>GROUP</span>}
+                    {r.kind === 'bill_cancelled' && <span style={{ fontSize:'0.58rem', background:'rgba(100,116,139,0.14)', color:'#475569', padding:'0.1rem 0.5rem', borderRadius:'20px', fontWeight:800 }}>BILL CANCELLED</span>}
                   </div>
-                  {r.is_group && <div style={{ color:'#94a3b8', fontSize:'0.72rem', marginTop:'0.15rem' }}>{r.members.join(', ')}</div>}
+                  {(r.is_group || r.kind === 'bill_cancelled') && <div style={{ color:'#94a3b8', fontSize:'0.72rem', marginTop:'0.15rem' }}>{r.members.join(', ')}</div>}
                   {r.accession_number && <div style={{ color:'#94a3b8', fontSize:'0.7rem', fontFamily:'monospace', marginTop:'0.1rem' }}>{r.accession_number}</div>}
                 </td>
                 <td style={td}>{r.status ? <span style={{ fontSize:'0.68rem', fontWeight:700, color: statusColor(r.status), background: statusColor(r.status)+'18', padding:'0.15rem 0.55rem', borderRadius:'20px', whiteSpace:'nowrap' }}>{r.status.replace('_',' ')}</span> : '—'}</td>

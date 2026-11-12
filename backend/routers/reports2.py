@@ -339,8 +339,86 @@ def deleted_tests(
         if d.package_id:
             by_group[gkey] = row
 
+    for row in rows:
+        row["kind"] = "test_deleted"
+
+    # Cancelled bills: every test on them is gone too, so they belong here —
+    # one row per bill, dated when it was cancelled, by whoever cancelled it.
+    cq = (db.query(Bill, Patient)
+            .outerjoin(Patient, Patient.id == Bill.patient_id)
+            .filter(Bill.status == "cancelled"))
+    if scope.tenant_id is not None:
+        cq = cq.filter(Bill.tenant_id == scope.tenant_id)
+    if scope.role == Role.FRANCHISE and scope.franchise_id is not None:
+        cq = cq.filter(Bill.organization_id == scope.franchise_id)
+    elif franchise_id:
+        cq = cq.filter(or_(Bill.organization_id == franchise_id,
+                           Patient.registered_franchise_id == franchise_id))
+    if branch_id:
+        cq = cq.filter(Bill.branch_id == branch_id)
+    if patient_id and str(patient_id).isdigit():
+        cq = cq.filter(Bill.patient_id == int(patient_id))
+    if patient_name and patient_name.strip():
+        cq = cq.filter(Patient.patient_name.ilike(f"%{patient_name.strip()}%"))
+    if date_from:
+        cq = cq.filter(Bill.cancelled_at >= date_from)
+    if date_to:
+        cq = cq.filter(Bill.cancelled_at <= date_to + " 23:59:59")
+    cancelled = cq.order_by(Bill.cancelled_at.desc()).limit(2000).all()
+    if cancelled:
+        items_of = {}
+        for it in db.query(BillItem).filter(BillItem.bill_id.in_([b.id for b, _ in cancelled])).all():
+            items_of.setdefault(it.bill_id, []).append(it)
+        extra_users = {b.cancelled_by for b, _ in cancelled if b.cancelled_by} - set(users)
+        if extra_users:
+            for u in db.query(User).filter(User.id.in_(extra_users)).all():
+                users[u.id] = getattr(u, "full_name", None) or getattr(u, "name", None) or u.email
+        orgs.update(_name_map(db, Franchise, {b.organization_id for b, _ in cancelled} - set(orgs)))
+        try:
+            from models.org import Branch  # type: ignore
+            branches.update(_name_map(db, Branch, {b.branch_id for b, _ in cancelled} - set(branches)))
+        except Exception:
+            pass
+        for b, p in cancelled:
+            its = items_of.get(b.id, [])
+            accs = sorted({i.accession_number for i in its if i.accession_number})
+            stages = sorted({i.status for i in its if i.status})
+            if barcode and barcode.strip():
+                needle = barcode.strip().lower()
+                if not ((p and needle in (p.barcode or "").lower()) or any(needle in a.lower() for a in accs)):
+                    continue
+            if status and status not in stages:
+                continue
+            # members: each test once; a group shows as "Group (member, member)"
+            members, seen_pkg = [], {}
+            for i in its:
+                if i.package_id:
+                    if i.package_id not in seen_pkg:
+                        seen_pkg[i.package_id] = len(members)
+                        members.append([i.package_name or "Group", []])
+                    members[seen_pkg[i.package_id]][1].append(i.test_name)
+                else:
+                    members.append([i.test_name, None])
+            rows.append({
+                "id": f"bill-{b.id}", "kind": "bill_cancelled",
+                "deleted_at": b.cancelled_at, "deleted_by": users.get(b.cancelled_by),
+                "reason": b.cancel_reason,
+                "bill_id": b.id, "bill_no": b.bill_no, "patient_id": b.patient_id,
+                "patient_name": p.patient_name if p else None,
+                "barcode": p.barcode if p else None,
+                "accession_number": ", ".join(accs) or None,
+                "name": "Whole bill cancelled", "is_group": False,
+                "members": [f"{n} ({', '.join(m)})" if m else n for n, m in members],
+                "amount": round(b.total or 0.0, 2),
+                "status": ", ".join(stages) or None,
+                "franchise": orgs.get(b.organization_id) or "Direct / Walk-in",
+                "branch": branches.get(b.branch_id) or (str(b.branch_id) if b.branch_id else "—"),
+            })
+
+    rows.sort(key=lambda r: r["deleted_at"].timestamp() if r["deleted_at"] else 0, reverse=True)
     return {"rows": rows,
-            "totals": {"deletions": len(rows),
+            "totals": {"deletions": sum(1 for r in rows if r["kind"] == "test_deleted"),
+                       "cancelled_bills": sum(1 for r in rows if r["kind"] == "bill_cancelled"),
                        "bills": len({r["bill_id"] for r in rows}),
                        "amount": round(sum(r["amount"] for r in rows), 2)}}
 
