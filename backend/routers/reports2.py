@@ -17,7 +17,7 @@ from database import get_db
 from auth.deps import get_current_user, get_scope, Scope
 from models.org import User, Franchise
 from models.models import Patient, LabResult
-from models.billing import Bill, BillItem, Payment
+from models.billing import Bill, BillItem, Payment, DeletedBillItem
 from models.clinical import TestCatalog
 from models.messaging import PaymentTransaction
 from models.reports import HistoryRequest
@@ -107,6 +107,19 @@ def sample_details(
         for it in db.query(BillItem).filter(BillItem.bill_id.in_(bill_ids)).all():
             items_by_bill.setdefault(it.bill_id, []).append(it)
 
+    # tests an admin deleted from these bills — shown struck through, not counted
+    deleted_by_bill, deleter_ids = {}, set()
+    if bill_ids:
+        for d in (db.query(DeletedBillItem).filter(DeletedBillItem.bill_id.in_(bill_ids))
+                    .order_by(DeletedBillItem.deleted_at.asc()).all()):
+            deleted_by_bill.setdefault(d.bill_id, []).append(d)
+            if d.deleted_by:
+                deleter_ids.add(d.deleted_by)
+    deleter_names = {}
+    if deleter_ids:
+        for u in db.query(User).filter(User.id.in_(deleter_ids)).all():
+            deleter_names[u.id] = getattr(u, "full_name", None) or getattr(u, "name", None) or u.email
+
     # doctor names for the tests (test_catalog.assigned_doctor_id -> user.name)
     test_ids = {it.test_id for items in items_by_bill.values() for it in items if it.test_id}
     tc_doc = {}
@@ -165,6 +178,7 @@ def sample_details(
     for p in patients:
         pbills = bills_by_patient.get(p.id, [])
         tests, billed, collected = [], 0.0, 0.0
+        deleted_tests = []
         payment_history = []
         payment_modes = set()
 
@@ -183,6 +197,14 @@ def sample_details(
                     "package_id": it.package_id, "package_name": it.package_name,
                     "accession_number": it.accession_number,
                     "result_id": rid,        # for the per-test Report PDF link
+                })
+            for d in deleted_by_bill.get(b.id, []):
+                deleted_tests.append({
+                    "test_name": d.test_name, "price": d.price, "bill_no": b.bill_no,
+                    "package_id": d.package_id, "package_name": d.package_name,
+                    "accession_number": d.accession_number, "status": d.status,
+                    "reason": d.reason, "deleted_at": d.deleted_at,
+                    "deleted_by": deleter_names.get(d.deleted_by),
                 })
             # successful payments — one row per payment actually received, real method shown
             for pay in pay_by_bill.get(b.id, []):
@@ -215,6 +237,7 @@ def sample_details(
             "referring_doctor": p.doctor_name,
             "registered_at": p.created_at,
             "tests": tests,
+            "deleted_tests": deleted_tests,
             "billed": round(billed, 2), "collected": round(collected, 2),
             "balance": round(billed - collected, 2),
             "payment_modes": sorted(payment_modes),

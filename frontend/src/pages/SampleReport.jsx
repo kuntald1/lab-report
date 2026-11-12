@@ -148,7 +148,7 @@ export default function SampleReport() {
                       <div style={{ padding:'1rem 1.5rem 1.4rem' }}>
                         {/* tabs */}
                         <div style={{ display:'flex', gap:'0.4rem', marginBottom:'0.9rem', borderBottom:'1.5px solid #eef1f6' }}>
-                          {[['tests',`Tests (${r.tests.length})`],['payments',`Payments (${r.payment_history.length})`],['history',`History (${r.clinical_history.length})`]].map(([key,label])=>{
+                          {[['tests',`Tests (${r.tests.length}${deletedCount(r.deleted_tests) ? ` · ${deletedCount(r.deleted_tests)} deleted` : ''})`],['payments',`Payments (${r.payment_history.length})`],['history',`History (${r.clinical_history.length})`]].map(([key,label])=>{
                             const active = (tab[r.patient_id]||'tests')===key;
                             return (
                               <button key={key} onClick={()=>setTab(t=>({ ...t, [r.patient_id]:key }))}
@@ -215,6 +215,7 @@ export default function SampleReport() {
                                 ))}
                               </>);
                             })()}
+                            {(r.deleted_tests||[]).length > 0 && <DeletedTests list={r.deleted_tests} />}
                           </div>
                         )}
 
@@ -264,6 +265,47 @@ export default function SampleReport() {
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+
+// a deleted group counts once, like it shows once
+const deletedCount = (list) => new Set((list||[]).map(d => d.package_id ? `${d.bill_no}:${d.package_id}` : `t:${d.bill_no}:${d.test_name}:${d.deleted_at}`)).size;
+
+// Tests an admin took off the bill: shown struck through and greyed — the same
+// way a cancelled bill is shown — with who, when and why. A group goes as one
+// entry with its member tests listed under it.
+function DeletedTests({ list }) {
+  const entries = []; const byPkg = {};
+  list.forEach(d => {
+    if (d.package_id) {
+      const k = d.bill_no + ':' + d.package_id;
+      if (!byPkg[k]) { byPkg[k] = { ...d, name: d.package_name || 'Group', price: 0, members: [] }; entries.push(byPkg[k]); }
+      byPkg[k].price += Number(d.price) || 0;
+      byPkg[k].members.push(d.test_name);
+    } else entries.push({ ...d, name: d.test_name });
+  });
+  return (
+    <div style={{ marginTop:'0.9rem' }}>
+      <div style={{ fontSize:'0.66rem', color:'#8892a4', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.05em', margin:'0 0 0.35rem 0.2rem' }}>Deleted from bill</div>
+      {entries.map((e,i) => (
+        <div key={i} style={{ padding:'0.5rem 0.7rem', borderBottom:'1px solid #f1f3f7', background:'rgba(100,116,139,0.05)', opacity:0.85 }}>
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:'1rem', fontSize:'0.82rem' }}>
+            <span style={{ flex:1, display:'flex', alignItems:'center', gap:'0.5rem', color:'#64748b' }}>
+              <span style={{ textDecoration:'line-through', fontWeight:600 }}>{e.name}</span>
+              {e.package_id && <span style={{ fontSize:'0.58rem', background:'rgba(100,116,139,0.12)', color:'#64748b', padding:'0.1rem 0.45rem', borderRadius:'20px', fontWeight:700 }}>GROUP</span>}
+              <span style={{ fontSize:'0.6rem', background:'rgba(100,116,139,0.14)', color:'#475569', padding:'0.12rem 0.5rem', borderRadius:'20px', fontWeight:800, letterSpacing:'0.03em' }}>DELETED</span>
+            </span>
+            <span style={{ color:'#94a3b8', fontWeight:700, width:'90px', textAlign:'right', textDecoration:'line-through' }}>{money(e.price)}</span>
+            <span style={{ width:'92px' }} />
+          </div>
+          {e.members && <div style={{ color:'#94a3b8', fontSize:'0.72rem', marginTop:'0.15rem', textDecoration:'line-through' }}>{e.members.join(', ')}</div>}
+          <div style={{ color:'#94a3b8', fontSize:'0.7rem', marginTop:'0.2rem' }}>
+            {e.bill_no} · {fmt(e.deleted_at)}{e.deleted_by ? ` · by ${e.deleted_by}` : ''}{e.reason ? ` · “${e.reason}”` : ''}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
