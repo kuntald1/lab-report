@@ -205,6 +205,8 @@ def get_all_results(db: Session = Depends(get_db), scope: Scope = Depends(get_sc
             "franchise":    org_names.get(org_id),
             "over_limit":   bool(r.patient_id in locked_pids) if user.role == Role.FRANCHISE else False,
             "locked":       bool(r.patient_id in locked_pids),
+            # set when someone changed values / flags / note after the analyser sent them
+            "edited":       (r.parsed_data or {}).get("edited") if not fr_locked else None,
         }
         output.append(row)
     # Append manual-only patients as synthetic result rows
@@ -374,11 +376,45 @@ def update_result(result_id: int, payload: ResultEdit, request: Request,
             d.pop("calculated", None)
         new_params.append(d)
 
+    before_note = result.note
+    new_note = (payload.note.strip() or None) if payload.note is not None else before_note
+
+    # Remember that a person changed this result (shown as an "Edited" flag in
+    # the Results list). Only a real change counts — pressing Save without
+    # touching anything leaves the result as the analyser sent it.
+    # Flags are compared with what the screen SHOWED (stored flag with the lab's
+    # ranges applied), so saving an untouched form never counts as an edit.
+    try:
+        shown = apply_catalog_ranges(db, before_params or [], test_ids_for_result(db, result),
+                                     result.patient, result.device_id)
+    except Exception:
+        shown = before_params or []
+    key_of = lambda x: str(x.get("param") or x.get("name") or "").strip().upper()
+    val_of = lambda x: str(x.get("value") if x.get("value") is not None else "").strip()
+    shown_flag = {key_of(x): (x.get("flag") or "N") for x in shown}
+    old_vals = {key_of(x): val_of(x) for x in shown}
+    new_vals = {key_of(x): val_of(x) for x in new_params}
+
+    def _num_eq(a, b):
+        try:
+            return float(a) == float(b)
+        except (TypeError, ValueError):
+            return a == b
+    values_changed = set(old_vals) != set(new_vals) or any(not _num_eq(old_vals[k], new_vals[k]) for k in new_vals if k in old_vals)
+    flags_changed = any((x.get("flag") or "N") != shown_flag.get(key_of(x), "N") for x in new_params)
+    if values_changed or flags_changed or (new_note or None) != (before_note or None):
+        from datetime import datetime, timezone
+        prev = parsed.get("edited") or {}
+        parsed["edited"] = {
+            "at": datetime.now(timezone.utc).isoformat(),
+            "by": getattr(user, "full_name", None) or getattr(user, "email", None),
+            "count": int(prev.get("count") or 0) + 1,
+        }
+
     parsed["parameters"] = new_params
     result.parsed_data = parsed
-    before_note = result.note
     if payload.note is not None:
-        result.note = payload.note.strip() or None
+        result.note = new_note
     db.commit()
     db.refresh(result)
 

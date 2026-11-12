@@ -265,7 +265,7 @@ export default function Results() {
       if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(apiErrorText(e.detail) || 'Save failed'); }
       const updated = await res.json();
       setSel(prev => ({ ...prev, parsed_data: updated.parsed_data, note: updated.note }));
-      setResults(prev => prev.map(r => r.id === sel.id ? { ...r, parsed_data: updated.parsed_data, note: updated.note } : r));
+      setResults(prev => prev.map(r => r.id === sel.id ? { ...r, parsed_data: updated.parsed_data, note: updated.note, edited: updated.parsed_data?.edited || r.edited } : r));
       setEditing(false);
     } catch (err) { alert(String(err.message || 'Save failed')); }
     setSaving(false);
@@ -354,7 +354,15 @@ export default function Results() {
                 <span style={{ fontSize:'0.68rem', background:resultStatusColor(r.status)+'1a', color:resultStatusColor(r.status), padding:'0.2rem 0.65rem', borderRadius:'20px', fontWeight:700, border:`1px solid ${resultStatusColor(r.status)}33`, textTransform: r.status==='outsource'?'uppercase':'none' }}>{r.status==='outsource'?'📤 Outsourced':r.status}</span>
                 {r.over_limit && <span title="This franchise is over its credit limit" style={{ marginLeft:'0.35rem', fontSize:'0.62rem', background:'rgba(220,38,38,0.12)', color:'#dc2626', padding:'0.2rem 0.5rem', borderRadius:'20px', fontWeight:800 }}>🔴 OVER LIMIT</span>}
                 {r.locked && <span style={{ marginLeft:'0.35rem', fontSize:'0.62rem', background:'rgba(220,38,38,0.12)', color:'#dc2626', padding:'0.2rem 0.5rem', borderRadius:'20px', fontWeight:800 }}>🔒</span>}
-                <div style={{ fontSize:'0.68rem', color:'#8892a4', marginTop:'0.3rem' }}>{new Date(r.created_at).toLocaleString('en-IN')}</div>
+                <div style={{ fontSize:'0.68rem', color:'#8892a4', marginTop:'0.3rem', display:'flex', alignItems:'center', justifyContent:'flex-end', gap:'0.4rem' }}>
+                  {r.edited && (
+                    <span title={`Edited${r.edited.by ? ` by ${r.edited.by}` : ''}${r.edited.at ? ` on ${new Date(r.edited.at).toLocaleString('en-IN')}` : ''}${r.edited.count > 1 ? ` · ${r.edited.count} times` : ''}`}
+                      style={{ fontSize:'0.62rem', background:'rgba(124,58,237,0.1)', color:'#7c3aed', border:'1px solid rgba(124,58,237,0.25)', padding:'0.12rem 0.5rem', borderRadius:'20px', fontWeight:800 }}>
+                      ✎ EDITED{r.edited.count > 1 ? ` ×${r.edited.count}` : ''}
+                    </span>
+                  )}
+                  {new Date(r.created_at).toLocaleString('en-IN')}
+                </div>
               </div>
             </div>
           ))}
@@ -366,6 +374,11 @@ export default function Results() {
               <div>
                 <div style={{ fontFamily:'Manrope,sans-serif', fontWeight:800, fontSize:'1rem', color:'#0f1218' }}>Lab Report</div>
                 <div style={{ fontSize:'0.72rem', color:'#8892a4', marginTop:'0.15rem' }}>Result #{sel.id}</div>
+                {(sel.parsed_data?.edited || sel.edited) && (() => { const e = sel.parsed_data?.edited || sel.edited; return (
+                  <div style={{ fontSize:'0.7rem', color:'#7c3aed', marginTop:'0.2rem', fontWeight:600 }}>
+                    ✎ Edited{e.by ? ` by ${e.by}` : ''}{e.at ? ` · ${new Date(e.at).toLocaleString('en-IN')}` : ''}{e.count > 1 ? ` · ${e.count} times` : ''}
+                  </div>
+                ); })()}
               </div>
               <div style={{ display:'flex', gap:'0.5rem', flexWrap:'wrap', justifyContent:'flex-end' }}>
                 {!sel.locked && siblingResults.length > 1 && (
