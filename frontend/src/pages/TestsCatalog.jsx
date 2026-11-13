@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useState } from 'react';
+import SearchSelect from '../components/SearchSelect';
 import { authedFetch } from '../services/auth';
 
 const inp = { background:'#fafbfc', border:'1.5px solid #e8ecf4', borderRadius:'9px', padding:'0.65rem 0.9rem', color:'#0f1218', fontFamily:'Manrope,sans-serif', fontSize:'0.85rem', outline:'none', width:'100%' };
@@ -1024,16 +1025,31 @@ function ParameterList({ showToast }) {
   const [search, setSearch] = useState('');
   const [form, setForm]     = useState(null);
   const [saving, setSaving] = useState(false);
+  // which tests report which parameter (from each test's "Parameters printed on the report")
+  const [usage, setUsage]   = useState({ tests: [], used_in: {} });
+  const [testId, setTestId] = useState('');
 
-  const load = () => authedFetch('/catalog/parameters')
-    .then(r => r.ok ? r.json() : [])
-    .then(d => { setRows(Array.isArray(d) ? d : []); setLoad(false); })
-    .catch(() => setLoad(false));
+  const load = () => {
+    authedFetch('/catalog/parameters')
+      .then(r => r.ok ? r.json() : [])
+      .then(d => { setRows(Array.isArray(d) ? d : []); setLoad(false); })
+      .catch(() => setLoad(false));
+    authedFetch('/catalog/parameters/usage')
+      .then(r => r.ok ? r.json() : { tests: [], used_in: {} })
+      .then(d => setUsage({ tests: d.tests || [], used_in: d.used_in || {} }))
+      .catch(() => {});
+  };
   useEffect(() => { load(); }, []);
 
+  const pickedTest = testId ? usage.tests.find(t => String(t.id) === String(testId)) : null;
+  const inTest     = pickedTest ? new Set(pickedTest.declared.map(d => d.parameter_id).filter(Boolean)) : null;
+  const notInList  = pickedTest ? pickedTest.declared.filter(d => !d.parameter_id).map(d => d.name) : [];
+  const usedIn     = (id) => usage.used_in[id] || usage.used_in[String(id)] || [];
+
   const q = search.trim().toLowerCase();
-  const shown = rows.filter(r => !q ||
-    [r.name, r.section, r.aliases].some(v => (v || '').toLowerCase().includes(q)));
+  const shown = rows
+    .filter(r => !inTest || inTest.has(r.id))
+    .filter(r => !q || [r.name, r.section, r.aliases].some(v => (v || '').toLowerCase().includes(q)));
 
   const save = async () => {
     if (!form.name.trim()) { showToast('error', 'Parameter is required'); return; }
@@ -1057,7 +1073,11 @@ function ParameterList({ showToast }) {
   return (
     <>
       <div style={{ ...S.card, marginBottom:'1.2rem', padding:'1rem 1.5rem', display:'flex', gap:'0.8rem', alignItems:'center', flexWrap:'wrap' }}>
-        <input style={{ ...inp, maxWidth:'320px' }} placeholder="Search parameter, section or alias…"
+        <div style={{ width:'300px', maxWidth:'100%' }}>
+          <SearchSelect style={inp} value={testId} onChange={v=>setTestId(v)} emptyLabel="All tests" placeholder="Show parameters of a test…"
+            options={usage.tests.map(t => ({ value: t.id, label: t.code && t.code !== t.name ? `${t.name} (${t.code})` : t.name }))} />
+        </div>
+        <input style={{ ...inp, maxWidth:'280px' }} placeholder="Search parameter, section or alias…"
                value={search} onChange={e=>setSearch(e.target.value)} />
         <div style={{ flex:1 }} />
         <ExcelBar kind="parameters" noun="Parameters" showToast={showToast} onDone={load} />
@@ -1071,11 +1091,24 @@ function ParameterList({ showToast }) {
         decide the heading and position on the report. A name or alias can belong to one parameter only.
       </div>
 
+      {pickedTest && (
+        <div style={{ ...S.card, marginBottom:'1rem', padding:'0.85rem 1.2rem', background:'#f0fdfa', border:'1px solid #99f6e4', fontSize:'0.82rem', color:'#115e59', lineHeight:1.6 }}>
+          <b>{pickedTest.name}</b> reports <b>{inTest.size}</b> parameter{inTest.size === 1 ? '' : 's'}, shown below in report order (section, then order).
+          {notInList.length > 0 && (
+            <div style={{ color:'#92400e', marginTop:'0.3rem' }}>
+              Also on the test but not in this list: <b>{notInList.join(', ')}</b> — these print only when an analyser sends exactly that name
+              (text lines like "Note" are normal here).
+            </div>
+          )}
+        </div>
+      )}
+
       {loading ? (
         <div style={{ ...S.card, textAlign:'center', color:'#8892a4', padding:'2.5rem' }}>Loading…</div>
       ) : shown.length === 0 ? (
         <div style={{ ...S.card, textAlign:'center', color:'#8892a4', padding:'2.5rem' }}>
-          {rows.length === 0 ? 'No parameters yet — everything works by the names analysers send.' : 'Nothing matches that search.'}
+          {rows.length === 0 ? 'No parameters yet — everything works by the names analysers send.'
+            : pickedTest ? `None of ${pickedTest.name}'s names are in the Parameter list.` : 'Nothing matches that search.'}
         </div>
       ) : (
         <div style={{ ...S.card, padding:'0.4rem 1.2rem' }}>
@@ -1087,6 +1120,12 @@ function ParameterList({ showToast }) {
               <span style={{ fontWeight:700, minWidth:'170px' }}>{r.name}</span>
               <span style={{ ...PILL_TEST, visibility: r.section ? 'visible' : 'hidden' }}>{r.section || '-'}</span>
               <span style={{ flex:1, color:'#8892a4', fontSize:'0.8rem' }}>{r.aliases || ''}</span>
+              {(() => { const u = usedIn(r.id); return (
+                <span title={u.length ? `Used in: ${u.join(', ')}` : 'No test lists this parameter'}
+                      style={{ width:'260px', flexShrink:0, fontSize:'0.74rem', color: u.length ? '#475569' : '#c4cad6', textAlign:'right', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
+                  {u.length ? <>Used in: <b>{u.slice(0, 2).join(', ')}</b>{u.length > 2 ? ` +${u.length - 2} more` : ''}</> : 'Not used by any test'}
+                </span>
+              ); })()}
               {r.is_active === false && <span style={{ ...PILL, background:'#f3f4f6', color:'#6b7280', border:'1px solid #e5e7eb' }}>Inactive</span>}
             </div>
           ))}

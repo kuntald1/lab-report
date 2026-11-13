@@ -226,6 +226,46 @@ def list_parameters(db: Session = Depends(get_db)):
               .order_by(Parameter.section, Parameter.sort_order, Parameter.name).all())
 
 
+@router.get("/parameters/usage")
+def parameter_usage(db: Session = Depends(get_db), scope: Scope = Depends(get_scope)):
+    """Which tests report which parameters — read from each test's
+    "Parameters printed on the report" field, matched to the Parameter list by
+    name or alias the same way the report does it.
+
+      tests:   every active test that fills that field in, with its names in
+               the order typed and the parameter each one resolved to (null =
+               a name the Parameter list doesn't know, e.g. "Note")
+      used_in: parameter id -> names of the tests that report it
+    """
+    from services.ranges import _match_key
+    from services.parameters import names_of
+    by_key = {}
+    for prm in db.query(Parameter).filter(Parameter.is_active.isnot(False)).all():
+        for n in names_of(prm):
+            k = _match_key(n)
+            if k:
+                by_key.setdefault(k, prm.id)
+    tq = db.query(TestCatalog).filter(TestCatalog.is_active.isnot(False),
+                                      TestCatalog.parameters.isnot(None))
+    tq = apply_scope(tq, TestCatalog, scope)
+    tests, used_in = [], {}
+    for t in tq.order_by(TestCatalog.name).all():
+        declared, seen = [], set()
+        for piece in (t.parameters or "").replace(";", ",").split(","):
+            name = piece.strip()
+            k = _match_key(name)
+            if not k or k in seen:
+                continue
+            seen.add(k)
+            pid = by_key.get(k)
+            declared.append({"name": name, "parameter_id": pid})
+            if pid is not None and t.name not in used_in.setdefault(pid, []):
+                used_in[pid].append(t.name)
+        if declared:
+            tests.append({"id": t.id, "name": t.name, "code": getattr(t, "code", None), "declared": declared})
+    return {"tests": tests, "used_in": used_in}
+
+
 @router.post("/parameters", dependencies=[Depends(WRITE)])
 def create_parameter(p: ParameterIn, db: Session = Depends(get_db)):
     d = _clean_param(p); _check_param(db, d)
