@@ -5,6 +5,7 @@ triglycerides, HDL and LDL, and the report also carries VLDL and three ratios
 that nobody measures — they are arithmetic on the four.
 
     VLDL Cholesterol = Triglycerides / 5            (mg/dL, whole number)
+    BUN              = Urea / 2.14                  (mg/dL, 2 decimals)
     CHOL/HDL RATIO   = Total Cholesterol / HDL      (2 decimals)
     LDL/HDL RATIO    = LDL / HDL                    (2 decimals)
     HDL/LDL RATIO    = HDL / LDL                    (2 decimals)
@@ -31,6 +32,7 @@ TOTAL_CHOL = {"CHOL", "CHOLESTEROL", "CHOLESTEROLTOTAL", "TOTALCHOLESTEROL", "TC
 TRIG       = {"TRIG", "TG", "TRIGLYCERIDES", "TRIGLYCERIDE"}
 HDL        = {"HDL", "HDLC", "HDLCD", "HDLCHOLESTEROL", "CHOLESTEROLHDL", "CHOLESTEROLHDLDIRECT"}
 LDL        = {"LDL", "LDLC", "LDLCD", "LDLCHOLESTEROL", "CHOLESTEROLLDL"}
+UREA       = {"UREA", "BLOODUREA", "SERUMUREA", "UREASERUM"}
 
 # name = the Parameter-list name, so the lab's reference ranges attach to the row.
 # Each formula takes the dict of inputs it asked for.
@@ -51,6 +53,12 @@ FORMULAS = [
      "needs": {"hdl": HDL, "ldl": LDL},
      "fn": lambda v: v["hdl"] / v["ldl"],
      "names": {"HDLLDLRATIO"}},
+    # Blood urea nitrogen is the nitrogen share of urea (60 g urea holds 28 g N,
+    # i.e. 1 / 2.14). 36 mg/dL urea -> 16.82, the figure CrelioHealth prints.
+    {"name": "BUN", "unit": "mg/dL", "dp": 2,
+     "needs": {"urea": UREA},
+     "fn": lambda v: v["urea"] / Decimal("2.14"),
+     "names": {"BUN", "BLOODUREANITROGEN", "UREANITROGEN"}},
 ]
 
 
