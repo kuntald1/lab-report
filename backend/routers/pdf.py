@@ -953,14 +953,14 @@ def generate_combined_pdf(results: list, db: Session, with_header: bool = True, 
         section_title = r.test_name or f"Result #{r.id}"
         try:
             _kept = filter_parameters_for_tests(db, parameters, _test_ids)
-            if len(_kept) < len(parameters):
-                # The analyser named this "Electrolyte (3 params)". Once the
-                # extra parameters are off the report that title is wrong, so
-                # the billed test's own name takes over.
-                _billed = [n for (n,) in db.query(TestCatalog.name)
-                                           .filter(TestCatalog.id.in_(_test_ids)).all() if n]
-                if _billed:
-                    section_title = " + ".join(_billed)
+            # The analyser names its batch ("BIOCHEMISTRY (1 PARAMS)",
+            # "Electrolyte (3 params)") — a department label with a count that is
+            # wrong as soon as parameters are filtered or calculated ones added.
+            # The report is headed by what was billed, as CrelioHealth does.
+            _billed = [n for (n,) in db.query(TestCatalog.name)
+                                       .filter(TestCatalog.id.in_(_test_ids)).order_by(TestCatalog.id).all() if n]
+            if _billed:
+                section_title = " + ".join(_billed)
             parameters = _kept
         except Exception:
             pass
