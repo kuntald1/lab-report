@@ -239,12 +239,27 @@ def parameter_usage(db: Session = Depends(get_db), scope: Scope = Depends(get_sc
     """
     from services.ranges import _match_key
     from services.parameters import names_of
-    by_key = {}
-    for prm in db.query(Parameter).filter(Parameter.is_active.isnot(False)).all():
-        for n in names_of(prm):
+    # Names are matched exactly first, then loosely (letters and digits only,
+    # as the report does). Loose matching makes "P. C. V" and "PCV" — or
+    # "Basophils" and "Basophils %" — the same key; when that happens the row
+    # whose own name matches, that has a section and an order, wins, because
+    # that is the row the report uses for the heading and position.
+    exact, by_key = {}, {}
+    def _exact(x):
+        return " ".join(str(x or "").split()).lower()
+    params = db.query(Parameter).filter(Parameter.is_active.isnot(False)).all()
+    for prm in params:
+        exact.setdefault(_exact(prm.name), prm.id)
+    for prm in params:
+        for n in names_of(prm)[1:]:
+            exact.setdefault(_exact(n), prm.id)
+        for i, n in enumerate(names_of(prm)):
             k = _match_key(n)
             if k:
-                by_key.setdefault(k, prm.id)
+                rank = (0 if i == 0 else 1, 0 if prm.section else 1,
+                        prm.sort_order if prm.sort_order is not None else 10**6, prm.id)
+                if k not in by_key or rank < by_key[k][0]:
+                    by_key[k] = (rank, prm.id)
     tq = db.query(TestCatalog).filter(TestCatalog.is_active.isnot(False),
                                       TestCatalog.parameters.isnot(None))
     tq = apply_scope(tq, TestCatalog, scope)
@@ -257,7 +272,7 @@ def parameter_usage(db: Session = Depends(get_db), scope: Scope = Depends(get_sc
             if not k or k in seen:
                 continue
             seen.add(k)
-            pid = by_key.get(k)
+            pid = exact.get(_exact(name)) or (by_key.get(k) or (None, None))[1]
             declared.append({"name": name, "parameter_id": pid})
             if pid is not None and t.name not in used_in.setdefault(pid, []):
                 used_in[pid].append(t.name)
