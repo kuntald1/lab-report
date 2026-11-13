@@ -518,6 +518,17 @@ function ReferenceRanges({ tests, showToast }) {
   const [devices, setDevices] = useState([]);
   const [testQ, setTestQ]   = useState('');   // the picker's own search
   const [ask, setAsk]       = useState(null); // common → this-test-only: copy or move?
+  // "Show ranges of a test": that test's own ranges plus the shared ones for the
+  // parameters it reports — i.e. exactly what a report of that test will use.
+  const [testId, setTestId] = useState('');
+  const [usage, setUsage]   = useState({ tests: [] });
+  const [plist, setPlist]   = useState([]);
+  useEffect(() => {
+    authedFetch('/catalog/parameters/usage').then(r => r.ok ? r.json() : { tests: [] })
+      .then(d => setUsage({ tests: d.tests || [] })).catch(() => {});
+    authedFetch('/catalog/parameters').then(r => r.ok ? r.json() : [])
+      .then(d => setPlist(Array.isArray(d) ? d : [])).catch(() => {});
+  }, []);
 
   // While searching, every group that still has rows is open — otherwise the
   // matches sit inside closed cards and the search looks broken.
@@ -612,8 +623,31 @@ function ReferenceRanges({ tests, showToast }) {
   };
 
   const q = search.trim().toLowerCase();
-  const shown = rows.filter(r => !q || (r.param||'').toLowerCase().includes(q)
+  const pkey = (v) => String(v || '').replace(/[^a-z0-9]/gi, '').toUpperCase();
+
+  // Names each parameter of the picked test goes by (its own name, the Parameter
+  // list's name and aliases), so a shared range written under any of them counts.
+  const pickedUsage = testId ? usage.tests.find(t => String(t.id) === String(testId)) : null;
+  const declaredGroups = (pickedUsage?.declared || []).map(d => {
+    const keys = new Set([pkey(d.name)]);
+    const prm = d.parameter_id ? plist.find(x => x.id === d.parameter_id) : null;
+    if (prm) {
+      keys.add(pkey(prm.name));
+      String(prm.aliases || '').split(/[,;]/).forEach(a => { if (pkey(a)) keys.add(pkey(a)); });
+    }
+    return { name: d.name, keys };
+  });
+  const declaredKeys = new Set(declaredGroups.flatMap(g => [...g.keys]));
+  const inPickedTest = (r) => !testId
+    || String(r.test_id) === String(testId)
+    || (!r.test_id && declaredKeys.has(pkey(r.param)));
+
+  const shown = rows.filter(inPickedTest)
+                    .filter(r => !q || (r.param||'').toLowerCase().includes(q)
                                    || (testName(r.test_id)||'').toLowerCase().includes(q));
+  // Parameters of the picked test that no active range covers at all.
+  const noRange = testId ? declaredGroups.filter(g =>
+    !rows.some(r => r.is_active !== false && inPickedTest(r) && g.keys.has(pkey(r.param)))).map(g => g.name) : [];
   // Grouped the way the lab reads it: the shared ranges first, then one block
   // per test. Grouping by parameter instead scattered a single test's settings
   // across the page, which is what staff reported as confusing.
@@ -648,7 +682,11 @@ function ReferenceRanges({ tests, showToast }) {
     <>
       <div style={{ ...S.card, marginBottom:'1.2rem', padding:'1rem 1.5rem', display:'flex',
                     gap:'0.8rem', alignItems:'center', flexWrap:'wrap' }}>
-        <input style={{ ...inp, maxWidth:'320px' }} placeholder="Search parameter or test…"
+        <div style={{ width:'300px', maxWidth:'100%' }}>
+          <SearchSelect style={inp} value={testId} onChange={v=>setTestId(v)} emptyLabel="All tests" placeholder="Show ranges of a test…"
+            options={tests.filter(t => t.is_active !== false).map(t => ({ value: t.id, label: t.name }))} />
+        </div>
+        <input style={{ ...inp, maxWidth:'280px' }} placeholder="Search parameter or test…"
                value={search} onChange={e=>setSearch(e.target.value)} />
         <div style={{ flex:1 }} />
         <ExcelBar kind="reference-ranges" noun="Reference Ranges" showToast={showToast} onDone={load} />
@@ -667,6 +705,18 @@ function ReferenceRanges({ tests, showToast }) {
         then sex, then test. A parameter with no range here keeps whatever the analyser sent. A methodology
         can be pinned to one analyser; a row naming yours beats one that names none.
       </div>
+
+      {testId && (
+        <div style={{ ...S.card, marginBottom:'1rem', padding:'0.85rem 1.2rem', background:'#f0fdfa', border:'1px solid #99f6e4', fontSize:'0.82rem', color:'#115e59', lineHeight:1.6 }}>
+          Showing what a report of <b>{testName(Number(testId)) || 'this test'}</b> uses: the ranges set for this test, plus the shared ranges of the parameters it reports.
+          {noRange.length > 0 && (
+            <div style={{ color:'#92400e', marginTop:'0.3rem' }}>
+              No active range for: <b>{noRange.join(', ')}</b> — these print whatever the analyser sent.
+            </div>
+          )}
+          {!pickedUsage && <div style={{ color:'#92400e', marginTop:'0.3rem' }}>This test has no "Parameters printed on the report" list, so only its own ranges are shown.</div>}
+        </div>
+      )}
 
       {loading ? (
         <div style={{ ...S.card, textAlign:'center', color:'#8892a4', padding:'2.5rem' }}>Loading…</div>
