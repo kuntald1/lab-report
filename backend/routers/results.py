@@ -6,7 +6,7 @@ from auth.deps import get_scope, apply_scope, Scope, get_current_user
 from auth.audit import write_audit
 from models.org import User, Role, Franchise
 from services.credit import is_franchise_locked
-from services.ranges import apply_catalog_ranges, test_ids_for_result
+from services.ranges import apply_catalog_ranges, test_ids_for_result, missing_declared
 from services.calculated import add_calculated
 from services.result_filters import filter_results, filter_patients
 from parsers.astm_parser import auto_parse
@@ -303,6 +303,9 @@ class ParameterEdit(BaseModel):
     # Set when the row was worked out from other rows (VLDL, lipid ratios) rather
     # than measured, so the Calculate button knows which rows it may refresh.
     calculated: Optional[bool] = None
+    # A blank row the edit screen offered for a declared parameter the analyser
+    # never sends. Dropped on save while it has no value, so it never prints.
+    added: Optional[bool] = None
 
 
 class ResultEdit(BaseModel):
@@ -312,6 +315,29 @@ class ResultEdit(BaseModel):
 
 class CalculateRequest(BaseModel):
     parameters: List[ParameterEdit]
+
+
+@router.post("/{result_id}/missing-parameters")
+def missing_parameters(result_id: int, payload: CalculateRequest,
+                       db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Blank rows for parameters the billed tests declare but the form (as it
+    stands now, unsaved) doesn't have — the manual-entry ones like Myeloid, plus
+    any row the person just removed. Backs the edit screen's blank rows and its
+    "Add parameter" list. Stores nothing."""
+    if user.role not in (Role.SUPER_ADMIN, Role.LAB_ADMIN, Role.PATHOLOGIST, Role.TECHNICIAN):
+        raise HTTPException(status_code=403, detail="not allowed to edit results")
+    result = db.query(LabResult).filter(LabResult.id == result_id).first()
+    if not result:
+        raise HTTPException(status_code=404, detail="Result not found")
+    tids = test_ids_for_result(db, result)
+    have = [p.model_dump(exclude_none=True) for p in payload.parameters]
+    rows = [{"param": n, "name": n, "value": "", "unit": "", "ref_min": "", "ref_max": "",
+             "flag": "N", "added": True} for n in missing_declared(db, have, tids)]
+    try:
+        rows = apply_catalog_ranges(db, rows, tids, result.patient, result.device_id)
+    except Exception:
+        pass
+    return {"parameters": rows}
 
 
 @router.post("/{result_id}/calculate")
@@ -374,6 +400,8 @@ def update_result(result_id: int, payload: ResultEdit, request: Request,
             d.pop("flag_manual")
         if not d.get("calculated"):
             d.pop("calculated", None)
+        if d.pop("added", None) and str(d.get("value") if d.get("value") is not None else "").strip() == "":
+            continue                      # a blank row nobody filled in: nothing to store
         new_params.append(d)
 
     before_note = result.note

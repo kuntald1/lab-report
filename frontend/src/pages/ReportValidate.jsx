@@ -59,8 +59,25 @@ export default function ReportValidate() {
     authedFetch(`/reports/${p.id}`).then(r=>r.ok?r.json():null).then(setDetail).catch(()=>{});
   };
 
-  const startEditResult = (r) => { setCalcDirty(false); setEditingResultId(r.id); setEditParams((r.parsed_data?.parameters||[]).map(p=>({...p}))); setEditResultNote(r.note || ''); };
+  const [addList, setAddList] = useState(null);       // rows offered by "+ Add parameter" (null = closed)
+  // Declared parameters the form has no row for (manual-entry ones like Myeloid,
+  // or a row just removed) come back from the server as blank rows.
+  const loadMissing = async (resultId, rows) => {
+    try {
+      const res = await authedFetch(`/results/${resultId}/missing-parameters`, { method:'POST',
+        headers:{'Content-Type':'application/json'}, body: JSON.stringify({ parameters: rows }) });
+      return res.ok ? ((await res.json()).parameters || []) : [];
+    } catch { return []; }
+  };
+  const startEditResult = (r) => {
+    const base = (r.parsed_data?.parameters||[]).map(p=>({...p}));
+    setCalcDirty(false); setAddList(null); setEditingResultId(r.id); setEditParams(base); setEditResultNote(r.note || '');
+    loadMissing(r.id, base).then(extra => setEditParams(prev => [...prev, ...extra.filter(e => !prev.some(p => p.name === e.name))]));
+  };
   const cancelEditResult = () => setEditingResultId(null);
+  const removeEditParam = (i) => { setEditParams(prev => prev.filter((_, idx) => idx !== i)); setCalcDirty(true); setAddList(null); };
+  const openAddParam = async (resultId) => setAddList(await loadMissing(resultId, editParams));
+  const addEditParam = (idx) => { const row = addList?.[idx]; if (row) setEditParams(prev => [...prev, row]); setAddList(null); };
   const changeEditParam = (i, field, val) => {
     if (field === 'value') setCalcDirty(true);
     // a flag picked by hand must survive the Calculate round trip
@@ -252,7 +269,8 @@ export default function ReportValidate() {
                     <EditableResult params={editParams} onChange={changeEditParam}
                       note={editResultNote} onNoteChange={setEditResultNote}
                       onSave={()=>saveEditResult(r.id)} onCancel={cancelEditResult} saving={savingResult}
-                      onCalculate={()=>calculateEdit(r.id)} calcBusy={calcBusy} calcDirty={calcDirty} />
+                      onCalculate={()=>calculateEdit(r.id)} calcBusy={calcBusy} calcDirty={calcDirty}
+                      onRemove={removeEditParam} addList={addList} onOpenAdd={()=>openAddParam(r.id)} onAdd={addEditParam} />
                   ) : (
                     <ResultPreview data={r.parsed_data} note={r.note} />
                   )}
@@ -298,7 +316,7 @@ export default function ReportValidate() {
 }
 
 // Editable version of ResultPreview — used while a doctor is correcting a value pre-validation
-function EditableResult({ params, onChange, note, onNoteChange, onSave, onCancel, saving, onCalculate, calcBusy, calcDirty }) {
+function EditableResult({ params, onChange, note, onNoteChange, onSave, onCancel, saving, onCalculate, calcBusy, calcDirty, onRemove, addList, onOpenAdd, onAdd }) {
   const cell = { padding:'0.3rem 0.6rem', fontSize:'0.78rem', borderBottom:'1px solid #f4f6fa' };
   if (!params || params.length === 0) return <div style={{ fontSize:'0.78rem', color:'#8892a4' }}>No parsed values to edit.</div>;
   return (
@@ -311,15 +329,15 @@ function EditableResult({ params, onChange, note, onNoteChange, onSave, onCancel
       <table style={{ width:'100%', borderCollapse:'collapse' }}>
         <thead>
           <tr style={{ background:'#fafbfc' }}>
-            {['Parameter','Result','Unit','Flag'].map(h => (
-              <th key={h} style={{ ...cell, textAlign:'left', color:'#8892a4', fontWeight:700, fontSize:'0.66rem', textTransform:'uppercase', letterSpacing:'0.04em' }}>{h}</th>
+            {['Parameter','Result','Unit','Flag',''].map((h,hi) => (
+              <th key={hi} style={{ ...cell, textAlign:'left', color:'#8892a4', fontWeight:700, fontSize:'0.66rem', textTransform:'uppercase', letterSpacing:'0.04em' }}>{h}</th>
             ))}
           </tr>
         </thead>
         <tbody>
           {params.map((p, i) => (
             <tr key={i}>
-              <td style={{ ...cell, color:'#0f1218', fontWeight:600 }}>{p.name}{p.calculated && <span style={{ marginLeft:'0.4rem', fontSize:'0.58rem', fontWeight:700, color:'#c2410c', background:'rgba(249,115,22,0.1)', borderRadius:4, padding:'1px 5px' }}>calculated</span>}</td>
+              <td style={{ ...cell, color:'#0f1218', fontWeight:600 }}>{p.name}{p.added && <span style={{ marginLeft:'0.4rem', fontSize:'0.58rem', fontWeight:700, color:'#1d4ed8', background:'rgba(59,130,246,0.1)', borderRadius:4, padding:'1px 5px' }}>enter manually</span>}{p.calculated && <span style={{ marginLeft:'0.4rem', fontSize:'0.58rem', fontWeight:700, color:'#c2410c', background:'rgba(249,115,22,0.1)', borderRadius:4, padding:'1px 5px' }}>calculated</span>}</td>
               <td style={cell}>
                 <input value={p.value} onChange={e=>onChange(i,'value',e.target.value)}
                   style={{ width:'80px', padding:'0.3rem 0.4rem', borderRadius:5, border:'1.5px solid #f97316', fontSize:'0.78rem', fontWeight:700 }} />
@@ -333,10 +351,20 @@ function EditableResult({ params, onChange, note, onNoteChange, onSave, onCancel
                   <option value="L">Low</option>
                 </select>
               </td>
+              <td style={cell}><button onClick={()=>onRemove(i)} title="Remove this row from the report" style={{ background:'transparent', border:'none', color:'#dc2626', cursor:'pointer', fontSize:'0.85rem' }}>✕</button></td>
             </tr>
           ))}
         </tbody>
       </table>
+      <div style={{ display:'flex', alignItems:'center', gap:'0.6rem', padding:'0.5rem 0.6rem 0' }}>
+        <button onClick={onOpenAdd} style={{ background:'#fff', color:'#1d4ed8', border:'1px dashed rgba(59,130,246,0.5)', borderRadius:'7px', padding:'0.3rem 0.7rem', fontWeight:700, cursor:'pointer', fontSize:'0.72rem', fontFamily:'Manrope,sans-serif' }}>+ Add parameter</button>
+        {addList && (addList.length === 0
+          ? <span style={{ fontSize:'0.7rem', color:'#8892a4' }}>Every parameter of this test is already listed.</span>
+          : <select defaultValue="" onChange={e=>onAdd(e.target.value)} style={{ padding:'0.3rem 0.4rem', borderRadius:5, border:'1px solid #e8ecf4', fontSize:'0.74rem' }}>
+              <option value="" disabled>Pick a parameter…</option>
+              {addList.map((r,k)=><option key={k} value={k}>{r.name}</option>)}
+            </select>)}
+      </div>
       <div style={{ padding:'0.6rem' }}>
         <label style={{ fontSize:'0.64rem', color:'#8892a4', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.04em', display:'block', marginBottom:'0.3rem' }}>Note (shown at the end of the report if filled in)</label>
         <textarea value={note} onChange={e=>onNoteChange(e.target.value)} placeholder="e.g. Confirm fasting status before repeat"
@@ -370,7 +398,7 @@ function ResultPreview({ data, note }) {
           <thead>
             <tr style={{ background:'#fafbfc' }}>
               {['Parameter','Result','Unit','Range','Flag'].map(h => (
-                <th key={h} style={{ ...cell, textAlign:'left', color:'#8892a4', fontWeight:700, fontSize:'0.66rem', textTransform:'uppercase', letterSpacing:'0.04em' }}>{h}</th>
+                <th key={hi} style={{ ...cell, textAlign:'left', color:'#8892a4', fontWeight:700, fontSize:'0.66rem', textTransform:'uppercase', letterSpacing:'0.04em' }}>{h}</th>
               ))}
             </tr>
           </thead>

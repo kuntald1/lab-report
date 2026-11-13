@@ -313,3 +313,40 @@ def filter_parameters_for_tests(db, parameters, test_ids) -> list:
     kept = [p for p in parameters
             if _match_key(p.get("param")) in wanted or _match_key(p.get("name")) in wanted]
     return kept or parameters
+
+
+def missing_declared(db, parameters, test_ids) -> list:
+    """Names the billed tests declare that this result has no row for.
+
+    Some declared parameters are never sent by the analyser — CBC lists Myeloid,
+    Blast Cell and the like, which are read under the microscope and typed in.
+    The edit screen offers these as blank rows. A declared name counts as
+    present when any row matches it by code, printed name or any alias.
+    """
+    from models.clinical import TestCatalog
+    if not test_ids:
+        return []
+    siblings = {}
+    for prm in active_parameters(db):
+        group = {_match_key(n) for n in names_of(prm) if _match_key(n)}
+        for n in names_of(prm):
+            siblings.setdefault(_pnorm(n), group)
+    present = set()
+    for p in parameters or []:
+        for n in (p.get("param"), p.get("name")):
+            if _match_key(n):
+                present.add(_match_key(n))
+    out, seen = [], set()
+    rows = (db.query(TestCatalog.id, TestCatalog.parameters)
+              .filter(TestCatalog.id.in_(list(test_ids))).order_by(TestCatalog.id).all())
+    for _id, raw in rows:
+        for piece in (raw or "").replace(";", ",").split(","):
+            piece = piece.strip()
+            key = _match_key(piece)
+            if not key or key in seen:
+                continue
+            group = {key} | siblings.get(_pnorm(piece), set())
+            seen |= group
+            if not (group & present):
+                out.append(piece)
+    return out

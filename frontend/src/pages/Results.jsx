@@ -235,8 +235,26 @@ export default function Results() {
   const [calcBusy, setCalcBusy]   = useState(false);
   const [calcDirty, setCalcDirty]  = useState(false);   // a value was edited since the last Calculate
 
-  const startEdit = () => { setEditParams((sel.parsed_data?.parameters||[]).map(p=>({...p}))); setEditNote(sel.note || ''); setCalcDirty(false); setEditing(true); };
+  const [addList, setAddList] = useState(null);       // rows offered by "+ Add parameter" (null = closed)
+
+  // Declared parameters the form has no row for (manual-entry ones like Myeloid,
+  // or a row just removed) come back from the server as blank rows.
+  const loadMissing = async (rows) => {
+    try {
+      const res = await authedFetch(`/results/${sel.id}/missing-parameters`, { method:'POST',
+        headers:{'Content-Type':'application/json'}, body: JSON.stringify({ parameters: rows }) });
+      return res.ok ? ((await res.json()).parameters || []) : [];
+    } catch { return []; }
+  };
+  const startEdit = () => {
+    const base = (sel.parsed_data?.parameters||[]).map(p=>({...p}));
+    setEditParams(base); setEditNote(sel.note || ''); setCalcDirty(false); setAddList(null); setEditing(true);
+    loadMissing(base).then(extra => setEditParams(prev => [...prev, ...extra.filter(e => !prev.some(p => p.name === e.name))]));
+  };
   const cancelEdit = () => setEditing(false);
+  const removeParam = (i) => { setEditParams(prev => prev.filter((_, idx) => idx !== i)); setCalcDirty(true); setAddList(null); };
+  const openAdd = async () => setAddList(await loadMissing(editParams));
+  const addParam = (idx) => { const row = addList?.[idx]; if (row) setEditParams(prev => [...prev, row]); setAddList(null); };
   const changeParam = (i, field, val) => {
     if (field === 'value') setCalcDirty(true);
     // a flag picked by hand must survive the Calculate round trip
@@ -466,8 +484,8 @@ export default function Results() {
                     style={{ background: calcDirty ? 'linear-gradient(135deg,#f97316,#fbbf24)' : '#fff', color: calcDirty ? '#fff' : '#c2410c', border:'1px solid rgba(249,115,22,0.4)', borderRadius:'8px', padding:'0.4rem 0.8rem', fontWeight:700, cursor:'pointer', fontSize:'0.76rem', fontFamily:'Manrope,sans-serif' }}>{calcBusy ? 'Calculating…' : '🧮 Calculate'}</button>
                 </div>
                 {editParams.map((p,i) => (
-                  <div key={i} style={{ background:'#fafbfc', border:'1px solid #e8ecf4', borderRadius:'9px', padding:'0.6rem 0.8rem', display:'grid', gridTemplateColumns:'1.3fr 0.8fr 0.6fr 0.7fr', gap:'0.4rem', alignItems:'center' }}>
-                    <div style={{ fontSize:'0.8rem', fontWeight:700, color:'#0f1218' }}>{p.name}{p.calculated && <span style={{ marginLeft:'0.4rem', fontSize:'0.6rem', fontWeight:700, color:'#c2410c', background:'rgba(249,115,22,0.1)', borderRadius:4, padding:'1px 5px' }}>calculated</span>}</div>
+                  <div key={i} style={{ background:'#fafbfc', border:'1px solid #e8ecf4', borderRadius:'9px', padding:'0.6rem 0.8rem', display:'grid', gridTemplateColumns:'1.3fr 0.8fr 0.6fr 0.7fr auto', gap:'0.4rem', alignItems:'center' }}>
+                    <div style={{ fontSize:'0.8rem', fontWeight:700, color:'#0f1218' }}>{p.name}{p.added && <span style={{ marginLeft:'0.4rem', fontSize:'0.6rem', fontWeight:700, color:'#1d4ed8', background:'rgba(59,130,246,0.1)', borderRadius:4, padding:'1px 5px' }}>enter manually</span>}{p.calculated && <span style={{ marginLeft:'0.4rem', fontSize:'0.6rem', fontWeight:700, color:'#c2410c', background:'rgba(249,115,22,0.1)', borderRadius:4, padding:'1px 5px' }}>calculated</span>}</div>
                     <input value={p.value} onChange={e=>changeParam(i,'value',e.target.value)}
                       style={{ padding:'0.4rem 0.5rem', borderRadius:6, border:'1.5px solid #f97316', fontSize:'0.82rem', fontWeight:700 }} />
                     <select value={p.flag||'N'} onChange={e=>changeParam(i,'flag',e.target.value)}
@@ -477,8 +495,18 @@ export default function Results() {
                       <option value="L">Low</option>
                     </select>
                     <div style={{ fontSize:'0.68rem', color:'#8892a4' }}>{p.unit} · {p.ref_min}–{p.ref_max}</div>
+                    <button onClick={()=>removeParam(i)} title="Remove this row from the report" style={{ background:'transparent', border:'none', color:'#dc2626', cursor:'pointer', fontSize:'0.9rem', padding:'0.2rem 0.4rem' }}>✕</button>
                   </div>
                 ))}
+                <div style={{ display:'flex', alignItems:'center', gap:'0.6rem' }}>
+                  <button onClick={openAdd} style={{ background:'#fff', color:'#1d4ed8', border:'1px dashed rgba(59,130,246,0.5)', borderRadius:'8px', padding:'0.4rem 0.8rem', fontWeight:700, cursor:'pointer', fontSize:'0.76rem', fontFamily:'Manrope,sans-serif' }}>+ Add parameter</button>
+                  {addList && (addList.length === 0
+                    ? <span style={{ fontSize:'0.72rem', color:'#8892a4' }}>Every parameter of this test is already listed.</span>
+                    : <select defaultValue="" onChange={e=>addParam(e.target.value)} style={{ padding:'0.4rem 0.5rem', borderRadius:6, border:'1px solid #e8ecf4', fontSize:'0.78rem' }}>
+                        <option value="" disabled>Pick a parameter…</option>
+                        {addList.map((r,k)=><option key={k} value={k}>{r.name}</option>)}
+                      </select>)}
+                </div>
                 <div>
                   <label style={{ fontSize:'0.68rem', color:'#8892a4', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.05em', display:'block', marginBottom:'0.3rem' }}>Note (shown at the end of the report if filled in)</label>
                   <textarea value={editNote} onChange={e=>setEditNote(e.target.value)} placeholder="e.g. Sample slightly hemolysed; recommend repeat in 2 weeks"
