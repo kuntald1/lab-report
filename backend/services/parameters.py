@@ -85,7 +85,13 @@ def arrange(db, parameters) -> list:
         amap = alias_map(db)
         meta = []
         for i, p in enumerate(rows):
-            o, s = info.get(canon(amap, p.get("name") or p.get("param")), (None, None))
+            # An analyser sends a code and a printed name ("HGB" / "Hemoglobin");
+            # whichever of the two the list knows decides the heading and order.
+            o, s = (None, None)
+            for n in (p.get("name"), p.get("param")):
+                if n and canon(amap, n) in info:
+                    o, s = info[canon(amap, n)]
+                    break
             meta.append((i, p, o, s))
         meta.sort(key=lambda m: (m[2] is None, m[2] if m[2] is not None else 0, m[0]))
         return [(p, s) for _, p, _, s in meta]
