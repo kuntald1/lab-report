@@ -9,6 +9,11 @@ const inr = (n) => '₹' + (Number(n)||0).toLocaleString('en-IN');
 
 export default function TestsCatalog() {
   const [tab, setTab]         = useState('tests');   // 'tests' | 'groups'
+  // What was picked/typed on the Reference Ranges and Parameters tabs. Kept here so
+  // it survives switching tabs (a tab's own state is lost when it closes) — one
+  // test picked on either tab stays picked on the other.
+  const [pick, setPick] = useState({ testId:'', rangesSearch:'', paramsSearch:'' });
+  const setPickKey = (k) => (v) => setPick(p => ({ ...p, [k]: typeof v === 'function' ? v(p[k]) : v }));
   const [tests, setTests]     = useState([]);
   const [tubes, setTubes]     = useState([]);
   const [doctors, setDoctors] = useState([]);
@@ -152,13 +157,13 @@ export default function TestsCatalog() {
       </div>
 
       <div style={{ display:'flex', gap:'0.4rem', marginBottom:'1.2rem', borderBottom:'1.5px solid #e8ecf4' }}>
-        {[['tests','Tests'],['groups','Test Groups'],['ranges','Reference Ranges'],['parameters','Parameters']].map(([id,label]) => (
+        {[['tests','Tests'],['groups','Test Groups'],['parameters','Parameters'],['ranges','Reference Ranges']].map(([id,label]) => (
           <button key={id} onClick={()=>setTab(id)} style={{ background:'transparent', border:'none', cursor:'pointer', padding:'0.6rem 1.1rem', fontFamily:'Manrope,sans-serif', fontWeight:700, fontSize:'0.88rem', color: tab===id?'#f97316':'#8892a4', borderBottom: tab===id?'2.5px solid #f97316':'2.5px solid transparent', marginBottom:'-1.5px' }}>{label}</button>
         ))}
       </div>
 
-      {tab === 'parameters' ? <ParameterList showToast={showToast} /> :
-       tab === 'ranges' ? <ReferenceRanges tests={tests} showToast={showToast} /> :
+      {tab === 'parameters' ? <ParameterList showToast={showToast} testId={pick.testId} setTestId={setPickKey('testId')} search={pick.paramsSearch} setSearch={setPickKey('paramsSearch')} /> :
+       tab === 'ranges' ? <ReferenceRanges tests={tests} showToast={showToast} testId={pick.testId} setTestId={setPickKey('testId')} search={pick.rangesSearch} setSearch={setPickKey('rangesSearch')} /> :
        tab === 'groups' ? <TestGroups tests={tests} showToast={showToast} /> : (<>
       <div style={{ ...S.card, marginBottom:'1.2rem', padding:'1rem 1.5rem' }}>
         <div style={{ display:'flex', gap:'0.6rem', alignItems:'center', flexWrap:'wrap' }}>
@@ -504,10 +509,9 @@ function ScopeOption({ on, title, sub, onPick }) {
   );
 }
 
-function ReferenceRanges({ tests, showToast }) {
+function ReferenceRanges({ tests, showToast, testId, setTestId, search, setSearch }) {
   const [rows, setRows]     = useState([]);
   const [loading, setLoad]  = useState(true);
-  const [search, setSearch] = useState('');
   // Collapsed by default: with 147 shared ranges the useful first view is the
   // shape of the catalog, not a wall of rows. A search overrides it below —
   // a hit hidden inside a shut group is the same as no hit at all.
@@ -520,7 +524,6 @@ function ReferenceRanges({ tests, showToast }) {
   const [ask, setAsk]       = useState(null); // common → this-test-only: copy or move?
   // "Show ranges of a test": that test's own ranges plus the shared ones for the
   // parameters it reports — i.e. exactly what a report of that test will use.
-  const [testId, setTestId] = useState('');
   const [usage, setUsage]   = useState({ tests: [] });
   const [plist, setPlist]   = useState([]);
   useEffect(() => {
@@ -1069,15 +1072,13 @@ function ReferenceRanges({ tests, showToast }) {
 // ─────────────────────────────────────────────────────────────────────────────
 const BLANK_PARAM = { name:'', section:'', sort_order:'', aliases:'', is_active:true };
 
-function ParameterList({ showToast }) {
+function ParameterList({ showToast, testId, setTestId, search, setSearch }) {
   const [rows, setRows]     = useState([]);
   const [loading, setLoad]  = useState(true);
-  const [search, setSearch] = useState('');
   const [form, setForm]     = useState(null);
   const [saving, setSaving] = useState(false);
   // which tests report which parameter (from each test's "Parameters printed on the report")
   const [usage, setUsage]   = useState({ tests: [], used_in: {} });
-  const [testId, setTestId] = useState('');
 
   const load = () => {
     authedFetch('/catalog/parameters')
