@@ -26,7 +26,7 @@ from reportlab.graphics.barcode.qr import QrCodeWidget
 from reportlab.graphics.barcode import createBarcodeDrawing
 from reportlab.graphics.shapes import Drawing, Rect
 from reportlab.lib.utils import ImageReader
-from services.parameters import arrange as arrange_parameters
+from services.parameters import arrange as arrange_parameters, display_names
 from services.report_link import report_view_url
 from services.report_settings import get_report_settings, asset_path, asset_url
 import io
@@ -961,7 +961,7 @@ def generate_combined_pdf(results: list, db: Session, with_header: bool = True, 
                                        .filter(TestCatalog.id.in_(_test_ids)).order_by(TestCatalog.id).all() if n]
             if _billed:
                 section_title = " + ".join(_billed)
-            parameters = _kept
+            parameters = display_names(db, _kept)
         except Exception:
             pass
 

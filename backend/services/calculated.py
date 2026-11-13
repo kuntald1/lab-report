@@ -5,6 +5,9 @@ triglycerides, HDL and LDL, and the report also carries VLDL and three ratios
 that nobody measures — they are arithmetic on the four.
 
     VLDL Cholesterol = Triglycerides / 5            (mg/dL, whole number)
+    Bilirubin Indirect = Total - Direct             (2 decimals)
+    Globulin         = Total Protein - Albumin      (2 decimals)
+    A/G Ratio        = Albumin / Globulin           (2 decimals)
     BUN              = Urea / 2.14                  (mg/dL, 2 decimals)
     CHOL/HDL RATIO   = Total Cholesterol / HDL      (2 decimals)
     LDL/HDL RATIO    = LDL / HDL                    (2 decimals)
@@ -33,6 +36,11 @@ TRIG       = {"TRIG", "TG", "TRIGLYCERIDES", "TRIGLYCERIDE"}
 HDL        = {"HDL", "HDLC", "HDLCD", "HDLCHOLESTEROL", "CHOLESTEROLHDL", "CHOLESTEROLHDLDIRECT"}
 LDL        = {"LDL", "LDLC", "LDLCD", "LDLCHOLESTEROL", "CHOLESTEROLLDL"}
 UREA       = {"UREA", "BLOODUREA", "SERUMUREA", "UREASERUM"}
+BIL_TOTAL  = {"BIT", "TBIL", "BILIRUBINTOTAL", "TOTALBILIRUBIN", "BILIRUBINTOTALSERUM"}
+BIL_DIRECT = {"BIDD", "DBIL", "BILIRUBINDIRECT", "DIRECTBILIRUBIN", "BILIRUBINDIRECTSERUM"}
+T_PROTEIN  = {"PRO", "TP", "TOTALPROTEIN", "PROTEINTOTAL", "TOTALPROTEINSERUM"}
+ALBUMIN    = {"ALB", "ALBD", "ALBUMIN", "ALBUMINSERUM"}
+GLOBULIN   = {"GLOB", "GLOBULIN", "GLOBULINSERUM"}
 
 # name = the Parameter-list name, so the lab's reference ranges attach to the row.
 # Each formula takes the dict of inputs it asked for.
@@ -53,6 +61,20 @@ FORMULAS = [
      "needs": {"hdl": HDL, "ldl": LDL},
      "fn": lambda v: v["hdl"] / v["ldl"],
      "names": {"HDLLDLRATIO"}},
+    # Liver panel: three more figures nobody measures. Globulin must come before
+    # A/G Ratio so the ratio can use it in the same pass.
+    {"name": "Bilirubin Indirect", "unit": "mg/dL", "dp": 2,
+     "needs": {"t": BIL_TOTAL, "d": BIL_DIRECT},
+     "fn": lambda v: v["t"] - v["d"],
+     "names": {"BILIRUBININDIRECT", "INDIRECTBILIRUBIN", "IBIL", "BILIRUBININDIRECTSERUM"}},
+    {"name": "Globulin", "unit": "g/dL", "dp": 2,
+     "needs": {"tp": T_PROTEIN, "alb": ALBUMIN},
+     "fn": lambda v: v["tp"] - v["alb"],
+     "names": {"GLOBULIN", "GLOB", "GLOBULINSERUM"}},
+    {"name": "A/G Ratio", "unit": "ratio", "dp": 2,
+     "needs": {"alb": ALBUMIN, "glob": GLOBULIN},
+     "fn": lambda v: v["alb"] / v["glob"],
+     "names": {"AGRATIO", "ALBUMINGLOBULINRATIO", "AG"}},
     # Blood urea nitrogen is the nitrogen share of urea (60 g urea holds 28 g N,
     # i.e. 1 / 2.14). 36 mg/dL urea -> 16.82, the figure CrelioHealth prints.
     {"name": "BUN", "unit": "mg/dL", "dp": 2,

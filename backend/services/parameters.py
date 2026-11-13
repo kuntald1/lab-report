@@ -43,6 +43,28 @@ def alias_map(db) -> dict:
     return m
 
 
+def display_names(db, parameters) -> list:
+    """Rows whose name is only an alias of a listed Parameter (an analyser's
+    code such as BIT or ALBD) are printed under the Parameter's own name.
+    A name that is already the Parameter's name, or unknown, is left alone."""
+    rows = list(parameters or [])
+    try:
+        shown = {}
+        for p in active_parameters(db):
+            for a in split_aliases(p.aliases):
+                if norm(a) != norm(p.name):
+                    shown.setdefault(norm(a), p.name)
+        if not shown:
+            return parameters
+        out = []
+        for r in rows:
+            nm = shown.get(norm(r.get("name") or r.get("param")))
+            out.append({**r, "name": nm} if nm else r)
+        return out
+    except Exception:
+        return parameters
+
+
 def canon(amap, name) -> str:
     k = norm(name)
     return amap.get(k, k)
