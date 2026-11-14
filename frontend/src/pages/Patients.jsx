@@ -28,7 +28,10 @@ export default function Patients({ onBill = () => {} }) {
   // A phlebotomist always registers against his own branch: the Branch box is
   // pre-filled and read-only, and Franchise (B2B) is not his to choose.
   const isPhlebotomist = role === 'phlebotomist';
-  const lockedBranchId = (isPhlebotomist && me?.branch_id) ? String(me.branch_id) : '';
+  // A receptionist works at one branch too, so Branch is pre-filled for her as well —
+  // but unlike a phlebotomist she still chooses the Franchise.
+  const isBranchStaff = isPhlebotomist || role === 'receptionist';
+  const lockedBranchId = (isBranchStaff && me?.branch_id) ? String(me.branch_id) : '';
   const isBranchLocked = !!lockedBranchId;
   const [patients, setPatients]   = useState([]);
   const [branches, setBranches]   = useState([]);

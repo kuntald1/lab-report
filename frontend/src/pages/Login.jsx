@@ -177,27 +177,38 @@ export default function Login({ onLogin }) {
       </div>
 
       {/* ── right: the photo, with every word of it live markup on top.
-           Hidden on a narrow screen. ── */}
-      <div className="login-side"
-           style={{ position: 'relative', flex: 1, minWidth: 0, height: '100vh', overflow: 'hidden' }}>
+           Hidden on a narrow screen.
 
-        {/* the photo only. Its left edge is faded so the join with the tinted
-            form side does not read as a hard vertical line. */}
+           Two stacked parts: the photo and headline above, the feature strip and
+           the footer line below. The strip is pulled up only slightly over the foot
+           of the photo, so it never lies across the building's signboards. ── */}
+      <div className="login-side"
+           style={{ position: 'relative', flex: 1, minWidth: 0, height: '100vh', overflow: 'hidden',
+                    display: 'flex', flexDirection: 'column' }}>
+
+        <div style={{ position: 'relative', flex: '1 1 0', minHeight: 0 }}>
+
+        {/* the photo only, whole building in view, tucked to the top-right. Its left
+            edge is faded so the join with the tinted form side is not a hard line,
+            and its foot fades out under the strip. */}
         {HERO_IMAGES.map((src, i) => (
-          <img key={src} src={src} alt="" aria-hidden="true"
-               style={{ position: 'absolute', inset: 0, width: '100%', height: '100%',
-                        objectFit: 'cover', objectPosition: 'center',
+          <div key={src} aria-hidden="true"
+               style={{ position: 'absolute', top: 0, right: 0, height: '100%', maxWidth: '100%',
+                        aspectRatio: '1997 / 1407',
                         opacity: i === heroAt ? 1 : 0, transition: 'opacity 1.1s ease-in-out',
-                        WebkitMaskImage: 'linear-gradient(90deg, rgba(0,0,0,0) 0%, #000 3.5%)',
-                        maskImage: 'linear-gradient(90deg, rgba(0,0,0,0) 0%, #000 3.5%)' }} />
+                        WebkitMaskImage: 'linear-gradient(90deg, rgba(0,0,0,0) 0%, #000 16%)',
+                        maskImage: 'linear-gradient(90deg, rgba(0,0,0,0) 0%, #000 16%)' }}>
+            <img src={src} alt=""
+                 style={{ width: '100%', height: '100%', display: 'block',
+                          objectFit: 'cover', objectPosition: 'right top',
+                          WebkitMaskImage: 'linear-gradient(180deg, #000 90%, rgba(0,0,0,0) 100%)',
+                          maskImage: 'linear-gradient(180deg, #000 90%, rgba(0,0,0,0) 100%)' }} />
+          </div>
         ))}
 
-        {/* a column the height of the window: the spacer below takes up the
-            slack, so the strip and the footer sit on the bottom edge whatever
-            the window height is, and neither can be cropped away */}
-        <div style={{ position: 'relative', height: '100%', boxSizing: 'border-box',
+        <div style={{ position: 'absolute', inset: 0, boxSizing: 'border-box',
                       display: 'flex', flexDirection: 'column',
-                      padding: 'clamp(1rem, 4.5vh, 3.2rem) 9% clamp(0.9rem, 3.5vh, 2.4rem) 8%' }}>
+                      padding: 'clamp(1rem, 4.5vh, 3.2rem) 9% 0 8%' }}>
 
           <img src={healthycianLogo} alt="Healthycian"
                style={{ width: 'clamp(170px, 23%, 310px)', display: 'block', flex: '0 0 auto' }} />
@@ -225,7 +236,13 @@ export default function Login({ onLogin }) {
             <path d="M5 15C68 5 212 3 295 9" stroke="#16a34a" strokeWidth="5" strokeLinecap="round" fill="none" />
           </svg>
 
-          <div style={{ flex: '2 1 auto', minHeight: 'clamp(0.8rem, 3vh, 2.6rem)' }} />
+          <div style={{ flex: '2 1 auto', minHeight: 'clamp(0.4rem, 2vh, 1.6rem)' }} />
+        </div>
+        </div>
+
+        <div style={{ position: 'relative', flex: '0 0 auto', boxSizing: 'border-box',
+                      marginTop: 'calc(-1 * clamp(0.6rem, 2.2vh, 1.6rem))',
+                      padding: '0 9% clamp(0.8rem, 3vh, 2.2rem) 8%' }}>
 
           <div style={{ flex: '0 0 auto', background: '#fff', borderRadius: '18px',
                         boxShadow: '0 14px 44px rgba(15,23,42,0.13)',
