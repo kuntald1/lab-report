@@ -76,6 +76,20 @@ export default function BlankReport() {
     setBusy(false);
   };
 
+  // A report with real values in it is a tested one — move its billed test to
+  // "tested" so it reaches the doctor's Report Validate queue. A test that is
+  // already tested or further along is left where it is.
+  const markTested = async (r, updated) => {
+    const filled = (updated?.parsed_data?.parameters || []).some(p => String(p.value ?? '').trim() !== '');
+    const line = lines.find(l => l.id === r.bill_item_id);
+    if (!filled || !r.bill_item_id || (line && !['collected', 'received'].includes(line.status))) return;
+    try {
+      const res = await authedFetch('/sample-status/advance', { method:'POST',
+        headers:{'Content-Type':'application/json'}, body: JSON.stringify({ item_ids: [r.bill_item_id], status:'tested' }) });
+      if (res.ok) load();
+    } catch { /* the values are saved either way; Change Status can move it by hand */ }
+  };
+
   const sendToOutsource = async () => {
     if (picked.size === 0) { setErr('Tick at least one test first.'); return; }
     setBusy(true); setErr('');
@@ -220,8 +234,11 @@ export default function BlankReport() {
                   <div style={{ fontSize:'0.7rem', color:'#8892a4', marginTop:'0.15rem' }}>{r.test_name} · {r.accession_number || '—'}</div>
                 </div>
                 <div style={{ padding:'0.9rem' }}>
-                  <ResultEditor result={r} onSaved={updated => setMade(prev => prev.map(x => x.id === r.id
-                    ? { ...x, parsed_data: updated.parsed_data, note: updated.note } : x))} />
+                  <ResultEditor result={r} onSaved={updated => {
+                    setMade(prev => prev.map(x => x.id === r.id
+                      ? { ...x, parsed_data: updated.parsed_data, note: updated.note } : x));
+                    markTested(r, updated);
+                  }} />
                 </div>
               </div>
             ))}
