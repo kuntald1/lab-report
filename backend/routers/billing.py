@@ -498,10 +498,14 @@ def update_discount(bill_id: int, payload: DiscountIn, request: Request,
 
 
 # ----------------------------------------------------------------- cancel bill
-# An admin may cancel a whole bill at any stage — the same freedom Delete Test has —
-# and the money follows exactly as it does there: whatever was collected is refunded
-# (a negative 'refund' payment), the organisation's statement is put back, and unpaid
-# referral commission is withdrawn. The bill itself is never deleted.
+# A bill — and a single test on it (Delete Test) — can be taken off only while every
+# test involved is still at the very start of the pipeline: collected or received.
+# Once a test has been tested/validated/reported, or has gone out-of-band as
+# sample_rejected/outsource, work has been done on the sample and it must stand.
+# When it is allowed, the money follows: whatever was collected is refunded (a negative
+# 'refund' payment), the organisation's statement is put back, and unpaid referral
+# commission is withdrawn. The bill itself is never deleted.
+CANCELLABLE_ITEM_STATUSES = ("collected", "received")
 class CancelIn(BaseModel):
     reason: str
 
@@ -510,13 +514,12 @@ class CancelIn(BaseModel):
 def cancel_bill(bill_id: int, payload: CancelIn, request: Request,
                 dry_run: bool = Query(False),
                 db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    """Cancel a bill (admin-only), at any stage.
+    """Cancel a bill (admin-only), allowed up to and including the 'received' stage.
 
     This is a soft cancel, never a delete: the bill row, its items and its bill_no
     all stay, so the numbering sequence has no gaps and the audit trail survives.
     Accession numbers are deliberately left untouched (they derive from the patient
-    barcode and may already be printed on tubes). Reports of its tests stop being
-    issued, and the bill shows in the Deleted Tests report as "Whole bill cancelled".
+    barcode and may already be printed on tubes). The bill shows in the Deleted Tests report as "Whole bill cancelled".
 
     Money already collected is refunded by writing a NEGATIVE reversal Payment row
     rather than editing or deleting the original payment — so the original receipt
@@ -537,6 +540,16 @@ def cancel_bill(bill_id: int, payload: CancelIn, request: Request,
         raise HTTPException(400, "a reason is required to cancel a bill")
 
     items = db.query(BillItem).filter(BillItem.bill_id == bill.id).all()
+    # every test must still be at collected/received
+    blocking = [it for it in items if (it.status or "collected") not in CANCELLABLE_ITEM_STATUSES]
+    if blocking:
+        def _label(it):
+            name = f"{it.package_name} ({it.test_name})" if it.package_name else it.test_name
+            return f"{name} — {it.status}"
+        shown = "; ".join(_label(it) for it in blocking[:4])
+        more = f" and {len(blocking) - 4} more" if len(blocking) > 4 else ""
+        raise HTTPException(
+            400, f"cannot cancel — these tests have already moved past Received: {shown}{more}")
     refunded = _money(bill.paid)
 
     # what this bill put on the organisation's statement, all entry types: a 'bill'
@@ -569,10 +582,18 @@ def cancel_bill(bill_id: int, payload: CancelIn, request: Request,
                        note=f"refund on bill cancellation — {reason}", created_by=user.id))
         db.flush()
 
-    if bill.organization_id and abs(effect) > 0.005:
-        new_balance = _org_outstanding(db, bill.organization_id) - effect
-        db.add(OrgLedger(organization_id=bill.organization_id, entry_type="adjustment",
-                         amount=-effect, balance_after=new_balance, ref=bill.bill_no))
+    # Put the organisation's statement back with visible rows, the way Delete Test does:
+    # one adjustment undoing what the bill raised, and one undoing what was paid against
+    # it. Together they cancel exactly `effect`; a side with nothing to undo gets no row.
+    if bill.organization_id:
+        paid_total = _money(sum(e.amount or 0.0 for e in posted if e.entry_type == "payment"))
+        bill_side = _money(-(effect + paid_total))
+        for amt in (bill_side, paid_total):
+            if abs(amt) > 0.005:
+                bal = _org_outstanding(db, bill.organization_id) + amt
+                db.add(OrgLedger(organization_id=bill.organization_id, entry_type="adjustment",
+                                 amount=amt, balance_after=bal, ref=bill.bill_no))
+                db.flush()
 
     # unpaid referral commission on this bill's tests is withdrawn; paid-out stays on record
     try:
@@ -641,8 +662,8 @@ def add_payment(bill_id: int, payload: PaymentIn, request: Request,
 
 
 # ----------------------------------------------------------------- delete a test
-# An admin may take a test — or a whole test group — off a bill at any stage,
-# even after the report went out. The line is removed (so queues, reports and
+# An admin may take a test — or a whole test group — off a bill, but only while it is
+# still at collected/received (see CANCELLABLE_ITEM_STATUSES). The line is removed (so queues, reports and
 # labels stop seeing it), the money follows, and the removal is kept in
 # deleted_bill_items + the audit log.
 class RemoveItemIn(BaseModel):
@@ -657,7 +678,7 @@ def _money(x) -> float:
 def remove_bill_item(bill_id: int, item_id: int, payload: RemoveItemIn, request: Request,
                      dry_run: bool = Query(False),
                      db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    """Remove one test, or — when the line belongs to a test group — the whole
+    """Remove one test (admin-only, collected/received only), or — when the line belongs to a test group — the whole
     group (a group has one price, so its members can't be priced apart).
 
     dry_run=true works everything out and returns it without saving: the
@@ -692,6 +713,11 @@ def remove_bill_item(bill_id: int, item_id: int, payload: RemoveItemIn, request:
     else:
         removing = [item]
         label = item.test_name
+    blocking = [i for i in removing if (i.status or "collected") not in CANCELLABLE_ITEM_STATUSES]
+    if blocking:
+        shown = "; ".join(f"{i.test_name} — {i.status}" for i in blocking[:4])
+        raise HTTPException(
+            400, f"cannot delete {label} — it has already moved past Received: {shown}")
     if len(removing) == len(all_items):
         raise HTTPException(400, "this is the only test on the bill — use Cancel Bill instead")
 

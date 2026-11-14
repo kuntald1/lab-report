@@ -13,6 +13,10 @@ const statusStyle = { paid:['#16a34a','Paid'], partial:['#f59e0b','Partial'], un
 // the test-stage filter — same list as Sample / Test Details
 const STAGES = ['', 'dispatched', 'received', 'tested', 'validated', 'reported'];
 
+// Delete Test and Cancel Bill are only open while a test is still collected / received.
+const CANCELLABLE = ['collected','received'];
+const canRemoveItem = (it) => CANCELLABLE.includes(it?.status || 'collected');
+
 export default function Bills() {
   const [bills, setBills]       = useState([]);
   const [orgs, setOrgs]         = useState([]);
@@ -483,8 +487,10 @@ export default function Bills() {
                         <span style={{ fontWeight:700, color:'#0f1218' }}>{g.name} <span style={{ fontSize:'0.6rem', background:'rgba(249,115,22,0.12)', color:'#c2410c', padding:'0.1rem 0.45rem', borderRadius:'20px', fontWeight:700 }}>GROUP</span></span>
                         <span style={{ display:'flex', alignItems:'center', gap:'0.5rem' }}>
                           <span style={{ fontWeight:700 }}>{inr(g.price)}</span>
-                          {isAdmin && detail.status !== 'cancelled' && detail.items.length > g.members.length &&
-                            <DeleteBtn title={`Delete ${g.name} (all ${g.members.length} tests)`} busy={rmBusy} onClick={()=>askRemove(g.members[0])} />}
+                          {isAdmin && detail.status !== 'cancelled' && detail.items.length > g.members.length && (
+                            g.members.every(canRemoveItem)
+                              ? <DeleteBtn title={`Delete ${g.name} (all ${g.members.length} tests)`} busy={rmBusy} onClick={()=>askRemove(g.members[0])} />
+                              : <LockedNote />)}
                         </span>
                       </div>
                       <div style={{ paddingLeft:'0.5rem', marginTop:'0.25rem' }}>
@@ -503,8 +509,10 @@ export default function Bills() {
                         <span>{it.test_name} <span style={{ fontSize:'0.65rem', color:'#8892a4' }}>({it.price_source})</span></span>
                         <span style={{ display:'flex', alignItems:'center', gap:'0.5rem' }}>
                           <span style={{ fontWeight:600 }}>{inr(it.price)}</span>
-                          {isAdmin && detail.status !== 'cancelled' && detail.items.length > 1 &&
-                            <DeleteBtn title={`Delete ${it.test_name}`} busy={rmBusy} onClick={()=>askRemove(it)} />}
+                          {isAdmin && detail.status !== 'cancelled' && detail.items.length > 1 && (
+                            canRemoveItem(it)
+                              ? <DeleteBtn title={`Delete ${it.test_name}`} busy={rmBusy} onClick={()=>askRemove(it)} />
+                              : <LockedNote />)}
                         </span>
                       </div>
                       <div style={{ display:'flex', justifyContent:'flex-end', marginTop:'0.2rem' }}>
@@ -615,14 +623,23 @@ export default function Bills() {
 
             <button onClick={()=>downloadReceipt(detail)} style={{ width:'100%', marginTop:'1.2rem', background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', border:'none', borderRadius:'10px', padding:'0.7rem', fontWeight:700, cursor:'pointer', fontFamily:'Manrope,sans-serif' }}>⬇ Download Money Receipt</button>
 
-            {/* cancel bill — admin only, at any stage (same freedom as Delete Test) */}
+            {/* cancel bill — admin only, allowed up to and including 'received' */}
             {isAdmin && detail.status !== 'cancelled' && (() => {
+              const blocking = (detail.items||[]).filter(it => !canRemoveItem(it));
               const paidNow  = Number(detail.paid)||0;
-              const reportedN = (detail.items||[]).filter(it => ['validated','reported'].includes(it.status)).length;
               const isOrg    = !!(detail.organization_id || detail.organization_name);
               return (
                 <div style={{ marginTop:'1.2rem', paddingTop:'1rem', borderTop:'1px dashed #e8ecf4' }}>
-                  {!cancelOpen ? (
+                  {blocking.length > 0 ? (
+                    <div style={{ background:'#fafbfc', border:'1px solid #e8ecf4', borderRadius:'10px', padding:'0.7rem 0.9rem' }}>
+                      <div style={{ fontWeight:700, color:'#475569', fontSize:'0.78rem' }}>This bill can no longer be cancelled</div>
+                      <div style={{ color:'#8892a4', fontSize:'0.73rem', marginTop:'0.25rem', lineHeight:1.5 }}>
+                        Work has already started on {blocking.length === 1 ? 'this test' : 'these tests'}:{' '}
+                        {blocking.slice(0,4).map(it => `${it.package_name ? `${it.package_name} (${it.test_name})` : it.test_name} — ${it.status}`).join('; ')}
+                        {blocking.length > 4 ? ` and ${blocking.length-4} more` : ''}.
+                      </div>
+                    </div>
+                  ) : !cancelOpen ? (
                     <button onClick={()=>setCancelOpen(true)}
                       style={{ width:'100%', background:'transparent', color:'#dc2626', border:'1px solid rgba(220,38,38,0.3)', borderRadius:'10px', padding:'0.6rem', fontWeight:700, cursor:'pointer', fontFamily:'Manrope,sans-serif', fontSize:'0.82rem' }}>
                       Cancel this bill
@@ -636,11 +653,6 @@ export default function Bills() {
                       {paidNow > 0 && (
                         <div style={{ marginTop:'0.5rem', background:'rgba(220,38,38,0.06)', border:'1px solid rgba(220,38,38,0.2)', borderRadius:'8px', padding:'0.5rem 0.7rem', color:'#b91c1c', fontSize:'0.74rem', lineHeight:1.5 }}>
                           <strong>{inr(paidNow)}</strong> has been collected on this bill. Cancelling records a refund of {inr(paidNow)} and sets the bill to ₹0 — hand the money back at the counter.
-                        </div>
-                      )}
-                      {reportedN > 0 && (
-                        <div style={{ marginTop:'0.5rem', background:'rgba(245,158,11,0.08)', border:'1px solid rgba(245,158,11,0.3)', borderRadius:'8px', padding:'0.5rem 0.7rem', color:'#92400e', fontSize:'0.74rem', lineHeight:1.5 }}>
-                          {reportedN} test(s) on this bill are already validated / reported. Cancelling stops their reports being issued.
                         </div>
                       )}
                       {isOrg && (
@@ -671,6 +683,11 @@ export default function Bills() {
       )}
     </div>
   );
+}
+
+function LockedNote() {
+  return <span title="This test has moved past Received, so it can no longer be deleted"
+    style={{ fontSize:'0.62rem', color:'#94a3b8', border:'1px solid #e8ecf4', borderRadius:'20px', padding:'0.1rem 0.45rem', whiteSpace:'nowrap' }}>🔒 locked</span>;
 }
 
 function DeleteBtn({ title, onClick, busy }) {
