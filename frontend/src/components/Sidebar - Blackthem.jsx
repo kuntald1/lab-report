@@ -28,6 +28,7 @@ const nav = [
   { id:'mycommission', icon:'💰', label:'My Commission', section:'reports', who:'doctor' },
   { id:'historyneeded', icon:'📥', label:'History Needed', section:'reports', who:'lab' },
   { id:'samplereport', icon:'📊', label:'Sample Report', section:'reports', who:'lab' },
+  { id:'blankreport', icon:'📝', label:'Blank Report', section:'reports', who:'lab' },
 ];
 
 export default function Sidebar({ current, onChange, counts = {}, user = null, onLogout = () => {} }) {

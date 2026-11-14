@@ -16,6 +16,43 @@ def stage_accessions(db, stage: str):
                                    BillItem.accession_number.isnot(None)).distinct().all()]
 
 
+def test_scope(db, test_id=None, package_id=None):
+    """Which bills, patients and accessions carry this test (or this group).
+
+    A group (package) is matched by package_id, which every line of the group
+    carries, so "THYROID PROFILE" finds the three member lines rather than the
+    one package line. Returns (bill_ids, patient_ids, accessions); all three are
+    empty lists when nothing is asked for, and the caller skips filtering then.
+    """
+    if not test_id and not package_id:
+        return [], [], []
+    from models.billing import Bill
+    q = db.query(BillItem.bill_id, BillItem.accession_number)
+    if test_id:
+        q = q.filter(BillItem.test_id == test_id)
+    if package_id:
+        q = q.filter(BillItem.package_id == package_id)
+    rows = q.all()
+    bill_ids = sorted({b for (b, _a) in rows if b})
+    accs = sorted({a for (_b, a) in rows if a})
+    pids = [p for (p,) in db.query(Bill.patient_id)
+                            .filter(Bill.id.in_(bill_ids or [-1])).distinct().all() if p]
+    return bill_ids, pids, accs
+
+
+def filter_results_by_test(q, db, test_id=None, package_id=None):
+    """Results belonging to that test. Matched by accession number — the tube
+    the test was drawn into — so a patient billed for CBC and LFT shows only the
+    one result when filtering by CBC. A result that carries no accession at all
+    can only be placed by its patient, so it is matched that way."""
+    if not test_id and not package_id:
+        return q
+    _bills, pids, accs = test_scope(db, test_id, package_id)
+    return q.filter(or_(LabResult.accession_number.in_(accs or ["\x00"]),
+                        (LabResult.accession_number.is_(None)
+                         & LabResult.patient_id.in_(pids or [-1]))))
+
+
 def filter_results(q, db, organization_id=None, branch_id=None,
                    date_from=None, date_to=None, stage=None):
     """Narrow a LabResult query.

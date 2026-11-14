@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { api } from '../services/api';
 import { authedFetch, auth } from '../services/auth';
 import SearchSelect from '../components/SearchSelect';
+import TestFilter, { splitTestFilter } from '../components/TestFilter';
+import ResultEditor from '../components/ResultEditor';
 
 // only these roles are allowed to edit a result's values — matches the backend guard exactly
 const CAN_EDIT_RESULTS = ['super_admin', 'lab_admin', 'pathologist', 'technician'];
@@ -81,7 +83,10 @@ export default function Results() {
   const [sel,     setSel]     = useState(null);
   const [loading, setLoading] = useState(false);
   const [pdfMenu, setPdfMenu] = useState(null);   // 'single' | 'combined' | null — which download dropdown is open
-  const EMPTY_Q = { organization_id:'', branch_id:'', date_from:'', date_to:'', patient_name:'', patient_id:'', barcode:'', accession_number:'', stage:'' };
+  // The list opens on today's work — a lab looks at what came in today far more
+  // often than at everything ever run, and the whole table used to load first.
+  const TODAY = new Date(Date.now() - new Date().getTimezoneOffset()*60000).toISOString().slice(0,10);
+  const EMPTY_Q = { organization_id:'', branch_id:'', date_from:TODAY, date_to:TODAY, patient_name:'', patient_id:'', barcode:'', accession_number:'', stage:'', test:'' };
   const [q, setQ] = useState(EMPTY_Q);
   const [orgs, setOrgs]         = useState([]);
   const [branches, setBranches] = useState([]);
@@ -90,7 +95,8 @@ export default function Results() {
 
   const queryString = (filters) => {
     const qs = new URLSearchParams();
-    Object.entries(filters).forEach(([k,v]) => { const t = String(v ?? '').trim(); if (t) qs.set(k, t); });
+    const { test, ...rest } = filters;
+    Object.entries({ ...rest, ...splitTestFilter(test) }).forEach(([k,v]) => { const t = String(v ?? '').trim(); if (t) qs.set(k, t); });
     return qs.toString();
   };
   const load = (filters = q) => {
@@ -226,6 +232,16 @@ export default function Results() {
     setLoading(false);
   };
 
+  // ---- Edit All: every result now listed, each editable in place ----
+  const [editAll, setEditAll] = useState(false);
+  const canEditAll = CAN_EDIT_RESULTS.includes(auth.user()?.role);
+  // Results that can actually be edited — an outsourced test has no values of
+  // its own, and a franchise-locked one is not ours to change.
+  const editableResults = results.filter(r => !r.locked && r.status !== 'outsource');
+  const [openRows, setOpenRows] = useState({});
+  const afterRowSaved = (id, updated) => setResults(prev => prev.map(r => r.id === id
+    ? { ...r, parsed_data: updated.parsed_data, note: updated.note, edited: updated.parsed_data?.edited || r.edited } : r));
+
   // ---- inline edit of parameter values ----
   const [editing, setEditing]     = useState(false);
   const [editParams, setEditParams] = useState([]);
@@ -289,6 +305,11 @@ export default function Results() {
     setSaving(false);
   };
 
+  // One rule for "this result can be edited right now", so the Edit button and
+  // clicking a parameter row can never disagree about who may edit what.
+  const canEditSel = !!sel && !sel.locked && !editing && sel.status !== 'outsource'
+    && (sel.parsed_data?.parameters?.length > 0) && CAN_EDIT_RESULTS.includes(auth.user()?.role);
+
   return (
     <div>
       <div style={{ marginBottom:'2rem' }}>
@@ -317,6 +338,7 @@ export default function Results() {
           <div><label style={fLbl}>Patient ID</label><input style={fInp} placeholder="id" value={q.patient_id} onChange={e=>setQ({...q,patient_id:e.target.value})} onKeyDown={e=>e.key==='Enter'&&load()} /></div>
           <div><label style={fLbl}>Barcode</label><input style={fInp} placeholder="barcode" value={q.barcode} onChange={e=>setQ({...q,barcode:e.target.value})} onKeyDown={e=>e.key==='Enter'&&load()} /></div>
           <div><label style={fLbl}>Accession No.</label><input style={fInp} placeholder="accession" value={q.accession_number} onChange={e=>setQ({...q,accession_number:e.target.value})} onKeyDown={e=>e.key==='Enter'&&load()} /></div>
+          <TestFilter style={fInp} value={q.test} onChange={v=>setQ({...q,test:v})} />
           <div><label style={fLbl}>Status</label>
             <select style={fInp} value={q.stage} onChange={e=>setQ({...q,stage:e.target.value})}>
               {RESULT_STAGES.map(s => <option key={s} value={s}>{s ? s[0].toUpperCase()+s.slice(1) : 'All'}</option>)}
@@ -325,6 +347,13 @@ export default function Results() {
         <div style={{ display:'flex', gap:'0.6rem', marginTop:'1rem', flexWrap:'wrap', alignItems:'center' }}>
           <button onClick={()=>load()} style={{ background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', border:'none', borderRadius:'9px', padding:'0.6rem 1.4rem', fontWeight:700, cursor:'pointer', fontFamily:'Manrope,sans-serif' }}>Apply Filters</button>
           <button onClick={clearFilters} style={{ background:'transparent', color:'#8892a4', border:'1px solid #e8ecf4', borderRadius:'9px', padding:'0.6rem 1.2rem', cursor:'pointer', fontFamily:'Manrope,sans-serif' }}>Clear</button>
+          {canEditAll && (
+            <button onClick={()=>{ setOpenRows({}); setEditAll(true); }} disabled={editableResults.length === 0}
+              title={editableResults.length ? 'Edit every report in this list, one after another' : 'Nothing in this list can be edited'}
+              style={{ background:'#fff', color:'#c2410c', border:'1.5px solid rgba(249,115,22,0.5)', borderRadius:'9px', padding:'0.6rem 1.2rem', fontWeight:700, cursor: editableResults.length ? 'pointer' : 'not-allowed', opacity: editableResults.length ? 1 : 0.5, fontFamily:'Manrope,sans-serif' }}>
+              ✎ Edit All ({editableResults.length})
+            </button>
+          )}
           {isLabStaff && (
             <button onClick={downloadZip} disabled={zipBusy}
               title={q.date_from && q.date_to ? 'All finished reports in this date range — one PDF per patient' : 'Pick From and To dates first'}
@@ -410,7 +439,7 @@ export default function Results() {
                   colors={{ bg:'#eef2ff', fg:'#4338ca', border:'#c7d2fe' }}
                 />
                 )}
-                {!sel.locked && !editing && sel.status !== 'outsource' && (sel.parsed_data?.parameters?.length > 0) && CAN_EDIT_RESULTS.includes(auth.user()?.role) && (
+                {canEditSel && (
                 <button onClick={startEdit} style={{ background:'#fafbfc', border:'1px solid #e8ecf4', color:'#475569', borderRadius:'8px', padding:'0.5rem 0.9rem', cursor:'pointer', fontSize:'0.78rem', fontWeight:700, fontFamily:'Manrope,sans-serif' }}>✎ Edit</button>
                 )}
                 {!sel.locked && sel.status === 'outsource' ? (
@@ -520,7 +549,9 @@ export default function Results() {
             ) : (
             <div style={{ display:'flex', flexDirection:'column', gap:'0.4rem' }}>
               {(sel.parsed_data?.parameters||[]).map((p,i) => (
-                <div key={i} style={{ background:flagBg(p.flag), border:`1px solid ${flagBorder(p.flag)}`, borderRadius:'9px', padding:'0.7rem 0.9rem', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+                <div key={i} onClick={()=>{ if (canEditSel) startEdit(); }}
+                  title={canEditSel ? 'Click to edit this report' : undefined}
+                  style={{ background:flagBg(p.flag), border:`1px solid ${flagBorder(p.flag)}`, borderRadius:'9px', padding:'0.7rem 0.9rem', display:'flex', alignItems:'center', justifyContent:'space-between', cursor: canEditSel ? 'pointer' : 'default' }}>
                   <div>
                     <div style={{ fontSize:'0.85rem', fontWeight:700, color:'#0f1218' }}>{p.name}</div>
                     <div style={{ fontSize:'0.68rem', color:'#8892a4' }}>Ref: {p.ref_min}–{p.ref_max} {p.unit}</div>
@@ -587,6 +618,51 @@ export default function Results() {
           </div>
         )}
       </div>
+
+      {editAll && (
+        <div onClick={()=>setEditAll(false)}
+          style={{ position:'fixed', inset:0, background:'rgba(15,18,24,0.45)', zIndex:60, display:'flex', alignItems:'flex-start', justifyContent:'center', padding:'2.5rem 1rem', overflowY:'auto' }}>
+          <div onClick={e=>e.stopPropagation()}
+            style={{ background:'#fff', borderRadius:'16px', width:'min(900px,100%)', boxShadow:'0 20px 60px rgba(15,18,24,0.3)', overflow:'hidden' }}>
+            <div style={{ padding:'1.1rem 1.3rem', borderBottom:'1px solid #e8ecf4', display:'flex', alignItems:'center', justifyContent:'space-between', position:'sticky', top:0, background:'#fff', zIndex:1 }}>
+              <div>
+                <div style={{ fontFamily:'Manrope,sans-serif', fontSize:'1.1rem', fontWeight:800, color:'#0f1218' }}>Edit All</div>
+                <div style={{ fontSize:'0.75rem', color:'#8892a4', marginTop:'0.15rem' }}>
+                  {editableResults.length} report(s){q.date_from || q.date_to ? ` · ${q.date_from || '…'} to ${q.date_to || '…'}` : ''} — each one saves on its own
+                </div>
+              </div>
+              <button onClick={()=>setEditAll(false)} style={{ background:'#fafbfc', border:'1px solid #e8ecf4', color:'#8892a4', borderRadius:'8px', padding:'0.45rem 0.7rem', cursor:'pointer' }}>✕</button>
+            </div>
+
+            <div style={{ padding:'1rem 1.3rem 1.4rem', display:'flex', flexDirection:'column', gap:'0.55rem' }}>
+              {editableResults.length === 0 && (
+                <div style={{ fontSize:'0.84rem', color:'#8892a4', padding:'1rem 0' }}>Nothing in this list can be edited.</div>
+              )}
+              {editableResults.map(r => (
+                <div key={r.id} style={{ border:'1px solid #e8ecf4', borderRadius:'11px', overflow:'hidden' }}>
+                  <div onClick={()=>setOpenRows(o=>({ ...o, [r.id]: !o[r.id] }))}
+                    style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:'0.7rem', padding:'0.75rem 0.95rem', cursor:'pointer', background: openRows[r.id] ? '#fff7ed' : '#fafbfc' }}>
+                    <div style={{ minWidth:0 }}>
+                      <div style={{ fontSize:'0.84rem', fontWeight:700, color:'#0f1218', fontFamily:'Manrope,sans-serif' }}>
+                        {r.patient_name || '—'} <span style={{ fontFamily:'monospace', color:'#c2410c', fontWeight:700 }}>{r.barcode || '—'}</span>
+                      </div>
+                      <div style={{ fontSize:'0.7rem', color:'#8892a4', marginTop:'0.15rem' }}>
+                        {r.test_name || `Result #${r.id}`} · {r.accession_number || '—'} · {(r.parsed_data?.parameters||[]).length} params
+                      </div>
+                    </div>
+                    <span style={{ fontSize:'0.8rem', color:'#8892a4' }}>{openRows[r.id] ? '▲' : '▼'}</span>
+                  </div>
+                  {openRows[r.id] && (
+                    <div style={{ padding:'0.9rem', borderTop:'1px solid #e8ecf4' }}>
+                      <ResultEditor result={r} onSaved={updated => afterRowSaved(r.id, updated)} />
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,7 +1,21 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { auth } from '../services/auth';
 import healthycianLogo from '../assets/healthycian_logo.png';
 import labHero from '../assets/lab-hero.jpg';
+
+/* The photographs that take turns on the right.
+
+   lab-hero.jpg — whatever the lab has put there — always comes first and keeps
+   the page looking exactly as it did. Anything dropped into src/assets/login/
+   joins the rotation after it at build time, sorted by file name (01-, 02-),
+   so the pictures can be changed without touching this file. Nothing in that
+   folder means no rotation at all: the one photo, as before. */
+const HERO_IMAGES = (() => {
+  const found = import.meta.glob('../assets/login/*.{jpg,jpeg,png,webp}', { eager: true, import: 'default' });
+  const extra = Object.keys(found).sort().map(k => found[k]);
+  return [labHero, ...extra.filter(u => u !== labHero)];
+})();
+const HERO_SECONDS = 6;
 
 /**
  * The sign-in card floats on the left; the right is the lab's own artwork.
@@ -40,6 +54,15 @@ function Icon({ name }) {
 }
 
 export default function Login({ onLogin }) {
+  // Only the photograph changes; the wordmark, headline and feature strip are
+  // markup on top and stay exactly where they are.
+  const [heroAt, setHeroAt] = useState(0);
+  useEffect(() => {
+    if (HERO_IMAGES.length < 2) return;
+    const t = setInterval(() => setHeroAt(i => (i + 1) % HERO_IMAGES.length), HERO_SECONDS * 1000);
+    return () => clearInterval(t);
+  }, []);
+
   const [email, setEmail]       = useState('');
   const [password, setPassword] = useState('');
   const [show, setShow]         = useState(false);
@@ -160,11 +183,14 @@ export default function Login({ onLogin }) {
 
         {/* the photo only. Its left edge is faded so the join with the tinted
             form side does not read as a hard vertical line. */}
-        <img src={labHero} alt="" aria-hidden="true"
-             style={{ position: 'absolute', inset: 0, width: '100%', height: '100%',
-                      objectFit: 'cover', objectPosition: 'center',
-                      WebkitMaskImage: 'linear-gradient(90deg, rgba(0,0,0,0) 0%, #000 3.5%)',
-                      maskImage: 'linear-gradient(90deg, rgba(0,0,0,0) 0%, #000 3.5%)' }} />
+        {HERO_IMAGES.map((src, i) => (
+          <img key={src} src={src} alt="" aria-hidden="true"
+               style={{ position: 'absolute', inset: 0, width: '100%', height: '100%',
+                        objectFit: 'cover', objectPosition: 'center',
+                        opacity: i === heroAt ? 1 : 0, transition: 'opacity 1.1s ease-in-out',
+                        WebkitMaskImage: 'linear-gradient(90deg, rgba(0,0,0,0) 0%, #000 3.5%)',
+                        maskImage: 'linear-gradient(90deg, rgba(0,0,0,0) 0%, #000 3.5%)' }} />
+        ))}
 
         {/* a column the height of the window: the spacer below takes up the
             slack, so the strip and the footer sit on the bottom edge whatever

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { authedFetch, auth } from '../services/auth';
+import TestFilter, { splitTestFilter } from '../components/TestFilter';
 
 const inp = { background:'#fafbfc', border:'1.5px solid #e8ecf4', borderRadius:'9px', padding:'0.55rem 0.8rem', color:'#0f1218', fontFamily:'Manrope,sans-serif', fontSize:'0.82rem', outline:'none', width:'100%' };
 const lbl = { fontSize:'0.66rem', color:'#8892a4', fontWeight:600, textTransform:'uppercase', letterSpacing:'0.05em', display:'block', marginBottom:'0.3rem' };
@@ -17,7 +18,7 @@ export default function Bills() {
   const [bills, setBills]       = useState([]);
   const [orgs, setOrgs]         = useState([]);
   const [branches, setBranches] = useState([]);
-  const [f, setF]               = useState({ organization_id:'', branch_id:'', barcode:'', patient_name:'', patient_id:'', date_from:'', date_to:'', stage:'' });
+  const [f, setF]               = useState({ organization_id:'', branch_id:'', barcode:'', patient_name:'', patient_id:'', date_from:'', date_to:'', stage:'', test:'' });
   const [loading, setLoading]   = useState(false);
   const [detail, setDetail]     = useState(null);     // bill open in modal
   const [payAmt, setPayAmt]     = useState('');
@@ -144,7 +145,8 @@ export default function Bills() {
 
   const load = () => {
     setLoading(true);
-    const qs = Object.entries(f).filter(([,v])=>v!=='').map(([k,v])=>`${k}=${encodeURIComponent(v)}`).join('&');
+    const { test, ...rest } = f;
+    const qs = Object.entries({ ...rest, ...splitTestFilter(test) }).filter(([,v])=>v!=='').map(([k,v])=>`${k}=${encodeURIComponent(v)}`).join('&');
     authedFetch(`/billing/bills${qs?`?${qs}`:''}`).then(r=>r.ok?r.json():[]).then(d=>{ setBills(d); setLoading(false); }).catch(()=>setLoading(false));
   };
   useEffect(() => {
@@ -396,6 +398,7 @@ export default function Bills() {
           <div><label style={lbl}>Patient Name</label><input style={inp} placeholder="name" value={f.patient_name} onChange={e=>setF({...f,patient_name:e.target.value})} onKeyDown={e=>{ if (e.key==='Enter') load(); }} /></div>
           <div><label style={lbl}>Patient ID</label><input style={inp} type="number" placeholder="id" value={f.patient_id} onChange={e=>setF({...f,patient_id:e.target.value})} /></div>
           <div><label style={lbl}>Barcode</label><input style={inp} placeholder="barcode" value={f.barcode} onChange={e=>setF({...f,barcode:e.target.value})} onKeyDown={e=>{ if (e.key==='Enter') load(); }} /></div>
+          <TestFilter style={inp} value={f.test} onChange={v=>setF({...f,test:v})} />
           <div><label style={lbl}>Status</label>
             <select style={inp} value={f.stage} onChange={e=>setF({...f,stage:e.target.value})}>
               {STAGES.map(s => <option key={s} value={s}>{s ? s[0].toUpperCase()+s.slice(1) : 'All'}</option>)}
@@ -403,7 +406,7 @@ export default function Bills() {
         </div>
         <div style={{ display:'flex', gap:'0.6rem', marginTop:'1rem' }}>
           <button onClick={load} style={{ background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', border:'none', borderRadius:'9px', padding:'0.6rem 1.4rem', fontWeight:700, cursor:'pointer', fontFamily:'Manrope,sans-serif' }}>Apply Filters</button>
-          <button onClick={()=>{ setF({ organization_id:'', branch_id:'', barcode:'', patient_name:'', patient_id:'', date_from:'', date_to:'', stage:'' }); setTimeout(load,0); }} style={{ background:'transparent', color:'#8892a4', border:'1px solid #e8ecf4', borderRadius:'9px', padding:'0.6rem 1.2rem', cursor:'pointer', fontFamily:'Manrope,sans-serif' }}>Clear</button>
+          <button onClick={()=>{ setF({ organization_id:'', branch_id:'', barcode:'', patient_name:'', patient_id:'', date_from:'', date_to:'', stage:'', test:'' }); setTimeout(load,0); }} style={{ background:'transparent', color:'#8892a4', border:'1px solid #e8ecf4', borderRadius:'9px', padding:'0.6rem 1.2rem', cursor:'pointer', fontFamily:'Manrope,sans-serif' }}>Clear</button>
         </div>
       </div>
 

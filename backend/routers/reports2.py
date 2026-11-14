@@ -46,6 +46,8 @@ def sample_details(
     patient_name: Optional[str] = None,
     barcode: Optional[str] = None,
     status: Optional[str] = None,        # dispatched|received|tested|validated|reported
+    test_id: Optional[int] = None,
+    package_id: Optional[int] = None,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -68,6 +70,10 @@ def sample_details(
         q = q.filter(Patient.created_at >= date_from)
     if date_to:
         q = q.filter(Patient.created_at <= date_to + " 23:59:59")
+    if test_id or package_id:
+        from services.result_filters import test_scope
+        _bill_ids, _tpids, _accs = test_scope(db, test_id, package_id)
+        q = q.filter(Patient.id.in_(_tpids or [-1]))
     patients = q.order_by(Patient.created_at.desc()).limit(1000).all()
     if not patients:
         return {"rows": [], "totals": {"patients": 0, "billed": 0.0, "collected": 0.0}}

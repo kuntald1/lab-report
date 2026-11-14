@@ -8,7 +8,8 @@ from models.org import User, Role, Franchise
 from services.credit import is_franchise_locked
 from services.ranges import apply_catalog_ranges, test_ids_for_result, missing_declared
 from services.calculated import add_calculated
-from services.result_filters import filter_results, filter_patients
+from services.result_filters import (filter_results, filter_patients,
+                                     filter_results_by_test, test_scope)
 from parsers.astm_parser import auto_parse
 from pydantic import BaseModel
 from typing import Optional, List, Any
@@ -78,10 +79,12 @@ def get_all_results(db: Session = Depends(get_db), scope: Scope = Depends(get_sc
                     patient_name: Optional[str] = None,
                     organization_id: Optional[int] = None, branch_id: Optional[int] = None,
                     date_from: Optional[str] = None, date_to: Optional[str] = None,
-                    stage: Optional[str] = None):
+                    stage: Optional[str] = None,
+                    test_id: Optional[int] = None, package_id: Optional[int] = None):
     q = apply_scope(db.query(LabResult), LabResult, scope)
     q = filter_results(q, db, organization_id=organization_id, branch_id=branch_id,
                        date_from=date_from, date_to=date_to, stage=stage)
+    q = filter_results_by_test(q, db, test_id=test_id, package_id=package_id)
 
     # LabResult has no franchise column, so a franchise login must be scoped to
     # its own patients explicitly. We also compute whether THIS franchise is over
@@ -173,6 +176,9 @@ def get_all_results(db: Session = Depends(get_db), scope: Scope = Depends(get_sc
             pq = pq.filter(Patient.id == int(patient_id.strip()))
         if name_pids is not None:
             pq = pq.filter(Patient.id.in_(name_pids or [-1]))
+        if test_id or package_id:
+            _b, _tpids, _a = test_scope(db, test_id, package_id)
+            pq = pq.filter(Patient.id.in_(_tpids or [-1]))
         manual_patients = [p for p in pq.order_by(Patient.created_at.desc()).limit(200).all()
                            if p.id not in covered_pids]
 
@@ -315,6 +321,88 @@ class ResultEdit(BaseModel):
 
 class CalculateRequest(BaseModel):
     parameters: List[ParameterEdit]
+
+
+# ------------------------------------------------------------------ blank report
+class BlankReportIn(BaseModel):
+    bill_item_ids: List[int]
+
+
+@router.post("/blank")
+def create_blank_reports(payload: BlankReportIn, request: Request,
+                         db: Session = Depends(get_db), user: User = Depends(get_current_user),
+                         scope: Scope = Depends(get_scope)):
+    """A report with every parameter the test declares, all values blank.
+
+    For tests that never reach an analyser — sent out, read under a microscope,
+    or typed from a handwritten slip. The row is created empty so the lab fills
+    it in on the Results screen exactly as it would correct an analyser's.
+    A test that already has a result is handed back as it is rather than being
+    blanked, so this can never wipe a value somebody already entered.
+    """
+    if user.role not in (Role.SUPER_ADMIN, Role.LAB_ADMIN, Role.PATHOLOGIST, Role.TECHNICIAN):
+        raise HTTPException(status_code=403, detail="not allowed to create reports")
+    if not payload.bill_item_ids:
+        raise HTTPException(status_code=400, detail="no tests selected")
+
+    from models.billing import Bill, BillItem
+    q = (db.query(BillItem, Bill, Patient)
+           .join(Bill, Bill.id == BillItem.bill_id)
+           .join(Patient, Patient.id == Bill.patient_id)
+           .filter(BillItem.id.in_(payload.bill_item_ids)))
+    if scope.tenant_id is not None:
+        q = q.filter(Bill.tenant_id == scope.tenant_id)
+    if scope.role == Role.FRANCHISE and scope.franchise_id is not None:
+        q = q.filter(Bill.organization_id == scope.franchise_id)
+    rows = q.all()
+    if not rows:
+        raise HTTPException(status_code=404, detail="no matching tests in your scope")
+
+    out, created = [], 0
+    for item, bill, patient in rows:
+        if (bill.status or "") == "cancelled":
+            continue
+        existing = None
+        if item.accession_number:
+            existing = (db.query(LabResult)
+                          .filter(LabResult.accession_number == item.accession_number).first())
+        if existing is None:
+            existing = LabResult(
+                patient_id=patient.id, barcode=patient.barcode,
+                accession_number=item.accession_number, test_name=item.test_name,
+                parsed_data=None, status="pending",
+                tenant_id=getattr(bill, "tenant_id", None), branch_id=patient.branch_id)
+            db.add(existing)
+            db.flush()
+            created += 1
+        # Fill in the blank rows only when there is nothing there yet — an
+        # outsourced placeholder or a half-entered result keeps what it has.
+        if not (existing.parsed_data or {}).get("parameters"):
+            tids = [item.test_id] if item.test_id else test_ids_for_result(db, existing)
+            names = missing_declared(db, [], tids)
+            blanks = [{"param": n, "name": n, "value": "", "unit": "", "ref_min": "",
+                       "ref_max": "", "flag": "N"} for n in names]
+            try:
+                blanks = apply_catalog_ranges(db, blanks, tids, patient, existing.device_id)
+            except Exception:
+                pass
+            parsed = dict(existing.parsed_data or {})
+            parsed["parameters"] = blanks
+            parsed.setdefault("protocol", "manual")
+            existing.parsed_data = parsed
+        out.append({"id": existing.id, "bill_item_id": item.id,
+                    "barcode": existing.barcode, "patient_name": patient.patient_name,
+                    "accession_number": existing.accession_number,
+                    "test_name": existing.test_name, "status": existing.status,
+                    "parsed_data": existing.parsed_data})
+    db.commit()
+    try:
+        write_audit(db, action="create", user=user, entity="lab_result",
+                    detail=f"{created} blank report(s) for bill items {payload.bill_item_ids}",
+                    ip=request.client.host if request.client else None)
+    except Exception:
+        pass
+    return {"created": created, "results": out}
 
 
 @router.post("/{result_id}/missing-parameters")

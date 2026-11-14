@@ -350,7 +350,8 @@ def list_bills(db: Session = Depends(get_db), scope: Scope = Depends(get_scope),
                branch_id: Optional[int] = None, barcode: Optional[str] = None,
                patient_name: Optional[str] = None,
                date_from: Optional[str] = None, date_to: Optional[str] = None,
-               stage: Optional[str] = None):
+               stage: Optional[str] = None,
+               test_id: Optional[int] = None, package_id: Optional[int] = None):
     q = db.query(Bill)
     if scope.tenant_id is not None:
         q = q.filter(Bill.tenant_id == scope.tenant_id)
@@ -391,6 +392,10 @@ def list_bills(db: Session = Depends(get_db), scope: Scope = Depends(get_scope),
         item_bills = [b for (b,) in db.query(BillItem.bill_id).filter(BillItem.status == stage).distinct().all()]
         pids = [p for (p,) in db.query(Patient.id).filter(Patient.status == stage).all()]
         q = q.filter(_or(Bill.id.in_(item_bills or [-1]), Bill.patient_id.in_(pids or [-1])))
+    if test_id or package_id:
+        from services.result_filters import test_scope
+        _bill_ids, _pids, _accs = test_scope(db, test_id, package_id)
+        q = q.filter(Bill.id.in_(_bill_ids or [-1]))
     rows = q.order_by(Bill.id.desc()).limit(500).all()
     return [_bill_dict(db, b) for b in rows]
 

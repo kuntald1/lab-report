@@ -272,7 +272,13 @@ export default function ReportValidate() {
                       onCalculate={()=>calculateEdit(r.id)} calcBusy={calcBusy} calcDirty={calcDirty}
                       onRemove={removeEditParam} addList={addList} onOpenAdd={()=>openAddParam(r.id)} onAdd={addEditParam} />
                   ) : (
-                    <ResultPreview data={r.parsed_data} note={r.note} />
+                    // Clicking any value row opens the same editor the Edit
+                    // button does, under exactly the same condition.
+                    <div onClick={()=>{ if (r.id != null) startEditResult(r); }}
+                         title={r.id != null ? 'Click to edit these values' : undefined}
+                         style={{ cursor: r.id != null ? 'pointer' : 'default' }}>
+                      <ResultPreview data={r.parsed_data} note={r.note} />
+                    </div>
                   )}
                 </div>
               ))}
@@ -397,7 +403,7 @@ function ResultPreview({ data, note }) {
         <table style={{ width:'100%', borderCollapse:'collapse' }}>
           <thead>
             <tr style={{ background:'#fafbfc' }}>
-              {['Parameter','Result','Unit','Range','Flag'].map(h => (
+              {['Parameter','Result','Unit','Range','Flag'].map((h,hi) => (
                 <th key={hi} style={{ ...cell, textAlign:'left', color:'#8892a4', fontWeight:700, fontSize:'0.66rem', textTransform:'uppercase', letterSpacing:'0.04em' }}>{h}</th>
               ))}
             </tr>
