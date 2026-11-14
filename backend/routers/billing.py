@@ -498,31 +498,32 @@ def update_discount(bill_id: int, payload: DiscountIn, request: Request,
 
 
 # ----------------------------------------------------------------- cancel bill
-# A bill may be cancelled only while every one of its tests is still at the very
-# start of the pipeline. Once ANY test has been tested/validated/reported — or has
-# gone out-of-band as sample_rejected/outsource — work has been done on the sample
-# and the bill must stand.
-CANCELLABLE_ITEM_STATUSES = ("collected", "received")
-
-
+# An admin may cancel a whole bill at any stage — the same freedom Delete Test has —
+# and the money follows exactly as it does there: whatever was collected is refunded
+# (a negative 'refund' payment), the organisation's statement is put back, and unpaid
+# referral commission is withdrawn. The bill itself is never deleted.
 class CancelIn(BaseModel):
     reason: str
 
 
 @router.put("/bills/{bill_id}/cancel")
 def cancel_bill(bill_id: int, payload: CancelIn, request: Request,
+                dry_run: bool = Query(False),
                 db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    """Cancel a bill (admin-only), allowed up to and including the 'received' stage.
+    """Cancel a bill (admin-only), at any stage.
 
     This is a soft cancel, never a delete: the bill row, its items and its bill_no
     all stay, so the numbering sequence has no gaps and the audit trail survives.
     Accession numbers are deliberately left untouched (they derive from the patient
-    barcode and may already be printed on tubes).
+    barcode and may already be printed on tubes). Reports of its tests stop being
+    issued, and the bill shows in the Deleted Tests report as "Whole bill cancelled".
 
     Money already collected is refunded by writing a NEGATIVE reversal Payment row
     rather than editing or deleting the original payment — so the original receipt
     stays on record and the two rows net to zero. The cash is handed back at the
     counter; no gateway refund is attempted here even for online payments.
+
+    dry_run=true works out the same figures without saving, for the confirmation.
     """
     if user.role not in ADMIN_ROLES:
         raise HTTPException(403, "cancel is admin-only")
@@ -532,43 +533,55 @@ def cancel_bill(bill_id: int, payload: CancelIn, request: Request,
     if bill.status == "cancelled":
         raise HTTPException(400, "bill is already cancelled")
     reason = (payload.reason or "").strip()
-    if not reason:
+    if not dry_run and not reason:
         raise HTTPException(400, "a reason is required to cancel a bill")
 
-    # every test must still be at collected/received
     items = db.query(BillItem).filter(BillItem.bill_id == bill.id).all()
-    blocking = [it for it in items
-                if (it.status or "collected") not in CANCELLABLE_ITEM_STATUSES]
-    if blocking:
-        def _label(it):
-            name = f"{it.package_name} ({it.test_name})" if it.package_name else it.test_name
-            return f"{name} — {it.status}"
-        shown = "; ".join(_label(it) for it in blocking[:4])
-        more = f" and {len(blocking) - 4} more" if len(blocking) > 4 else ""
-        raise HTTPException(
-            400, f"cannot cancel — these tests have already moved past Received: {shown}{more}")
+    refunded = _money(bill.paid)
+
+    # what this bill put on the organisation's statement, all entry types: a 'bill'
+    # raised the outstanding, a 'payment' lowered it, an 'adjustment' (from a deleted
+    # test, say) already carries its own signed effect. Undoing the lot restores it.
+    posted = []
+    if bill.organization_id:
+        posted = (db.query(OrgLedger)
+                    .filter(OrgLedger.organization_id == bill.organization_id,
+                            OrgLedger.ref == bill.bill_no).all())
+    effect = sum(-(e.amount or 0.0) if e.entry_type == "payment" else (e.amount or 0.0)
+                 for e in posted if e.entry_type in ("bill", "payment", "adjustment"))
+    effect = _money(effect)
+
+    summary = {
+        "bill_no": bill.bill_no, "total": _money(bill.total), "paid": refunded, "refund": refunded,
+        "organization_id": bill.organization_id,
+        "ledger_change": _money(-effect),          # effect on the organisation's outstanding
+        "tests": [{"id": i.id, "test_name": i.test_name, "package_name": i.package_name,
+                   "status": i.status} for i in items],
+        "reported": any((i.status or "") in ("validated", "reported") for i in items),
+    }
+    if dry_run:
+        return summary
 
     before_status = bill.status
-    refunded = round(bill.paid or 0.0, 2)
     if refunded > 0:
         db.add(Payment(tenant_id=bill.tenant_id, bill_id=bill.id, method="refund",
                        amount=-refunded, status="success",
                        note=f"refund on bill cancellation — {reason}", created_by=user.id))
         db.flush()
 
-    # undo whatever this bill posted to the org's running statement: the original
-    # 'bill' entry (which raised the outstanding) and any 'payment' entries against
-    # it (which lowered it). One netting 'adjustment' puts the balance back.
-    if bill.organization_id:
-        posted = (db.query(OrgLedger)
-                    .filter(OrgLedger.organization_id == bill.organization_id,
-                            OrgLedger.ref == bill.bill_no).all())
-        net = sum((e.amount or 0.0) if e.entry_type == "bill" else -(e.amount or 0.0)
-                  for e in posted if e.entry_type in ("bill", "payment"))
-        if abs(net) > 0.005:
-            new_balance = _org_outstanding(db, bill.organization_id) - net
-            db.add(OrgLedger(organization_id=bill.organization_id, entry_type="adjustment",
-                             amount=-net, balance_after=new_balance, ref=bill.bill_no))
+    if bill.organization_id and abs(effect) > 0.005:
+        new_balance = _org_outstanding(db, bill.organization_id) - effect
+        db.add(OrgLedger(organization_id=bill.organization_id, entry_type="adjustment",
+                         amount=-effect, balance_after=new_balance, ref=bill.bill_no))
+
+    # unpaid referral commission on this bill's tests is withdrawn; paid-out stays on record
+    try:
+        from models.commission import DoctorCommission
+        (db.query(DoctorCommission)
+           .filter(DoctorCommission.bill_id == bill.id, DoctorCommission.is_paid.isnot(True))
+           .delete(synchronize_session=False))
+    except Exception:
+        pass
 
     _recompute_bill(db, bill)      # paid now nets to 0 via the reversal row
     bill.status = "cancelled"      # set last — _recompute_bill would otherwise say 'unpaid'

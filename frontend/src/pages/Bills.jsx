@@ -10,7 +10,6 @@ const fmtDate = (d) => d ? new Date(d).toLocaleString('en-IN', { dateStyle:'medi
 
 const statusStyle = { paid:['#16a34a','Paid'], partial:['#f59e0b','Partial'], unpaid:['#dc2626','Unpaid'], credit:['#6366f1','On Credit'], cancelled:['#64748b','Cancelled'] };
 // a bill can only be cancelled while every test is still at one of these stages
-const CANCELLABLE = ['collected','received'];
 // the test-stage filter — same list as Sample / Test Details
 const STAGES = ['', 'dispatched', 'received', 'tested', 'validated', 'reported'];
 
@@ -616,22 +615,14 @@ export default function Bills() {
 
             <button onClick={()=>downloadReceipt(detail)} style={{ width:'100%', marginTop:'1.2rem', background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', border:'none', borderRadius:'10px', padding:'0.7rem', fontWeight:700, cursor:'pointer', fontFamily:'Manrope,sans-serif' }}>⬇ Download Money Receipt</button>
 
-            {/* cancel bill — admin only, allowed up to and including 'received' */}
+            {/* cancel bill — admin only, at any stage (same freedom as Delete Test) */}
             {isAdmin && detail.status !== 'cancelled' && (() => {
-              const blocking = (detail.items||[]).filter(it => !CANCELLABLE.includes(it.status || 'collected'));
               const paidNow  = Number(detail.paid)||0;
+              const reportedN = (detail.items||[]).filter(it => ['validated','reported'].includes(it.status)).length;
+              const isOrg    = !!(detail.organization_id || detail.organization_name);
               return (
                 <div style={{ marginTop:'1.2rem', paddingTop:'1rem', borderTop:'1px dashed #e8ecf4' }}>
-                  {blocking.length > 0 ? (
-                    <div style={{ background:'#fafbfc', border:'1px solid #e8ecf4', borderRadius:'10px', padding:'0.7rem 0.9rem' }}>
-                      <div style={{ fontWeight:700, color:'#475569', fontSize:'0.78rem' }}>This bill can no longer be cancelled</div>
-                      <div style={{ color:'#8892a4', fontSize:'0.73rem', marginTop:'0.25rem', lineHeight:1.5 }}>
-                        Work has already started on {blocking.length === 1 ? 'this test' : 'these tests'}:{' '}
-                        {blocking.slice(0,4).map(it => `${it.package_name ? `${it.package_name} (${it.test_name})` : it.test_name} — ${it.status}`).join('; ')}
-                        {blocking.length > 4 ? ` and ${blocking.length-4} more` : ''}.
-                      </div>
-                    </div>
-                  ) : !cancelOpen ? (
+                  {!cancelOpen ? (
                     <button onClick={()=>setCancelOpen(true)}
                       style={{ width:'100%', background:'transparent', color:'#dc2626', border:'1px solid rgba(220,38,38,0.3)', borderRadius:'10px', padding:'0.6rem', fontWeight:700, cursor:'pointer', fontFamily:'Manrope,sans-serif', fontSize:'0.82rem' }}>
                       Cancel this bill
@@ -645,6 +636,16 @@ export default function Bills() {
                       {paidNow > 0 && (
                         <div style={{ marginTop:'0.5rem', background:'rgba(220,38,38,0.06)', border:'1px solid rgba(220,38,38,0.2)', borderRadius:'8px', padding:'0.5rem 0.7rem', color:'#b91c1c', fontSize:'0.74rem', lineHeight:1.5 }}>
                           <strong>{inr(paidNow)}</strong> has been collected on this bill. Cancelling records a refund of {inr(paidNow)} and sets the bill to ₹0 — hand the money back at the counter.
+                        </div>
+                      )}
+                      {reportedN > 0 && (
+                        <div style={{ marginTop:'0.5rem', background:'rgba(245,158,11,0.08)', border:'1px solid rgba(245,158,11,0.3)', borderRadius:'8px', padding:'0.5rem 0.7rem', color:'#92400e', fontSize:'0.74rem', lineHeight:1.5 }}>
+                          {reportedN} test(s) on this bill are already validated / reported. Cancelling stops their reports being issued.
+                        </div>
+                      )}
+                      {isOrg && (
+                        <div style={{ marginTop:'0.5rem', background:'#f8fafc', border:'1px solid #e8ecf4', borderRadius:'8px', padding:'0.5rem 0.7rem', color:'#475569', fontSize:'0.74rem', lineHeight:1.5 }}>
+                          This bill is on an organization's account — its statement is put back by this bill's amount, the same way Delete Test does.
                         </div>
                       )}
                       <div style={{ color:'#8892a4', fontSize:'0.72rem', margin:'0.4rem 0 0.6rem' }}>

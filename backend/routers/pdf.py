@@ -747,8 +747,12 @@ def tests_all_deleted(db, result) -> bool:
     acc = getattr(result, "accession_number", None)
     if not acc:
         return False
-    if db.query(BillItem.id).filter(BillItem.accession_number == acc).first():
-        return False
+    from models.billing import Bill
+    billed = (db.query(Bill.status).join(BillItem, BillItem.bill_id == Bill.id)
+                .filter(BillItem.accession_number == acc).all())
+    if billed:
+        # still billed — unless every bill it sits on has been cancelled
+        return all((st or "") == "cancelled" for (st,) in billed)
     return db.query(DeletedBillItem.id).filter(DeletedBillItem.accession_number == acc).first() is not None
 
 
