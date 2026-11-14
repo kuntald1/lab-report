@@ -237,7 +237,7 @@ export default function Results() {
   const canEditAll = CAN_EDIT_RESULTS.includes(auth.user()?.role);
   // Results that can actually be edited — an outsourced test has no values of
   // its own, and a franchise-locked one is not ours to change.
-  const editableResults = results.filter(r => !r.locked && r.status !== 'outsource');
+  const editableResults = results.filter(r => r.id != null && !r.locked && r.status !== 'outsource');
   const [openRows, setOpenRows] = useState({});
   const afterRowSaved = (id, updated) => setResults(prev => prev.map(r => r.id === id
     ? { ...r, parsed_data: updated.parsed_data, note: updated.note, edited: updated.parsed_data?.edited || r.edited } : r));
@@ -308,7 +308,7 @@ export default function Results() {
   // One rule for "this result can be edited right now", so the Edit button and
   // clicking a parameter row can never disagree about who may edit what.
   const canEditSel = !!sel && !sel.locked && !editing && sel.status !== 'outsource'
-    && (sel.parsed_data?.parameters?.length > 0) && CAN_EDIT_RESULTS.includes(auth.user()?.role);
+    && sel.id != null && CAN_EDIT_RESULTS.includes(auth.user()?.role);   // a report with no parameters left can still be opened to add them back
 
   return (
     <div>
@@ -548,6 +548,12 @@ export default function Results() {
               </div>
             ) : (
             <div style={{ display:'flex', flexDirection:'column', gap:'0.4rem' }}>
+              {!(sel.parsed_data?.parameters||[]).length && (
+                <div style={{ border:'1px dashed #e8ecf4', borderRadius:'9px', padding:'0.9rem', textAlign:'center', color:'#8892a4', fontSize:'0.8rem' }}>
+                  No parameters on this report.{' '}
+                  {canEditSel ? <button onClick={startEdit} style={{ background:'none', border:'none', color:'#1d4ed8', fontWeight:700, cursor:'pointer', fontFamily:'inherit', fontSize:'inherit' }}>Edit to add them back →</button> : null}
+                </div>
+              )}
               {(sel.parsed_data?.parameters||[]).map((p,i) => (
                 <div key={i} onClick={()=>{ if (canEditSel) startEdit(); }}
                   title={canEditSel ? 'Click to edit this report' : undefined}
