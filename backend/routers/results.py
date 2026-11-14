@@ -198,7 +198,10 @@ def get_all_results(db: Session = Depends(get_db), scope: Scope = Depends(get_sc
         org_id = pat_org.get(r.patient_id)
         row = {
             "id":           r.id,
-            "barcode":      r.barcode,
+            # the PATIENT's barcode — what the printed report shows. The analyser can send a
+            # different one (its own sample id), kept separately as analyser_barcode.
+            "barcode":      (r.patient.barcode if r.patient and r.patient.barcode else r.barcode),
+            "analyser_barcode": r.barcode,
             "accession_number": r.accession_number,
             "test_name":    r.test_name,
             "status":       r.status,

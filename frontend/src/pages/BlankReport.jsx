@@ -20,7 +20,7 @@ const S   = { card:{ background:'#fff', border:'1px solid #e8ecf4', borderRadius
 const STAGES = ['', 'collected','received','tested','validated','reported','outsource','sample_rejected'];
 const CAN_CREATE = ['super_admin', 'lab_admin', 'pathologist', 'technician'];
 const errText = (d) => Array.isArray(d) ? d.map(x => x?.msg || String(x)).join('; ') : (d || '');
-const EMPTY = { organization_id:'', branch_id:'', barcode:'', patient_name:'', patient_id:'', date_from:'', date_to:'', stage:'', test:'' };
+const EMPTY = { organization_id:'', branch_id:'', barcode:'', patient_name:'', patient_id:'', date_from:'', date_to:'', stage:'received', test:'' };
 
 export default function BlankReport() {
   const me = auth.user ? auth.user() : null;
@@ -35,14 +35,18 @@ export default function BlankReport() {
   const [made, setMade]     = useState([]);                // reports created, open for editing
   const [busy, setBusy]     = useState(false);
   const [err, setErr]       = useState('');
+  const [applied, setApplied] = useState({ stage:'received', test:'' });   // what the list on screen was loaded with
 
   useEffect(() => {
     authedFetch('/admin/franchises').then(r=>r.ok?r.json():[]).then(d=>setOrgs(Array.isArray(d)?d:[])).catch(()=>{});
     authedFetch('/admin/branches').then(r=>r.ok?r.json():[]).then(d=>setBranches(Array.isArray(d)?d:[])).catch(()=>{});
   }, []);
 
+  // open on the tests still waiting for a result (status Received) without needing a click
+  useEffect(() => { if (allowed) load(EMPTY); }, []);   // eslint-disable-line react-hooks/exhaustive-deps
+
   const load = (filters = f) => {
-    setLoading(true); setErr('');
+    setLoading(true); setErr(''); setApplied({ stage: filters.stage, test: filters.test });
     const { test, ...rest } = filters;
     const qs = Object.entries({ ...rest, ...splitTestFilter(test) })
       .filter(([,v]) => String(v ?? '') !== '')
@@ -88,7 +92,11 @@ export default function BlankReport() {
   };
 
   // every billed line across the bills that came back, flattened into one list
-  const lines = bills.flatMap(b => (b.items || []).map(it => ({ ...it, bill_no: b.bill_no, patient_name: b.patient_name, barcode: b.barcode, bill_status: b.status })));
+  const lines = bills
+    .flatMap(b => (b.items || []).map(it => ({ ...it, bill_no: b.bill_no, patient_name: b.patient_name, barcode: b.barcode, bill_status: b.status })))
+    // the API matches whole bills; keep only the lines that are themselves at the chosen status / test / group
+    .filter(it => !applied.stage || it.status === applied.stage)
+    .filter(it => !applied.test || (applied.test.startsWith('p:') ? String(it.package_id) === applied.test.slice(2) : String(it.test_id) === applied.test.slice(2)));
 
   if (!allowed) {
     return <div style={{ ...S.card }}>
@@ -102,7 +110,7 @@ export default function BlankReport() {
         <div style={{ display:'inline-flex', background:'rgba(99,102,241,0.08)', border:'1px solid rgba(99,102,241,0.2)', color:'#6366f1', padding:'4px 12px', borderRadius:'100px', fontSize:'0.62rem', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:'0.5rem' }}>Reports</div>
         <h1 style={{ fontFamily:'Manrope,sans-serif', fontSize:'2rem', fontWeight:800, color:'#0f1218', letterSpacing:'-0.025em' }}>Blank Report</h1>
         <p style={{ color:'#8892a4', fontSize:'0.82rem', marginTop:'0.2rem' }}>
-          Find a billed test, create its report with every parameter empty, then type the values in.
+          Shows tests received at the lab that have no result yet. Pick one, create its report with every parameter empty, then type the values in. Change Status to see other stages.
         </p>
       </div>
 
