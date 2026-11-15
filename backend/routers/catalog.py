@@ -223,7 +223,8 @@ def _check_param(db, d, exclude_id=None):
 @router.get("/parameters")
 def list_parameters(db: Session = Depends(get_db)):
     return (db.query(Parameter)
-              .order_by(Parameter.section, Parameter.sort_order, Parameter.name).all())
+              .order_by(Parameter.sort_order.is_(None), Parameter.sort_order,
+                        Parameter.section, Parameter.name).all())
 
 
 @router.get("/parameters/usage")

@@ -654,7 +654,17 @@ function ReferenceRanges({ tests, showToast, testId, setTestId, search, setSearc
   // Grouped the way the lab reads it: the shared ranges first, then one block
   // per test. Grouping by parameter instead scattered a single test's settings
   // across the page, which is what staff reported as confusing.
-  const byParam = (a, b) =>
+  // Within a block, parameters follow the report's own order (the Parameter
+  // list's "Order"); ones the list doesn't know come after, A-Z.
+  const posOf = new Map();
+  plist.forEach(x => {
+    if (x.sort_order == null) return;
+    [x.name, ...String(x.aliases || '').split(/[,;]/)].forEach(n => {
+      const k = pkey(n); if (k && !posOf.has(k)) posOf.set(k, x.sort_order);
+    });
+  });
+  const posRow = (r) => posOf.has(pkey(r.param)) ? posOf.get(pkey(r.param)) : 1e9;
+  const byParam = (a, b) => posRow(a) - posRow(b) ||
     (a.param||'').toUpperCase().localeCompare((b.param||'').toUpperCase()) || (a.id - b.id);
   const common = shown.filter(r => !r.test_id).sort(byParam);
   const perTest = new Map();
