@@ -260,14 +260,28 @@ def parameter_usage(db: Session = Depends(get_db), scope: Scope = Depends(get_sc
                         prm.sort_order if prm.sort_order is not None else 10**6, prm.id)
                 if k not in by_key or rank < by_key[k][0]:
                     by_key[k] = (rank, prm.id)
-    tq = db.query(TestCatalog).filter(TestCatalog.is_active.isnot(False),
-                                      TestCatalog.parameters.isnot(None))
+    # A range row already says "this parameter, for this test", so those names
+    # count as the test's parameters too — otherwise a test whose list is blank
+    # (the default) would show nothing here although its ranges name parameters.
+    # Display only: what the report prints is still decided by the list field.
+    from sqlalchemy import or_
+    range_names = {}
+    for tid, prm in (db.query(ReferenceRange.test_id, ReferenceRange.param)
+                       .filter(ReferenceRange.test_id.isnot(None),
+                               ReferenceRange.param.isnot(None),
+                               ReferenceRange.is_active.isnot(False))
+                       .order_by(ReferenceRange.id).all()):
+        if str(prm).strip():
+            range_names.setdefault(tid, []).append(str(prm).strip())
+    tq = db.query(TestCatalog).filter(
+        TestCatalog.is_active.isnot(False),
+        or_(TestCatalog.parameters.isnot(None), TestCatalog.id.in_(list(range_names) or [-1])))
     tq = apply_scope(tq, TestCatalog, scope)
     tests, used_in = [], {}
     for t in tq.order_by(TestCatalog.name).all():
         declared, seen = [], set()
-        for piece in (t.parameters or "").replace(";", ",").split(","):
-            name = piece.strip()
+        pieces = [x.strip() for x in (t.parameters or "").replace(";", ",").split(",")]
+        for name in pieces + range_names.get(t.id, []):
             k = _match_key(name)
             if not k or k in seen:
                 continue
