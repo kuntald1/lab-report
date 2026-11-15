@@ -186,7 +186,10 @@ def apply_catalog_ranges(db, parameters, test_ids, patient, device_id=None) -> l
     # they get their reference range and flag like any measured parameter.
     parameters = add_calculated(parameters)
 
-    matches = matching_rows(db, [p.get("param") or p.get("name") for p in parameters],
+    # An analyser sends a code and a printed name ("RBC" / "Red Blood Cells"). The
+    # code is tried first; when it finds no range — because that code is another
+    # parameter's alias, or the list doesn't know it — the printed name is tried.
+    matches = matching_rows(db, [n for p in parameters for n in (p.get("param"), p.get("name")) if n],
                             test_ids, patient, device_id)
     if not matches:
         return parameters
@@ -194,7 +197,11 @@ def apply_catalog_ranges(db, parameters, test_ids, patient, device_id=None) -> l
     amap = alias_map(db)
     out = []
     for p in parameters:
-        rows = matches.get(canon(amap, p.get("param") or p.get("name")))
+        rows = None
+        for n in (p.get("param"), p.get("name")):
+            if n and matches.get(canon(amap, n)):
+                rows = matches[canon(amap, n)]
+                break
         if not rows:
             out.append(p)
             continue
