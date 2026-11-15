@@ -44,22 +44,32 @@ def alias_map(db) -> dict:
 
 
 def display_names(db, parameters) -> list:
-    """Rows whose name is only an alias of a listed Parameter (an analyser's
-    code such as BIT or ALBD) are printed under the Parameter's own name.
-    A name that is already the Parameter's name, or unknown, is left alone."""
+    """Rows the Parameter list knows are printed under the Parameter's own name,
+    so the same parameter reads the same whoever sent it — an analyser, another
+    analyser, or a person typing it in.
+
+    An analyser sends two spellings, a code and a printed name ("HGB" /
+    "Hemoglobin"). The printed name is tried first and the code only when the
+    list does not know that name, so a name the list knows always decides and a
+    code that belongs to a different parameter cannot pull the row away from it.
+    A row the list knows under neither spelling is left exactly as it came."""
     rows = list(parameters or [])
     try:
-        shown = {}
+        known = {}
         for p in active_parameters(db):
-            for a in split_aliases(p.aliases):
-                if norm(a) != norm(p.name):
-                    shown.setdefault(norm(a), p.name)
-        if not shown:
+            for n in names_of(p):
+                known.setdefault(norm(n), p.name)
+        if not known:
             return parameters
         out = []
         for r in rows:
-            nm = shown.get(norm(r.get("name") or r.get("param")))
-            out.append({**r, "name": nm} if nm else r)
+            nm = None
+            for spelling in (r.get("name"), r.get("param")):
+                if norm(spelling):
+                    nm = known.get(norm(spelling))
+                    if nm:
+                        break
+            out.append({**r, "name": nm} if nm and nm != r.get("name") else r)
         return out
     except Exception:
         return parameters
