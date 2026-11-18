@@ -445,7 +445,7 @@ def calculate_result(result_id: int, payload: CalculateRequest,
         raise HTTPException(status_code=404, detail="Result not found")
 
     params = [p.model_dump(exclude_none=True) for p in payload.parameters]
-    calculated = add_calculated(params, overwrite=True)
+    calculated = add_calculated(params, overwrite=True, patient=result.patient)
     try:
         calculated = apply_catalog_ranges(db, calculated, test_ids_for_result(db, result),
                                           result.patient, result.device_id)

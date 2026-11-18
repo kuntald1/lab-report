@@ -12,10 +12,16 @@ that nobody measures — they are arithmetic on the four.
     CHOL/HDL RATIO   = Total Cholesterol / HDL      (2 decimals)
     LDL/HDL RATIO    = LDL / HDL                    (2 decimals)
     HDL/LDL RATIO    = HDL / LDL                    (2 decimals)
+    EGFR             = CKD-EPI 2021 on creatinine   (mL/min/1.73 m², whole number)
 
 Only what the formulas need is looked at, and a row is produced only when every
 input is present and numeric. A result that lacks, say, HDL simply gets no
 ratios — never a made-up number.
+
+eGFR is the one formula that needs something the result does not carry: the
+patient's age and sex. That is why `add_calculated` takes a patient. Without
+one — or for a patient under 18, whom the equation was never validated for —
+it produces nothing, exactly like a formula whose input is missing.
 
 Rows made here carry `calculated: True` and methodology "calculated" (unless
 the lab's catalog names one for that parameter, which then wins). That is what lets the Calculate button
@@ -41,6 +47,41 @@ BIL_DIRECT = {"BIDD", "DBIL", "BILIRUBINDIRECT", "DIRECTBILIRUBIN", "BILIRUBINDI
 T_PROTEIN  = {"PRO", "TP", "TOTALPROTEIN", "PROTEINTOTAL", "TOTALPROTEINSERUM"}
 ALBUMIN    = {"ALB", "ALBD", "ALBUMIN", "ALBUMINSERUM"}
 GLOBULIN   = {"GLOB", "GLOBULIN", "GLOBULINSERUM"}
+CREATININE = {"CRE", "CREA", "CREAT", "CRENZ", "CREATININE", "CREATININESERUM",
+              "SERUMCREATININE"}
+
+
+def _age_sex(patient):
+    """(whole years, 'M' or 'F') for the eGFR equation — either is None when it
+    cannot be used, which stops the formula the same way a missing input does.
+
+    Age is None under 18: CKD-EPI is an adult equation, and the paediatric one
+    (Schwartz) needs the child's height, which a lab result does not carry.
+    Sex is None when it is not recorded or is neither M nor F, because the
+    equation has no third branch to put such a patient in.
+    """
+    age = getattr(patient, "age", None)
+    sex = (getattr(patient, "gender", None) or "").strip()[:1].upper()
+    return (age if isinstance(age, int) and age >= 18 else None,
+            sex if sex in ("M", "F") else None)
+
+
+def _egfr(v):
+    """CKD-EPI 2021 creatinine equation, the one without a race term:
+
+        142 x min(Scr/k, 1)^a x max(Scr/k, 1)^-1.200 x 0.9938^age x 1.012 if female
+
+    with k = 0.7 and a = -0.241 for women, k = 0.9 and a = -0.302 for men.
+    Creatinine is in mg/dL, which is what the analysers here report.
+    """
+    scr = float(v["scr"])
+    female = v["_sex"] == "F"
+    k = 0.7 if female else 0.9
+    a = -0.241 if female else -0.302
+    r = scr / k
+    out = (142.0 * (min(r, 1.0) ** a) * (max(r, 1.0) ** -1.200)
+           * (0.9938 ** float(v["_age"])))
+    return out * 1.012 if female else out
 
 # name = the Parameter-list name, so the lab's reference ranges attach to the row.
 # Each formula takes the dict of inputs it asked for.
@@ -81,6 +122,12 @@ FORMULAS = [
      "needs": {"urea": UREA},
      "fn": lambda v: v["urea"] / Decimal("2.14"),
      "names": {"BUN", "BLOODUREANITROGEN", "UREANITROGEN"}},
+    # "patient": the only formula that needs more than other parameters — see
+    # _age_sex. Whole numbers, the way eGFR is reported.
+    {"name": "EGFR", "unit": "mL/min/1.73 m²", "dp": 0, "patient": True,
+     "needs": {"scr": CREATININE},
+     "fn": _egfr,
+     "names": {"EGFR", "ESTIMATEDGFR", "GFR"}},
 ]
 
 
@@ -118,7 +165,7 @@ def _is_row_of(p, formula) -> bool:
         or _key(p.get("name")) == _key(formula["name"])
 
 
-def add_calculated(parameters, overwrite: bool = False):
+def add_calculated(parameters, overwrite: bool = False, patient=None):
     """The parameters plus any calculated rows the inputs allow.
 
     overwrite=False (reading a result, building a PDF): a row that already
@@ -129,6 +176,9 @@ def add_calculated(parameters, overwrite: bool = False):
     (`calculated: True`) are recomputed from the current inputs. A row that came
     from the analyser, or was never marked calculated, is still left alone.
 
+    patient: only eGFR looks at it, for the age and sex its equation needs.
+    Left out, eGFR is simply not produced and every other formula is unaffected.
+
     Returns the same list object when nothing changed.
     """
     if not parameters:
@@ -137,6 +187,8 @@ def add_calculated(parameters, overwrite: bool = False):
     out, changed = list(parameters), False
     for f in FORMULAS:
         inputs = {k: _find(out, spell) for k, spell in f["needs"].items()}
+        if f.get("patient"):
+            inputs["_age"], inputs["_sex"] = _age_sex(patient)
         existing = next((i for i, p in enumerate(out) if _is_row_of(p, f)), None)
 
         value = None

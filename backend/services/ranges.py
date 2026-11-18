@@ -184,7 +184,7 @@ def apply_catalog_ranges(db, parameters, test_ids, patient, device_id=None) -> l
 
     # Calculated rows (VLDL, lipid ratios) join before ranges are looked up, so
     # they get their reference range and flag like any measured parameter.
-    parameters = add_calculated(parameters)
+    parameters = add_calculated(parameters, patient=patient)
 
     # An analyser sends a code and a printed name ("RBC" / "Red Blood Cells"). The
     # code is tried first; when it finds no range — because that code is another
