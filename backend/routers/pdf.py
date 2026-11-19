@@ -756,6 +756,26 @@ def tests_all_deleted(db, result) -> bool:
     return db.query(DeletedBillItem.id).filter(DeletedBillItem.accession_number == acc).first() is not None
 
 
+GTT_READING_NAMES = ["Glucose F", "Glucose (1 HR)", "Glucose (2 HR)", "Glucose (3HR)"]
+
+
+def _gtt_row_params(params: list, position: int) -> list:
+    """A glucose tolerance test is run as several timed tubes under one
+    accession; the analyser calls every reading just "Glucose". For a test
+    whose name starts with GTT, name the reading by the order it arrived
+    (fasting, 1 hr, 2 hr, 3 hr) and keep only the glucose value, so the report
+    reads like CrelioHealth's. Only the first four readings are named; a fifth
+    keeps its analyser name. The stored result is never changed."""
+    glu = next((p for p in (params or [])
+                if "GLU" in str(p.get("param") or "").upper()
+                or "GLU" in str(p.get("name") or "").upper()), None)
+    if glu is None or position >= len(GTT_READING_NAMES):
+        return list(params or [])
+    glu = dict(glu)
+    glu["name"] = glu["param"] = GTT_READING_NAMES[position]
+    return [glu]
+
+
 def _group_by_accession(results: list) -> list:
     """Analysers send one transmission per test (the XL200 sends one test at a
     time, the EC 90 its electrolytes, a manual ESR comes separately), so one
@@ -981,6 +1001,18 @@ def generate_combined_pdf(results: list, db: Session, with_header: bool = True, 
         parsed = r.parsed_data or {}
         parameters = parsed.get('parameters', [])
         _test_ids = test_ids_for_result(db, r)
+        _gtt = False
+        try:
+            _gtt = any((n or '').strip().upper().startswith('GTT')
+                       for (n,) in db.query(TestCatalog.name).filter(TestCatalog.id.in_(_test_ids)).all())
+        except Exception:
+            pass
+        if _gtt:
+            # timed tubes: run order = result id order
+            grp = sorted(grp, key=lambda x: x.id)
+            r = grp[0]
+            parsed = r.parsed_data or {}
+            parameters = _gtt_row_params(parsed.get('parameters', []), 0)
         # The lab's catalog decides the printed range — by sex and age where it
         # says so — and the Results page resolves it the same way, so screen and
         # paper never disagree. Falls back to what the analyser stored.
@@ -995,8 +1027,10 @@ def generate_combined_pdf(results: list, db: Session, with_header: bool = True, 
         if len(grp) > 1:
             try:
                 _merged = list(parameters)
-                for _o in grp[1:]:
+                for _pos, _o in enumerate(grp[1:], start=1):
                     _op = (_o.parsed_data or {}).get('parameters', [])
+                    if _gtt:
+                        _op = _gtt_row_params(_op, _pos)
                     try:
                         _op = apply_catalog_ranges(db, _op, _test_ids,
                                                    _o.patient or patient, _o.device_id)
