@@ -756,6 +756,42 @@ def tests_all_deleted(db, result) -> bool:
     return db.query(DeletedBillItem.id).filter(DeletedBillItem.accession_number == acc).first() is not None
 
 
+def _group_by_accession(results: list) -> list:
+    """Analysers send one transmission per test (the XL200 sends one test at a
+    time, the EC 90 its electrolytes, a manual ESR comes separately), so one
+    billed test can arrive as several results that share its accession number.
+    Group those so the report prints ONE panel for the test, as CrelioHealth
+    does, instead of the same heading repeated once per transmission.
+    Results with no accession number stay on their own. Order of first
+    appearance is kept; a single-result group behaves exactly as before."""
+    groups, index = [], {}
+    for r in results:
+        acc = getattr(r, "accession_number", None)
+        if not acc:
+            groups.append([r])
+        elif acc in index:
+            index[acc].append(r)
+        else:
+            index[acc] = [r]
+            groups.append(index[acc])
+    return groups
+
+
+def _dedupe_parameters(params: list) -> list:
+    """When the same parameter arrives twice for one accession (a repeat run),
+    keep the latest reading, in its original position."""
+    out, pos = [], {}
+    for p in params:
+        key = str(p.get("param") or p.get("name") or "").strip().upper()
+        if key and key in pos:
+            out[pos[key]] = p
+        else:
+            if key:
+                pos[key] = len(out)
+            out.append(p)
+    return out
+
+
 def generate_combined_pdf(results: list, db: Session, with_header: bool = True, _tighten: int = 0):
     """The official letterhead-style sample report: one shared header +
     patient-info block, then one dynamic section per test/panel (any number
@@ -939,18 +975,37 @@ def generate_combined_pdf(results: list, db: Session, with_header: bool = True, 
     # then a plain-ruled table (no colour fills) — abnormal values are bold,
     # everything else is regular weight, exactly like a printed lab report.
     signers, seen_signers = [], set()   # distinct validating doctors, collected while looping, rendered together at the end
-    for idx, r in enumerate(results):
+    groups = _group_by_accession(results)
+    for idx, grp in enumerate(groups):
+        r = grp[0]
         parsed = r.parsed_data or {}
         parameters = parsed.get('parameters', [])
         _test_ids = test_ids_for_result(db, r)
         # The lab's catalog decides the printed range — by sex and age where it
         # says so — and the Results page resolves it the same way, so screen and
         # paper never disagree. Falls back to what the analyser stored.
+        # (Each transmission of a shared accession is resolved on its own, with
+        # its own device, exactly as when each was a panel of its own; the
+        # results are only put together afterwards.)
         try:
             parameters = apply_catalog_ranges(db, parameters, _test_ids,
                                               r.patient or patient, r.device_id)
         except Exception:
             pass
+        if len(grp) > 1:
+            try:
+                _merged = list(parameters)
+                for _o in grp[1:]:
+                    _op = (_o.parsed_data or {}).get('parameters', [])
+                    try:
+                        _op = apply_catalog_ranges(db, _op, _test_ids,
+                                                   _o.patient or patient, _o.device_id)
+                    except Exception:
+                        pass
+                    _merged.extend(_op)
+                parameters = _dedupe_parameters(_merged)
+            except Exception:
+                parameters = parsed.get('parameters', [])
         # An analyser reports everything it measures in one go (the EC 90 always
         # sends Na/K/Cl). Print only the parameters the billed tests say they
         # report, so a patient billed for sodium alone gets one line, not three.
@@ -1050,6 +1105,8 @@ def generate_combined_pdf(results: list, db: Session, with_header: bool = True, 
         # and is shown on the Results page, so the printed report carries it
         # too. Only GH-900 results have one; every other panel skips this.
         chromatogram = parsed.get('chromatogram')
+        for _o in grp[1:]:
+            chromatogram = (_o.parsed_data or {}).get('chromatogram') or chromatogram
         if chromatogram:
             try:
                 chart_buf = _render_chromatogram(chromatogram, '#5c7370')
@@ -1059,11 +1116,16 @@ def generate_combined_pdf(results: list, db: Session, with_header: bool = True, 
             except Exception:
                 pass   # a chart that won't render must never cost us the report
 
-        if r.note:
+        _notes = []
+        for _o in grp:
+            if _o.note and _o.note not in _notes:
+                _notes.append(_o.note)
+        _note_text = "\n".join(_notes)
+        if _note_text:
             section_flow.append(Spacer(1, 0.2*cm))
             section_flow.append(HRFlowable(width='100%', thickness=0.5, color=BORDER))
             section_flow.append(Spacer(1, 0.15*cm))
-            section_flow.append(Paragraph(f'<u><b>Comments:</b></u> {r.note}'.replace(chr(10), "<br/>"), comments_style))
+            section_flow.append(Paragraph(f'<u><b>Comments:</b></u> {_note_text}'.replace(chr(10), "<br/>"), comments_style))
 
         tc_notes = _test_catalog_notes(db, r.accession_number)
         for label, text_val in [('Interpretation', tc_notes['interpretation']), ('Disclaimer', tc_notes['disclaimer'])]:
@@ -1101,13 +1163,13 @@ def generate_combined_pdf(results: list, db: Session, with_header: bool = True, 
         # their first panel appears, rather than once per doctor and once
         # per panel (a report with a doctor validating 5 tests should show
         # their signature once, not five times).
-        signer = _validating_doctor(db, [r], patient.tenant_id if patient else None, cfg)
+        signer = _validating_doctor(db, list(grp), patient.tenant_id if patient else None, cfg)
         signer_key = (signer['name'], signer['qualification'], signer['registration_no'], signer['signature_filename'], signer['department'])
         if signer_key not in seen_signers:
             seen_signers.add(signer_key)
             signers.append(signer)
 
-        is_last = (idx == len(results) - 1)
+        is_last = (idx == len(groups) - 1)
         if not is_last:
             story.append(PageBreak() if page_break_layout else Spacer(1, 0.7*cm))
 
