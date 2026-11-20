@@ -87,6 +87,8 @@ export default function Results() {
   const [results, setResults] = useState([]);
   const [sel,     setSel]     = useState(null);
   const [loading, setLoading] = useState(false);
+  const [view, setView] = useState(null);           // report-shaped panels for the selected patient (null = not loaded)
+  const [pendingEdit, setPendingEdit] = useState(null);
   const [pdfMenu, setPdfMenu] = useState(null);   // 'single' | 'combined' | null — which download dropdown is open
   // The list opens on today's work — a lab looks at what came in today far more
   // often than at everything ever run, and the whole table used to load first.
@@ -193,6 +195,20 @@ export default function Results() {
 
   // every OTHER result (excluding the selected one) that shares the same barcode — for "combine" downloads
   const siblingResults = sel ? results.filter(r => r.id != null && r.barcode === sel.barcode) : [];
+  // distinct tests among them (transmissions of one accession count once) — what "Combine (N)" counts
+  const testCount = new Set(siblingResults.map(r => r.accession_number || `r-${r.id}`)).size;
+  const siblingKey = siblingResults.map(r => r.id).join(',');
+
+  // The side panel shows what the printed report shows (merged per test, report order and names).
+  // Falls back to the plain per-result list if this can't be loaded.
+  useEffect(() => {
+    setView(null);
+    if (!sel || sel.locked || sel.status === 'outsource' || !siblingKey) return;
+    let live = true;
+    authedFetch(`/results/report-view?ids=${siblingKey}`).then(r => r.ok ? r.json() : null)
+      .then(d => { if (live) setView(d && Array.isArray(d.panels) ? d.panels : null); }).catch(() => {});
+    return () => { live = false; };
+  }, [sel?.id, siblingKey, sel?.parsed_data]);   // eslint-disable-line
 
   // Downloads a URL as its own file, without a page navigation. Used to
   // trigger several separate downloads from one click (report + each
@@ -273,6 +289,16 @@ export default function Results() {
     loadMissing(base).then(extra => setEditParams(prev => [...prev, ...extra.filter(e => !prev.some(p => p.name === e.name))]));
   };
   const cancelEdit = () => setEditing(false);
+  // a parameter row in the merged view belongs to one analyser result — open that one for editing
+  const editResultOf = (rid) => {
+    const r = results.find(x => x.id === rid);
+    if (!r || r.locked) return;
+    if (sel && sel.id === rid) { startEdit(); return; }
+    setPendingEdit(rid); setSel(r);
+  };
+  useEffect(() => {
+    if (pendingEdit != null && sel && sel.id === pendingEdit) { setPendingEdit(null); startEdit(); }
+  }, [sel?.id, pendingEdit]);   // eslint-disable-line
   const removeParam = (i) => { setEditParams(prev => prev.filter((_, idx) => idx !== i)); setCalcDirty(true); setAddList(null); };
   const openAdd = async () => setAddList(await loadMissing(editParams));
   const addParam = (idx) => { const row = addList?.[idx]; if (row) setEditParams(prev => [...prev, row]); setAddList(null); };
@@ -485,10 +511,10 @@ export default function Results() {
                 ); })()}
               </div>
               <div style={{ display:'flex', gap:'0.5rem', flexWrap:'wrap', justifyContent:'flex-end' }}>
-                {!sel.locked && siblingResults.length > 1 && (
+                {!sel.locked && testCount > 1 && (
                 <PdfSplitButton
-                  label={`📎 Combine (${siblingResults.length}) & Download`}
-                  title={`Combine all ${siblingResults.length} results under ${sel.barcode} into one PDF`}
+                  label={`📎 Combine (${testCount}) & Download`}
+                  title={`Combine all ${testCount} tests under ${sel.barcode} into one PDF`}
                   loading={loading}
                   open={pdfMenu==='combined'}
                   onToggle={()=>setPdfMenu(pdfMenu==='combined'?null:'combined')}
@@ -507,13 +533,13 @@ export default function Results() {
                   style={{ background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', border:'none', borderRadius:'8px', padding:'0.5rem 1rem', cursor:(loading||attachments.length===0)?'not-allowed':'pointer', fontSize:'0.78rem', fontWeight:700, fontFamily:'Manrope,sans-serif', boxShadow:'0 4px 12px rgba(249,115,22,0.3)', opacity:(attachments.length===0)?0.5:1 }}>
                   {loading ? '⏳ Generating…' : '⬇ Download Attachment'}
                 </button>
-                ) : !sel.locked && (
+                ) : !sel.locked && testCount <= 1 && (
                 <PdfSplitButton
-                  label={loading ? '⏳ Generating...' : '📄 Download PDF'}
+                  label={loading ? '⏳ Generating...' : '📄 Download'}
                   loading={loading}
                   open={pdfMenu==='single'}
                   onToggle={()=>setPdfMenu(pdfMenu==='single'?null:'single')}
-                  onChoose={(withHeader)=>{ setPdfMenu(null); downloadPDF(sel.id, withHeader); }}
+                  onChoose={(withHeader)=>{ setPdfMenu(null); if (siblingResults.length > 1) downloadCombinedPDF(withHeader); else downloadPDF(sel.id, withHeader); }}
                   colors={{ bg:'linear-gradient(135deg,#f97316,#fbbf24)', fg:'#fff', border:'transparent', shadow:'0 4px 12px rgba(249,115,22,0.3)' }}
                 />
                 )}
@@ -559,7 +585,7 @@ export default function Results() {
               <>
             {!sel.locked && (
             <div style={{ fontSize:'0.68rem', color:'#8892a4', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:'0.8rem' }}>
-              Parameters ({sel.parsed_data?.parameters?.length||0})
+              Parameters ({view ? view.reduce((n, pn) => n + pn.parameters.length, 0) : (sel.parsed_data?.parameters?.length||0)})
             </div>
             )}
             {editing ? (
@@ -605,13 +631,48 @@ export default function Results() {
               </div>
             ) : (
             <div style={{ display:'flex', flexDirection:'column', gap:'0.4rem' }}>
-              {!(sel.parsed_data?.parameters||[]).length && (
+              {view && view.length > 0 && view.map((pn, pi) => (
+                <div key={pn.accession || pi} style={{ display:'flex', flexDirection:'column', gap:'0.4rem', marginBottom:'0.6rem' }}>
+                  {(view.length > 1 || true) && (
+                    <div style={{ fontFamily:'Manrope,sans-serif', fontWeight:800, fontSize:'0.8rem', color:'#0f1218', textTransform:'uppercase', letterSpacing:'0.03em', borderBottom:'2px solid #0f1218', paddingBottom:'0.25rem', marginTop: pi ? '0.6rem' : 0 }}>
+                      {pn.title}
+                    </div>
+                  )}
+                  {pn.parameters.map((p, i) => {
+                    const refTxt = p.ref_text ? String(p.ref_text) : ((p.ref_min !== '' && p.ref_min != null) || (p.ref_max !== '' && p.ref_max != null) ? `${p.ref_min ?? ''}–${p.ref_max ?? ''}` : '—');
+                    const canRow = canEditSel || (!sel.locked && !editing && CAN_EDIT_RESULTS.includes(auth.user()?.role));
+                    return (
+                    <div key={i}>
+                      {p.heading && <div style={{ fontSize:'0.74rem', fontWeight:800, color:'#0f1218', textDecoration:'underline', margin:'0.5rem 0 0.2rem' }}>{p.heading}</div>}
+                      <div onClick={()=>{ if (canRow && p.result_id != null) editResultOf(p.result_id); }}
+                        title={canRow ? 'Click to edit' : undefined}
+                        style={{ background:flagBg(p.flag), border:`1px solid ${flagBorder(p.flag)}`, borderRadius:'9px', padding:'0.7rem 0.9rem', display:'flex', alignItems:'center', justifyContent:'space-between', gap:'0.8rem', cursor: canRow ? 'pointer' : 'default' }}>
+                        <div style={{ minWidth:0 }}>
+                          <div style={{ fontSize:'0.85rem', fontWeight:700, color:'#0f1218' }}>{p.name || p.param}</div>
+                          <div style={{ fontSize:'0.68rem', color:'#8892a4', whiteSpace:'pre-line' }}>Ref: {refTxt}{p.method ? ` · ${p.method}` : ''}</div>
+                        </div>
+                        <div style={{ display:'flex', alignItems:'center', gap:'0.6rem', flexShrink:0 }}>
+                          <div style={{ textAlign:'right' }}>
+                            <div style={{ fontSize:'1.05rem', fontWeight:800, color:flagColor(p.flag), fontFamily:'Manrope,sans-serif' }}>{p.value}</div>
+                            <div style={{ fontSize:'0.65rem', color:'#8892a4' }}>{p.unit}</div>
+                          </div>
+                          <span style={{ fontSize:'0.62rem', background:flagColor(p.flag), color:'#fff', padding:'0.2rem 0.5rem', borderRadius:'4px', fontWeight:700 }}>
+                            {p.flag==='H'?'HIGH':p.flag==='L'?'LOW':'OK'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    );
+                  })}
+                </div>
+              ))}
+              {!(view && view.length > 0) && !(sel.parsed_data?.parameters||[]).length && (
                 <div style={{ border:'1px dashed #e8ecf4', borderRadius:'9px', padding:'0.9rem', textAlign:'center', color:'#8892a4', fontSize:'0.8rem' }}>
                   No parameters on this report.{' '}
                   {canEditSel ? <button onClick={startEdit} style={{ background:'none', border:'none', color:'#1d4ed8', fontWeight:700, cursor:'pointer', fontFamily:'inherit', fontSize:'inherit' }}>Edit to add them back →</button> : null}
                 </div>
               )}
-              {(sel.parsed_data?.parameters||[]).map((p,i) => (
+              {!(view && view.length > 0) && (sel.parsed_data?.parameters||[]).map((p,i) => (
                 <div key={i} onClick={()=>{ if (canEditSel) startEdit(); }}
                   title={canEditSel ? 'Click to edit this report' : undefined}
                   style={{ background:flagBg(p.flag), border:`1px solid ${flagBorder(p.flag)}`, borderRadius:'9px', padding:'0.7rem 0.9rem', display:'flex', alignItems:'center', justifyContent:'space-between', cursor: canEditSel ? 'pointer' : 'default' }}>

@@ -1394,6 +1394,72 @@ def download_combined_pdf(ids: str, with_header: bool = True, db: Session = Depe
 
 
 # ----------------------------------------------------------------- reports ZIP
+@router.get("/report-view")
+def report_view(ids: str, db: Session = Depends(get_db)):
+    """What the printed report shows, as data, for the Results page side panel:
+    one panel per billed test (results sharing an accession merged), parameters
+    filtered / named / ordered / ranged exactly as generate_combined_pdf does,
+    each row tagged with the result it came from (`result_id`) so a click can
+    open that result for editing. Read-only; nothing here is saved."""
+    id_list = [int(x) for x in ids.split(',') if x.strip().isdigit()]
+    if not id_list:
+        raise HTTPException(status_code=400, detail="no result ids given")
+    results = db.query(LabResult).filter(LabResult.id.in_(id_list)).order_by(LabResult.id.asc()).all()
+    results = [r for r in results if r.status != "outsource" and not tests_all_deleted(db, r)]
+    panels = []
+    for grp in _group_by_accession(results):
+        try:
+            r = grp[0]
+            _test_ids = test_ids_for_result(db, r)
+            _gtt = False
+            try:
+                _gtt = any((n or '').strip().upper().startswith('GTT')
+                           for (n,) in db.query(TestCatalog.name).filter(TestCatalog.id.in_(_test_ids)).all())
+            except Exception:
+                pass
+            if _gtt:
+                grp = sorted(grp, key=lambda x: x.id)
+                r = grp[0]
+            merged = []
+            for pos, o in enumerate(grp):
+                op = [dict(p, result_id=o.id) for p in ((o.parsed_data or {}).get('parameters', []) or [])]
+                if _gtt:
+                    op = _gtt_row_params(op, pos)
+                    op = [dict(p, result_id=o.id) for p in op]
+                try:
+                    op = apply_catalog_ranges(db, op, _test_ids, o.patient or r.patient, o.device_id)
+                except Exception:
+                    pass
+                op = [dict(p, result_id=o.id) if isinstance(p, dict) and 'result_id' not in p else p for p in op]
+                merged.extend(op)
+            parameters = _dedupe_parameters(merged)
+            title = r.test_name or f"Result #{r.id}"
+            try:
+                _kept = filter_parameters_for_tests(db, parameters, _test_ids)
+                _billed = [n for (n,) in db.query(TestCatalog.name)
+                                           .filter(TestCatalog.id.in_(_test_ids)).order_by(TestCatalog.id).all() if n]
+                if _billed:
+                    title = " + ".join(_billed)
+                parameters = display_names(db, _kept)
+            except Exception:
+                pass
+            rows, last = [], None
+            try:
+                arranged = list(arrange_parameters(db, parameters))
+            except Exception:
+                arranged = [(p, None) for p in parameters]
+            for p, heading in arranged:
+                row = dict(p)
+                row['heading'] = heading if (heading and heading != last) else None
+                last = heading or last
+                rows.append(row)
+            panels.append({"accession": r.accession_number, "title": title,
+                           "result_ids": [x.id for x in grp], "parameters": rows})
+        except Exception:
+            continue
+    return {"panels": panels}
+
+
 @router.get("/reports-zip")
 def download_reports_zip(date_from: str, date_to: str,
                          organization_id: Optional[int] = None, branch_id: Optional[int] = None,
