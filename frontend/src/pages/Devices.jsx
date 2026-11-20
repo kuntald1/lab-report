@@ -16,6 +16,11 @@ const typeBrd   = t => t==='Hematology'?'#fde0d8':t==='Biochemistry'?'#dbeafe':t
 const logColor  = { info:'#8892a4', success:'#16a34a', error:'#dc2626', warn:'#d97706' };
 const logBg     = { info:'transparent', success:'#f0fdf4', error:'#fef2f2', warn:'#fffbeb' };
 const inp = { background:'#fafbfc', border:'1.5px solid #e8ecf4', borderRadius:'9px', padding:'0.6rem 0.85rem', color:'#0f1218', fontFamily:'Manrope,sans-serif', fontSize:'0.83rem', outline:'none', width:'100%' };
+// This page only shows the machines and what they are doing. Connecting, stopping,
+// adding, deleting and opening logs are done from the lab's own console, so every
+// control here is switched off and does nothing when clicked.
+const VIEW_ONLY = true;
+const off = VIEW_ONLY ? { cursor:'not-allowed', opacity:0.5 } : {};
 const lbl = { fontSize:'0.67rem', color:'#8892a4', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.06em', display:'block', marginBottom:'0.3rem' };
 
 export default function Devices() {
@@ -40,12 +45,12 @@ export default function Devices() {
   useEffect(() => { load(); pollRef.current = setInterval(load,2000); return ()=>clearInterval(pollRef.current); },[]);
 
   const handleParser = v => { const p=PARSERS.find(x=>x.value===v); if(p) setForm(f=>({...f,parser:v,device_type:p.type,port:String(p.port),name:p.label})); };
-  const submit = async () => { if(!form.name) return alert('Name required'); await api.createDevice({...form,port:form.port?parseInt(form.port):null}); setShowForm(false); load(); };
-  const connect    = async id => { setLoading(l=>({...l,[id]:'c'})); await api.connectDevice(id,10); setLoading(l=>({...l,[id]:null})); };
-  const disconnect = async id => { setLoading(l=>({...l,[id]:'d'})); await api.disconnectDevice(id); setLoading(l=>({...l,[id]:null})); };
-  const connectAll    = async () => { await api.connectAll(10); };
-  const disconnectAll = async () => { await api.disconnectAll(); load(); };
-  const del = async id => { if(!confirm('Delete?')) return; await api.disconnectDevice(id); await api.deleteDevice(id); if(selDev?.id===id) setSelDev(null); load(); };
+  const submit = async () => { if(VIEW_ONLY) return; if(!form.name) return alert('Name required'); await api.createDevice({...form,port:form.port?parseInt(form.port):null}); setShowForm(false); load(); };
+  const connect    = async id => { if(VIEW_ONLY) return; setLoading(l=>({...l,[id]:'c'})); await api.connectDevice(id,10); setLoading(l=>({...l,[id]:null})); };
+  const disconnect = async id => { if(VIEW_ONLY) return; setLoading(l=>({...l,[id]:'d'})); await api.disconnectDevice(id); setLoading(l=>({...l,[id]:null})); };
+  const connectAll    = async () => { if(VIEW_ONLY) return; await api.connectAll(10); };
+  const disconnectAll = async () => { if(VIEW_ONLY) return; await api.disconnectAll(); load(); };
+  const del = async id => { if(VIEW_ONLY) return; if(!confirm('Delete?')) return; await api.disconnectDevice(id); await api.deleteDevice(id); if(selDev?.id===id) setSelDev(null); load(); };
 
   const onC = devices.filter(d=>d.tcp_connected).length;
   const onR = devices.filter(d=>d.tcp_running).length;
@@ -60,10 +65,10 @@ export default function Devices() {
         </div>
         <div style={{ display:'flex', gap:'0.6rem', flexWrap:'wrap' }}>
           {devices.length > 0 && <>
-            <button onClick={connectAll} style={{ background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', border:'none', borderRadius:'10px', padding:'0.65rem 1.2rem', fontWeight:700, cursor:'pointer', fontSize:'0.82rem', fontFamily:'Manrope,sans-serif', boxShadow:'0 4px 14px rgba(249,115,22,0.3)', display:'flex', alignItems:'center', gap:'0.4rem' }}>🔌 Connect All</button>
-            <button onClick={disconnectAll} style={{ background:'#fff1f0', color:'#dc2626', border:'1px solid #fecaca', borderRadius:'10px', padding:'0.65rem 1rem', fontWeight:600, cursor:'pointer', fontSize:'0.82rem', fontFamily:'Manrope,sans-serif' }}>⏹ Stop All</button>
+            <button onClick={connectAll} disabled={VIEW_ONLY} title={VIEW_ONLY?'View only':undefined} style={{ background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', border:'none', borderRadius:'10px', padding:'0.65rem 1.2rem', fontWeight:700, cursor:'pointer', fontSize:'0.82rem', fontFamily:'Manrope,sans-serif', boxShadow:'0 4px 14px rgba(249,115,22,0.3)', display:'flex', alignItems:'center', gap:'0.4rem', ...off }}>🔌 Connect All</button>
+            <button onClick={disconnectAll} disabled={VIEW_ONLY} title={VIEW_ONLY?'View only':undefined} style={{ background:'#fff1f0', color:'#dc2626', border:'1px solid #fecaca', borderRadius:'10px', padding:'0.65rem 1rem', fontWeight:600, cursor:'pointer', fontSize:'0.82rem', fontFamily:'Manrope,sans-serif', ...off }}>⏹ Stop All</button>
           </>}
-          <button onClick={()=>setShowForm(!showForm)} style={{ background:'#fff', color:'#0f1218', border:'1px solid #e8ecf4', borderRadius:'10px', padding:'0.65rem 1.2rem', fontWeight:600, cursor:'pointer', fontSize:'0.82rem', fontFamily:'Manrope,sans-serif' }}>+ Add Device</button>
+          <button onClick={()=>{ if(!VIEW_ONLY) setShowForm(!showForm); }} disabled={VIEW_ONLY} title={VIEW_ONLY?'View only':undefined} style={{ background:'#fff', color:'#0f1218', border:'1px solid #e8ecf4', borderRadius:'10px', padding:'0.65rem 1.2rem', fontWeight:600, cursor:'pointer', fontSize:'0.82rem', fontFamily:'Manrope,sans-serif', ...off }}>+ Add Device</button>
         </div>
       </div>
 
@@ -134,11 +139,11 @@ export default function Devices() {
                   </div>
                   <div style={{ display:'flex', gap:'0.35rem', justifyContent:'flex-end' }}>
                     {!isRun
-                      ? <button onClick={()=>connect(d.id)} disabled={!!loading[d.id]} style={{ background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', border:'none', borderRadius:'6px', padding:'0.32rem 0.8rem', cursor:'pointer', fontSize:'0.72rem', fontWeight:700, fontFamily:'Manrope,sans-serif', opacity:loading[d.id]?0.6:1, whiteSpace:'nowrap', boxShadow:'0 2px 8px rgba(249,115,22,0.3)' }}>{loading[d.id]==='c'?'...':'Connect'}</button>
-                      : <button onClick={()=>disconnect(d.id)} style={{ background:'#fff1f0', color:'#dc2626', border:'1px solid #fecaca', borderRadius:'6px', padding:'0.32rem 0.8rem', cursor:'pointer', fontSize:'0.72rem', fontWeight:700, fontFamily:'Manrope,sans-serif', whiteSpace:'nowrap' }}>Disconnect</button>
+                      ? <button onClick={()=>connect(d.id)} disabled={VIEW_ONLY || !!loading[d.id]} title={VIEW_ONLY?'View only':undefined} style={{ background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', border:'none', borderRadius:'6px', padding:'0.32rem 0.8rem', fontSize:'0.72rem', fontWeight:700, fontFamily:'Manrope,sans-serif', cursor:VIEW_ONLY?'not-allowed':'pointer', opacity:VIEW_ONLY?0.5:(loading[d.id]?0.6:1), whiteSpace:'nowrap', boxShadow:'0 2px 8px rgba(249,115,22,0.3)', ...off }}>{loading[d.id]==='c'?'...':'Connect'}</button>
+                      : <button onClick={()=>disconnect(d.id)} disabled={VIEW_ONLY} title={VIEW_ONLY?'View only':undefined} style={{ background:'#fff1f0', color:'#dc2626', border:'1px solid #fecaca', borderRadius:'6px', padding:'0.32rem 0.8rem', cursor:'pointer', fontSize:'0.72rem', fontWeight:700, fontFamily:'Manrope,sans-serif', whiteSpace:'nowrap', ...off }}>Disconnect</button>
                     }
-                    <button onClick={()=>setSelDev(isSel?null:d)} style={{ background:isSel?'rgba(249,115,22,0.1)':'#fafbfc', color:isSel?'#f97316':'#8892a4', border:`1px solid ${isSel?'rgba(249,115,22,0.3)':'#e8ecf4'}`, borderRadius:'6px', padding:'0.32rem 0.7rem', cursor:'pointer', fontSize:'0.72rem', fontWeight:600, fontFamily:'Manrope,sans-serif' }}>Logs</button>
-                    <button onClick={()=>del(d.id)} style={{ background:'transparent', color:'#dc2626', border:'1px solid #fecaca', borderRadius:'6px', padding:'0.32rem 0.55rem', cursor:'pointer', fontSize:'0.78rem' }}>✕</button>
+                    <button onClick={()=>{ if(!VIEW_ONLY) setSelDev(isSel?null:d); }} disabled={VIEW_ONLY} title={VIEW_ONLY?'View only':undefined} style={{ background:isSel?'rgba(249,115,22,0.1)':'#fafbfc', color:isSel?'#f97316':'#8892a4', border:`1px solid ${isSel?'rgba(249,115,22,0.3)':'#e8ecf4'}`, borderRadius:'6px', padding:'0.32rem 0.7rem', cursor:'pointer', fontSize:'0.72rem', fontWeight:600, fontFamily:'Manrope,sans-serif', ...off }}>Logs</button>
+                    <button onClick={()=>del(d.id)} disabled={VIEW_ONLY} title={VIEW_ONLY?'View only':undefined} style={{ background:'transparent', color:'#dc2626', border:'1px solid #fecaca', borderRadius:'6px', padding:'0.32rem 0.55rem', cursor:'pointer', fontSize:'0.78rem', ...off }}>✕</button>
                   </div>
                 </div>
               </div>

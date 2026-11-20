@@ -71,8 +71,34 @@ export default function ChangeStatus() {
 
   useEffect(() => { if (tab === 'scan') scanInputRef.current?.focus(); }, [tab]);
 
-  const doScan = async () => {
-    const code = scanCode.trim();
+  // A barcode scanner just "types" the code and presses Enter, so it only works if
+  // the text box has the cursor. While Scan Mode is open, a keystroke that lands
+  // anywhere else on the page (the box lost focus after a click, a button, the
+  // sidebar) is handed to the box, so scanning never depends on clicking it first.
+  const scanCodeRef = useRef('');
+  const doScanRef = useRef(null);
+  useEffect(() => {
+    if (tab !== 'scan') return;
+    const onKey = (e) => {
+      const box = scanInputRef.current;
+      if (!box || document.activeElement === box) return;
+      const t = e.target, tag = t && t.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (t && t.isContentEditable)) return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.key === 'Enter') {
+        if (!scanCodeRef.current.trim()) return;
+        e.preventDefault(); box.focus(); doScanRef.current && doScanRef.current(scanCodeRef.current);
+      } else if (e.key.length === 1) {
+        e.preventDefault(); box.focus();
+        scanCodeRef.current += e.key; setScanCode(scanCodeRef.current);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [tab]);
+
+  const doScan = async (override) => {
+    const code = (typeof override === 'string' ? override : scanCode).trim();
     if (!code || scanBusy) return;
     setScanBusy(true);
     try {
@@ -82,10 +108,11 @@ export default function ChangeStatus() {
     } catch (e) {
       setScanLog(l => [{ code, time: new Date(), error: e.message }, ...l].slice(0, 50));
     }
-    setScanCode('');
+    setScanCode(''); scanCodeRef.current = '';
     setScanBusy(false);
-    scanInputRef.current?.focus();
+    setTimeout(() => scanInputRef.current?.focus(), 0);   // after the box is enabled again
   };
+  doScanRef.current = doScan;
 
   return (
     <div>
@@ -116,9 +143,9 @@ export default function ChangeStatus() {
             <div style={{ display:'flex', gap:'0.6rem' }}>
               <input ref={scanInputRef} autoFocus style={{ ...inp, fontFamily:'monospace', fontSize:'1.1rem', letterSpacing:'0.04em' }}
                 placeholder="Scan or type a code, then press Enter…" value={scanCode}
-                onChange={e=>setScanCode(e.target.value)}
-                onKeyDown={e=>{ if (e.key==='Enter') doScan(); }} disabled={scanBusy} />
-              <button onClick={doScan} disabled={scanBusy || !scanCode.trim()} style={btnPrimary}>{scanBusy?'…':'Receive'}</button>
+                onChange={e=>{ setScanCode(e.target.value); scanCodeRef.current = e.target.value; }}
+                onKeyDown={e=>{ if (e.key==='Enter') doScan(); }} onBlur={()=>{ if (tab==='scan' && !scanBusy) setTimeout(()=>{ const a=document.activeElement; if (!a || a===document.body) scanInputRef.current?.focus(); }, 0); }} disabled={scanBusy} />
+              <button onClick={()=>doScan()} disabled={scanBusy || !scanCode.trim()} style={btnPrimary}>{scanBusy?'…':'Receive'}</button>
             </div>
             <div style={{ fontSize:'0.74rem', color:'#8892a4', marginTop:'0.6rem' }}>
               Every scan moves that sample straight to <b>Received</b> — but only if it's currently <b>Collected</b>. Anything already further along (tested, validated, reported, rejected) is left untouched and reported below instead of being changed.

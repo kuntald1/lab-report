@@ -26,6 +26,11 @@ const apiErrorText = (detail) => {
   return String(detail);
 };
 
+// The one status shown on every test: where THAT test (its own accession) stands.
+const TEST_STATUS_LABEL = { collected:'Collected', dispatched:'Dispatched', received:'Received', tested:'Tested', validated:'Validated', reported:'Reported', outsource:'Outsourced', sample_rejected:'Rejected' };
+const testStatusOf = (r) => r.status === 'outsource' ? 'outsource' : (r.test_status || r.lifecycle_status || r.status || 'collected');
+const initialsOf = (name) => String(name || '?').trim().split(/\s+/).slice(0, 2).map(w => w[0]).join('').toUpperCase() || '?';
+
 const lifeColor = { collected:'#0ea5e9', dispatched:'#6366f1', received:'#8b5cf6', tested:'#f59e0b', validated:'#16a34a', reported:'#0f766e', sample_rejected:'#dc2626' };
 
 const S = { card: { background:'#fff', border:'1px solid #e8ecf4', borderRadius:'14px', boxShadow:'0 2px 16px rgba(15,18,24,0.07)' } };
@@ -310,12 +315,32 @@ export default function Results() {
   const canEditSel = !!sel && !sel.locked && !editing && sel.status !== 'outsource'
     && sel.id != null && CAN_EDIT_RESULTS.includes(auth.user()?.role);   // a report with no parameters left can still be opened to add them back
 
+  // One card per patient (barcode), listing every test that patient has; the several
+  // analyser transmissions that belong to one test (same accession) share one test row.
+  const patientGroups = (() => {
+    const order = [], byKey = new Map();
+    results.forEach((r, i) => {
+      const key = r.barcode ? `${r.patient_name}|${r.barcode}` : `row-${i}`;
+      if (!byKey.has(key)) {
+        const g = { key, patient_name:r.patient_name, barcode:r.barcode, franchise:r.franchise, created_at:r.created_at, rows:[], tests:new Map() };
+        byKey.set(key, g); order.push(g);
+      }
+      const g = byKey.get(key);
+      g.rows.push(r);
+      if (new Date(r.created_at) > new Date(g.created_at)) g.created_at = r.created_at;
+      const tkey = r.accession_number || `r-${r.id ?? i}`;
+      if (!g.tests.has(tkey)) g.tests.set(tkey, { key:tkey, accession:r.accession_number, name:r.billed_test_name || r.test_name, status:testStatusOf(r), results:[] });
+      g.tests.get(tkey).results.push(r);
+    });
+    return order.map(g => ({ ...g, tests:[...g.tests.values()] }));
+  })();
+
   return (
     <div>
       <div style={{ marginBottom:'2rem' }}>
         <div style={{ display:'inline-flex', background:'rgba(249,115,22,0.08)', border:'1px solid rgba(249,115,22,0.2)', color:'#f97316', padding:'4px 12px', borderRadius:'100px', fontSize:'0.62rem', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:'0.6rem' }}>Lab Reports</div>
         <h1 style={{ fontFamily:'Manrope,sans-serif', fontSize:'2rem', fontWeight:800, color:'#0f1218', letterSpacing:'-0.025em' }}>Results</h1>
-        <p style={{ color:'#8892a4', fontSize:'0.82rem', marginTop:'0.2rem' }}>{results.length} results — click to view details</p>
+        <p style={{ color:'#8892a4', fontSize:'0.82rem', marginTop:'0.2rem' }}>{patientGroups.length} patient{patientGroups.length === 1 ? '' : 's'} · {patientGroups.reduce((n, g) => n + g.tests.length, 0)} tests — click a test to view details</p>
       </div>
 
       {/* filters — same set as Bills, plus accession number and status */}
@@ -372,47 +397,79 @@ export default function Results() {
               No results yet. Use the Simulator to generate test data.
             </div>
           )}
-          {results.map((r,i) => (
-            <div key={r.id != null ? `res-${r.id}` : `manual-${i}-${r.barcode}-${r.created_at}`} onClick={() => { if (!r.locked) setSel(r); }} style={{
-              ...S.card, padding:'1rem 1.3rem', cursor:'pointer', display:'flex', justifyContent:'space-between', alignItems:'center', transition:'all 0.15s',
-              background: sel===r ? '#fffbf7' : '#fff',
-              border: sel===r ? '1.5px solid rgba(249,115,22,0.3)' : '1px solid #e8ecf4',
-              boxShadow: sel===r ? '0 4px 20px rgba(249,115,22,0.12)' : '0 2px 8px rgba(15,18,24,0.05)',
-            }}
-              onMouseEnter={e=>{ if(sel!==r){ e.currentTarget.style.background='#fafbfc'; e.currentTarget.style.borderColor='#d1d5db'; }}}
-              onMouseLeave={e=>{ if(sel!==r){ e.currentTarget.style.background='#fff'; e.currentTarget.style.borderColor='#e8ecf4'; }}}>
-              <div style={{ display:'flex', alignItems:'center', gap:'0.8rem' }}>
-                <div style={{ width:'40px', height:'40px', background:'rgba(249,115,22,0.08)', border:'1px solid rgba(249,115,22,0.15)', borderRadius:'10px', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'1.1rem' }}>🧪</div>
-                <div>
-                  <div style={{ fontWeight:700, color:'#0f1218', fontSize:'0.88rem' }}>{r.patient_name}</div>
-                  <div style={{ fontSize:'0.72rem', color:'#8892a4', marginTop:'0.1rem' }}>
-                    {r.test_name} · <span style={{ color:'#f97316', fontWeight:700 }}>{r.barcode}</span>
-                    {r.accession_number && <> · <span style={{ color:'#c2410c', fontWeight:700, fontFamily:'monospace' }}>{r.accession_number}</span></>}
+          {patientGroups.map(g => {
+            const selInGroup = g.rows.includes(sel);
+            return (
+            <div key={g.key} style={{ ...S.card, overflow:'hidden', transition:'all 0.15s',
+              border: selInGroup ? '1.5px solid rgba(249,115,22,0.35)' : '1px solid #e8ecf4',
+              boxShadow: selInGroup ? '0 6px 24px rgba(249,115,22,0.12)' : '0 2px 10px rgba(15,18,24,0.05)' }}>
+              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:'1rem', padding:'0.95rem 1.2rem', background:'linear-gradient(180deg,#fffaf5,#ffffff)', borderBottom:'1px solid #f1f3f8' }}>
+                <div style={{ display:'flex', alignItems:'center', gap:'0.8rem', minWidth:0 }}>
+                  <div style={{ width:'40px', height:'40px', borderRadius:'12px', flexShrink:0, background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', fontWeight:800, fontSize:'0.9rem', fontFamily:'Manrope,sans-serif', boxShadow:'0 4px 10px rgba(249,115,22,0.25)' }}>{initialsOf(g.patient_name)}</div>
+                  <div style={{ minWidth:0 }}>
+                    <div style={{ fontFamily:'Manrope,sans-serif', fontWeight:800, color:'#0f1218', fontSize:'0.95rem', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{g.patient_name}</div>
+                    <div style={{ fontSize:'0.72rem', color:'#8892a4', marginTop:'0.15rem' }}>
+                      <span style={{ color:'#f97316', fontWeight:700, fontFamily:'monospace' }}>{g.barcode}</span>
+                      {g.franchise && <> · {g.franchise}</>}
+                      {g.rows.some(r => r.over_limit) && <span title="This franchise is over its credit limit" style={{ marginLeft:'0.5rem', fontSize:'0.62rem', background:'rgba(220,38,38,0.12)', color:'#dc2626', padding:'0.12rem 0.5rem', borderRadius:'20px', fontWeight:800 }}>🔴 OVER LIMIT</span>}
+                    </div>
                   </div>
                 </div>
-              </div>
-              <div style={{ textAlign:'right' }}>
-                {r.lifecycle_status && (
-                  <span style={{ fontSize:'0.66rem', background:(lifeColor[r.lifecycle_status]||'#94a3b8')+'22', color:lifeColor[r.lifecycle_status]||'#94a3b8', padding:'0.2rem 0.6rem', borderRadius:'20px', fontWeight:800, textTransform:'capitalize', marginRight:'0.35rem' }}>{r.lifecycle_status}</span>
-                )}
-                {r.lifecycle_status && !['reported'].includes(r.lifecycle_status) && (
-                  <span style={{ fontSize:'0.66rem', background:'rgba(245,158,11,0.15)', color:'#b45309', padding:'0.2rem 0.6rem', borderRadius:'20px', fontWeight:800, marginRight:'0.35rem' }}>⏳ PENDING</span>
-                )}
-                <span style={{ fontSize:'0.68rem', background:resultStatusColor(r.status)+'1a', color:resultStatusColor(r.status), padding:'0.2rem 0.65rem', borderRadius:'20px', fontWeight:700, border:`1px solid ${resultStatusColor(r.status)}33`, textTransform: r.status==='outsource'?'uppercase':'none' }}>{r.status==='outsource'?'📤 Outsourced':r.status}</span>
-                {r.over_limit && <span title="This franchise is over its credit limit" style={{ marginLeft:'0.35rem', fontSize:'0.62rem', background:'rgba(220,38,38,0.12)', color:'#dc2626', padding:'0.2rem 0.5rem', borderRadius:'20px', fontWeight:800 }}>🔴 OVER LIMIT</span>}
-                {r.locked && <span style={{ marginLeft:'0.35rem', fontSize:'0.62rem', background:'rgba(220,38,38,0.12)', color:'#dc2626', padding:'0.2rem 0.5rem', borderRadius:'20px', fontWeight:800 }}>🔒</span>}
-                <div style={{ fontSize:'0.68rem', color:'#8892a4', marginTop:'0.3rem', display:'flex', alignItems:'center', justifyContent:'flex-end', gap:'0.4rem' }}>
-                  {r.edited && (
-                    <span title={`Edited${r.edited.by ? ` by ${r.edited.by}` : ''}${r.edited.at ? ` on ${new Date(r.edited.at).toLocaleString('en-IN')}` : ''}${r.edited.count > 1 ? ` · ${r.edited.count} times` : ''}`}
-                      style={{ fontSize:'0.62rem', background:'rgba(124,58,237,0.1)', color:'#7c3aed', border:'1px solid rgba(124,58,237,0.25)', padding:'0.12rem 0.5rem', borderRadius:'20px', fontWeight:800 }}>
-                      ✎ EDITED{r.edited.count > 1 ? ` ×${r.edited.count}` : ''}
-                    </span>
-                  )}
-                  {new Date(r.created_at).toLocaleString('en-IN')}
+                <div style={{ textAlign:'right', flexShrink:0 }}>
+                  <div style={{ fontSize:'0.7rem', color:'#8892a4' }}>{new Date(g.created_at).toLocaleString('en-IN')}</div>
+                  <div style={{ fontSize:'0.66rem', fontWeight:800, color:'#475569', marginTop:'0.2rem', textTransform:'uppercase', letterSpacing:'0.04em' }}>{g.tests.length} test{g.tests.length === 1 ? '' : 's'}</div>
                 </div>
               </div>
+
+              {g.tests.map((t, ti) => {
+                const active = t.results.includes(sel);
+                const first = t.results.find(r => !r.locked) || t.results[0];
+                const stc = lifeColor[t.status] || RESULT_STATUS_COLOR[t.status] || '#94a3b8';
+                const edited = t.results.find(r => r.edited)?.edited;
+                const locked = t.results.some(r => r.locked);
+                return (
+                <div key={t.key} onClick={() => { if (!first.locked) setSel(active ? sel : first); }}
+                  style={{ padding:'0.75rem 1.2rem', cursor: first.locked ? 'default' : 'pointer', display:'flex', alignItems:'center', justifyContent:'space-between', gap:'1rem',
+                           borderTop: ti ? '1px solid #f4f6fa' : 'none', background: active ? '#fffbf7' : '#fff',
+                           borderLeft: active ? '3px solid #f97316' : '3px solid transparent', transition:'background 0.12s' }}
+                  onMouseEnter={e=>{ if(!active) e.currentTarget.style.background='#fafbfc'; }}
+                  onMouseLeave={e=>{ if(!active) e.currentTarget.style.background='#fff'; }}>
+                  <div style={{ minWidth:0 }}>
+                    <div style={{ fontWeight:700, color:'#0f1218', fontSize:'0.86rem' }}>{t.name}</div>
+                    <div style={{ display:'flex', flexWrap:'wrap', alignItems:'center', gap:'0.35rem', marginTop:'0.25rem' }}>
+                      {t.accession && <span style={{ color:'#c2410c', fontWeight:700, fontFamily:'monospace', fontSize:'0.7rem' }}>{t.accession}</span>}
+                      {t.results.length > 1 && t.results.map(r => {
+                        const names = (r.parsed_data?.parameters || []).map(p => p.name).filter(Boolean);
+                        const label = names.length ? names.slice(0, 2).join(', ') + (names.length > 2 ? ` +${names.length - 2}` : '') : (r.test_name || 'Result');
+                        return (
+                          <button key={r.id ?? label} onClick={e => { e.stopPropagation(); if (!r.locked) setSel(r); }}
+                            title="Open this result"
+                            style={{ fontSize:'0.64rem', fontWeight:700, padding:'0.1rem 0.5rem', borderRadius:'20px', cursor:'pointer', fontFamily:'Manrope,sans-serif',
+                                     background: sel===r ? 'rgba(249,115,22,0.14)' : '#f4f6fa', color: sel===r ? '#c2410c' : '#64748b',
+                                     border: sel===r ? '1px solid rgba(249,115,22,0.4)' : '1px solid #e8ecf4' }}>{label}</button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <div style={{ display:'flex', alignItems:'center', gap:'0.4rem', flexShrink:0 }}>
+                    {edited && (
+                      <span title={`Edited${edited.by ? ` by ${edited.by}` : ''}${edited.at ? ` on ${new Date(edited.at).toLocaleString('en-IN')}` : ''}${edited.count > 1 ? ` · ${edited.count} times` : ''}`}
+                        style={{ fontSize:'0.62rem', background:'rgba(124,58,237,0.1)', color:'#7c3aed', border:'1px solid rgba(124,58,237,0.25)', padding:'0.12rem 0.5rem', borderRadius:'20px', fontWeight:800 }}>
+                        ✎ EDITED{edited.count > 1 ? ` ×${edited.count}` : ''}
+                      </span>
+                    )}
+                    {locked && <span style={{ fontSize:'0.62rem', background:'rgba(220,38,38,0.12)', color:'#dc2626', padding:'0.2rem 0.5rem', borderRadius:'20px', fontWeight:800 }}>🔒</span>}
+                    <span style={{ display:'inline-flex', alignItems:'center', gap:'0.35rem', fontSize:'0.7rem', fontWeight:800, background:stc+'1a', color:stc, border:`1px solid ${stc}33`, padding:'0.22rem 0.7rem', borderRadius:'20px' }}>
+                      <span style={{ width:'6px', height:'6px', borderRadius:'50%', background:stc }}></span>
+                      {TEST_STATUS_LABEL[t.status] || t.status}
+                    </span>
+                  </div>
+                </div>
+                );
+              })}
             </div>
-          ))}
+            );
+          })}
         </div>
 
         {sel && (

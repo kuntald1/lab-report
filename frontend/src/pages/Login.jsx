@@ -180,8 +180,9 @@ export default function Login({ onLogin }) {
            Hidden on a narrow screen.
 
            Two stacked parts: the photo and headline above, the feature strip and
-           the footer line below. The strip is pulled up only slightly over the foot
-           of the photo, so it never lies across the building's signboards. ── */}
+           the footer line below. The strip is pulled up over the foot of the photo
+           and the photo fades out above it, so the pharmacy signboard under the
+           building is covered and never shows. ── */}
       <div className="login-side"
            style={{ position: 'relative', flex: 1, minWidth: 0, height: '100vh', overflow: 'hidden',
                     display: 'flex', flexDirection: 'column' }}>
@@ -201,8 +202,8 @@ export default function Login({ onLogin }) {
             <img src={src} alt=""
                  style={{ width: '100%', height: '100%', display: 'block',
                           objectFit: 'cover', objectPosition: 'right top',
-                          WebkitMaskImage: 'linear-gradient(180deg, #000 90%, rgba(0,0,0,0) 100%)',
-                          maskImage: 'linear-gradient(180deg, #000 90%, rgba(0,0,0,0) 100%)' }} />
+                          WebkitMaskImage: 'linear-gradient(180deg, #000 74%, rgba(0,0,0,0) 81%)',
+                          maskImage: 'linear-gradient(180deg, #000 74%, rgba(0,0,0,0) 81%)' }} />
           </div>
         ))}
 
@@ -241,7 +242,7 @@ export default function Login({ onLogin }) {
         </div>
 
         <div style={{ position: 'relative', flex: '0 0 auto', boxSizing: 'border-box',
-                      marginTop: 'calc(-1 * clamp(0.6rem, 2.2vh, 1.6rem))',
+                      marginTop: 'calc(-1 * clamp(2.5rem, 15vh, 9rem))',
                       padding: '0 9% clamp(0.8rem, 3vh, 2.2rem) 8%' }}>
 
           <div style={{ flex: '0 0 auto', background: '#fff', borderRadius: '18px',

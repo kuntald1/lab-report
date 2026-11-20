@@ -5,6 +5,7 @@ from models.models import LabResult, Patient, Device, ResultAttachment
 from auth.deps import get_scope, apply_scope, Scope, get_current_user
 from auth.audit import write_audit
 from models.org import User, Role, Franchise
+from models.billing import BillItem
 from services.credit import is_franchise_locked
 from services.ranges import apply_catalog_ranges, test_ids_for_result, missing_declared
 from services.calculated import add_calculated
@@ -193,9 +194,22 @@ def get_all_results(db: Session = Depends(get_db), scope: Scope = Depends(get_sc
     org_names = {o.id: o.name for o in
                  db.query(Franchise).filter(Franchise.id.in_(org_ids or [-1])).all()}
 
+    # The test each result belongs to, as billed, and that test's own status
+    # (collected → received → tested → validated → reported) — read per accession
+    # so the Results page can show the real per-test state instead of the
+    # patient-level or analyser-parse status.
+    _accs = {r.accession_number for r in results if r.accession_number}
+    bill_info = {}
+    if _accs:
+        for bi in (db.query(BillItem.accession_number, BillItem.test_name, BillItem.status)
+                     .filter(BillItem.accession_number.in_(_accs))
+                     .order_by(BillItem.id.asc()).all()):
+            bill_info[bi[0]] = (bi[1], bi[2])
+
     output = []
     for r in results:
         org_id = pat_org.get(r.patient_id)
+        _bn, _bs = bill_info.get(r.accession_number, (None, None))
         row = {
             "id":           r.id,
             # the PATIENT's barcode — what the printed report shows. The analyser can send a
@@ -206,6 +220,8 @@ def get_all_results(db: Session = Depends(get_db), scope: Scope = Depends(get_sc
             "test_name":    r.test_name,
             "status":       r.status,
             "lifecycle_status": r.patient.status if r.patient else None,
+            "billed_test_name": _bn,
+            "test_status":  _bs or ("collected" if r.accession_number else None),
             "parsed_data":  None if fr_locked else _with_catalog_ranges(db, r),
             "note":         None if fr_locked else r.note,
             "created_at":   r.created_at,
