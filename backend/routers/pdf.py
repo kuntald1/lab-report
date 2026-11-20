@@ -1422,16 +1422,24 @@ def report_view(ids: str, db: Session = Depends(get_db)):
                 r = grp[0]
             merged = []
             for pos, o in enumerate(grp):
-                op = [dict(p, result_id=o.id) for p in ((o.parsed_data or {}).get('parameters', []) or [])]
+                src = (o.parsed_data or {}).get('parameters', []) or []
+                op = [dict(p, result_id=o.id, src_ix=i) for i, p in enumerate(src)]
                 if _gtt:
                     op = _gtt_row_params(op, pos)
-                    op = [dict(p, result_id=o.id) for p in op]
+                before = list(op)
                 try:
                     op = apply_catalog_ranges(db, op, _test_ids, o.patient or r.patient, o.device_id)
                 except Exception:
-                    pass
-                op = [dict(p, result_id=o.id) if isinstance(p, dict) and 'result_id' not in p else p for p in op]
-                merged.extend(op)
+                    op = before
+                fixed = []
+                for i, p in enumerate(op):
+                    if isinstance(p, dict):
+                        p = dict(p)
+                        p.setdefault('result_id', o.id)
+                        if 'src_ix' not in p and not _gtt and len(op) == len(before):
+                            p['src_ix'] = before[i].get('src_ix')
+                    fixed.append(p)
+                merged.extend(fixed)
             parameters = _dedupe_parameters(merged)
             title = r.test_name or f"Result #{r.id}"
             try:
