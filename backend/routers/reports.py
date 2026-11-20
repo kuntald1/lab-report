@@ -92,12 +92,9 @@ def _pending_query(db: Session, user: User):
     q_tested = (db.query(Bill.patient_id)
                   .join(BillItem, BillItem.bill_id == Bill.id)
                   .filter(BillItem.status == "tested"))
-    if user.role not in ADMIN_ROLES:
-        q_tested = (q_tested
-                      .join(Patient, Patient.id == Bill.patient_id)
-                      .outerjoin(TestCatalog, TestCatalog.id == BillItem.test_id)
-                      .filter(or_(TestCatalog.assigned_doctor_id == user.id,
-                                 Patient.assigned_doctor_id == user.id)))
+    # Every doctor sees every 'tested' report — any one of them can validate it
+    # (the validating doctor's own signature goes on the report). Tests are no
+    # longer limited to the doctor assigned in the Tests Catalog.
     tested_patient_ids = q_tested.distinct()
     q = db.query(Patient).filter(Patient.id.in_(tested_patient_ids), Patient.is_active.is_(True))
     q = q.filter(Patient.needs_history.isnot(True))
@@ -115,12 +112,24 @@ def pending_reports(db: Session = Depends(get_db), user: User = Depends(get_curr
     Admins see all tested patients.
     """
     rows = _pending_query(db, user).order_by(Patient.created_at.desc()).limit(500).all()
-    doctor_id = None if user.role in ADMIN_ROLES else user.id
-    accmap = _accessions_for_patients(db, [p.id for p in rows], statuses=["tested"], doctor_id=doctor_id)
+    accmap = _accessions_for_patients(db, [p.id for p in rows], statuses=["tested"])
+    # names of the tests waiting for validation, per patient (a group shows once, by its name)
+    names = {}
+    if rows:
+        for pid, tname, pname, pkg in (db.query(Bill.patient_id, BillItem.test_name, BillItem.package_name, BillItem.package_id)
+                                         .join(BillItem, BillItem.bill_id == Bill.id)
+                                         .filter(Bill.patient_id.in_([p.id for p in rows]),
+                                                 BillItem.status == "tested")
+                                         .order_by(BillItem.id.asc()).all()):
+            label = pname if pkg and pname else tname
+            lst = names.setdefault(pid, [])
+            if label and label not in lst:
+                lst.append(label)
     out = []
     for p in rows:
         d = _patient_brief(p)
         d["accession_numbers"] = accmap.get(p.id, [])
+        d["test_names"] = names.get(p.id, [])
         out.append(d)
     return out
 
@@ -273,9 +282,7 @@ def validate_report(patient_id: int, request: Request,
     p = db.query(Patient).filter(Patient.id == patient_id).first()
     if not p:
         raise HTTPException(404, "patient not found")
-    # only the assigned doctor (or admin) can validate
-    if user.role not in ADMIN_ROLES and p.assigned_doctor_id not in (None, user.id):
-        raise HTTPException(403, "not your assigned report")
+    # any doctor can validate any tested report — the validator's signature is used
     # history must be resolved before validating
     if p.needs_history:
         raise HTTPException(400, "history is pending — fill it before validating")
@@ -298,9 +305,6 @@ def validate_report(patient_id: int, request: Request,
     advanced_items = []
     if bill_ids:
         q_adv = db.query(BillItem).filter(BillItem.bill_id.in_(bill_ids), BillItem.status == "tested")
-        if user.role not in ADMIN_ROLES and p.assigned_doctor_id != user.id:
-            q_adv = q_adv.join(TestCatalog, TestCatalog.id == BillItem.test_id) \
-                         .filter(TestCatalog.assigned_doctor_id == user.id)
         advanced_items = q_adv.all()
         now = datetime.utcnow()
         for it in advanced_items:

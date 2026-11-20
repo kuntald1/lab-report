@@ -172,18 +172,19 @@ export default function ReportValidate() {
         <table style={{ width:'100%', borderCollapse:'collapse' }}>
           <thead>
             <tr style={{ background:'#fafbfc', borderBottom:'1.5px solid #e8ecf4' }}>
-              {['Barcode','Accession No.','Patient','Age/Gender','Sample','Status','Registered','Action'].map(h => (
+              {['Barcode','Accession No.','Patient','Test Names','Age/Gender','Sample','Status','Registered','Action'].map(h => (
                 <th key={h} style={{ textAlign:'left', padding:'0.75rem 1.1rem', fontSize:'0.64rem', color:'#8892a4', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.06em' }}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {rows.length === 0 && <tr><td colSpan={8} style={{ textAlign:'center', padding:'3rem', color:'#8892a4' }}>{loading?'Loading…':'No reports pending validation.'}</td></tr>}
+            {rows.length === 0 && <tr><td colSpan={9} style={{ textAlign:'center', padding:'3rem', color:'#8892a4' }}>{loading?'Loading…':'No reports pending validation.'}</td></tr>}
             {rows.map(p => (
               <tr key={p.id} style={{ borderBottom:'1px solid #f4f6fa' }} onMouseEnter={e=>e.currentTarget.style.background='#fafbfc'} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
                 <td style={{ padding:'0.8rem 1.1rem', fontFamily:'monospace', fontWeight:700, color:'#6366f1', fontSize:'0.8rem', cursor:'pointer', textDecoration:'underline' }} onClick={()=>open(p)}>{p.barcode}</td>
                 <td style={{ padding:'0.8rem 1.1rem', fontFamily:'monospace', color:'#c2410c', fontSize:'0.76rem' }}>{(p.accession_numbers||[]).join(', ') || '—'}</td>
                 <td style={{ padding:'0.8rem 1.1rem', fontWeight:600, color:'#0f1218', fontSize:'0.85rem' }}>{p.patient_name}</td>
+                <td style={{ padding:'0.8rem 1.1rem', color:'#0f1218', fontSize:'0.8rem' }}>{(p.test_names||[]).map((n,i) => <div key={i} style={{ lineHeight:1.5 }}>{n}</div>)}{!(p.test_names||[]).length && '—'}</td>
                 <td style={{ padding:'0.8rem 1.1rem', color:'#8892a4', fontSize:'0.82rem' }}>{p.age||'—'} / {p.gender||'—'}</td>
                 <td style={{ padding:'0.8rem 1.1rem', color:'#475569', fontSize:'0.82rem' }}>{p.sample_type||'—'}</td>
                 <td style={{ padding:'0.8rem 1.1rem' }}><span style={{ background:'rgba(245,158,11,0.15)', color:'#b45309', padding:'0.2rem 0.6rem', borderRadius:'20px', fontSize:'0.7rem', fontWeight:700 }}>{p.status}</span></td>
