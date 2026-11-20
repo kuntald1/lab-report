@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { authedFetch, auth } from '../services/auth';
 import SearchSelect from '../components/SearchSelect';
 import TestFilter, { splitTestFilter } from '../components/TestFilter';
@@ -33,6 +33,10 @@ export default function BlankReport() {
   const [branches, setBranches] = useState([]);
   const [picked, setPicked] = useState(() => new Set());   // bill_item ids
   const [made, setMade]     = useState([]);                // reports created, open for editing
+  const madeRef = useRef(null);
+  // bring the freshly created reports into view — they sit above the list
+  const madeCount = made.length;
+  useEffect(() => { if (madeCount > 0 && madeRef.current) madeRef.current.scrollIntoView({ behavior:'smooth', block:'start' }); }, [madeCount]);
   const [busy, setBusy]     = useState(false);
   const [err, setErr]       = useState('');
   const [applied, setApplied] = useState({ stage:'received', test:'' });   // what the list on screen was loaded with
@@ -160,6 +164,35 @@ export default function BlankReport() {
 
       {err && <div style={{ background:'#fef2f2', border:'1px solid #fecaca', color:'#dc2626', borderRadius:'10px', padding:'0.7rem 0.9rem', marginBottom:'1rem', fontSize:'0.82rem' }}>{err}</div>}
 
+      {/* the reports just created — shown ABOVE the list so they are never far below it */}
+      {made.length > 0 && (
+        <div ref={madeRef} style={{ ...S.card, marginBottom:'1.2rem' }}>
+          <div style={{ fontSize:'0.9rem', fontWeight:800, color:'#0f1218', fontFamily:'Manrope,sans-serif', marginBottom:'0.2rem' }}>Fill in the values</div>
+          <div style={{ fontSize:'0.76rem', color:'#8892a4', marginBottom:'1rem' }}>
+            {made.length} report(s) ready — each one saves on its own. Leave a parameter blank and it stays off the printed report.
+          </div>
+          <div style={{ display:'flex', flexDirection:'column', gap:'0.9rem' }}>
+            {made.map(r => (
+              <div key={r.id} style={{ border:'1px solid #e8ecf4', borderRadius:'11px', overflow:'hidden' }}>
+                <div style={{ padding:'0.7rem 0.95rem', background:'#fafbfc', borderBottom:'1px solid #e8ecf4' }}>
+                  <div style={{ fontSize:'0.84rem', fontWeight:700, color:'#0f1218', fontFamily:'Manrope,sans-serif' }}>
+                    {r.patient_name || '—'} <span style={{ fontFamily:'monospace', color:'#c2410c' }}>{r.barcode || '—'}</span>
+                  </div>
+                  <div style={{ fontSize:'0.7rem', color:'#8892a4', marginTop:'0.15rem' }}>{r.test_name} · {r.accession_number || '—'}</div>
+                </div>
+                <div style={{ padding:'0.9rem' }}>
+                  <ResultEditor result={r} onSaved={updated => {
+                    setMade(prev => prev.map(x => x.id === r.id
+                      ? { ...x, parsed_data: updated.parsed_data, note: updated.note } : x));
+                    markTested(r, updated);
+                  }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* the billed tests that came back */}
       <div style={{ ...S.card, padding:0, overflow:'hidden', marginBottom:'1.2rem' }}>
         <div style={{ padding:'0.9rem 1.2rem', borderBottom:'1px solid #e8ecf4', display:'flex', alignItems:'center', justifyContent:'space-between', gap:'0.7rem', flexWrap:'wrap' }}>
@@ -217,34 +250,6 @@ export default function BlankReport() {
         )}
       </div>
 
-      {/* the reports just created, each editable and saved on its own */}
-      {made.length > 0 && (
-        <div style={{ ...S.card }}>
-          <div style={{ fontSize:'0.9rem', fontWeight:800, color:'#0f1218', fontFamily:'Manrope,sans-serif', marginBottom:'0.2rem' }}>Fill in the values</div>
-          <div style={{ fontSize:'0.76rem', color:'#8892a4', marginBottom:'1rem' }}>
-            {made.length} report(s) ready — each one saves on its own. Leave a parameter blank and it stays off the printed report.
-          </div>
-          <div style={{ display:'flex', flexDirection:'column', gap:'0.9rem' }}>
-            {made.map(r => (
-              <div key={r.id} style={{ border:'1px solid #e8ecf4', borderRadius:'11px', overflow:'hidden' }}>
-                <div style={{ padding:'0.7rem 0.95rem', background:'#fafbfc', borderBottom:'1px solid #e8ecf4' }}>
-                  <div style={{ fontSize:'0.84rem', fontWeight:700, color:'#0f1218', fontFamily:'Manrope,sans-serif' }}>
-                    {r.patient_name || '—'} <span style={{ fontFamily:'monospace', color:'#c2410c' }}>{r.barcode || '—'}</span>
-                  </div>
-                  <div style={{ fontSize:'0.7rem', color:'#8892a4', marginTop:'0.15rem' }}>{r.test_name} · {r.accession_number || '—'}</div>
-                </div>
-                <div style={{ padding:'0.9rem' }}>
-                  <ResultEditor result={r} onSaved={updated => {
-                    setMade(prev => prev.map(x => x.id === r.id
-                      ? { ...x, parsed_data: updated.parsed_data, note: updated.note } : x));
-                    markTested(r, updated);
-                  }} />
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
