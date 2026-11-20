@@ -200,8 +200,6 @@ export default function Results() {
 
   // every OTHER result (excluding the selected one) that shares the same barcode — for "combine" downloads
   const siblingResults = sel ? results.filter(r => r.id != null && r.barcode === sel.barcode) : [];
-  // distinct tests among them (transmissions of one accession count once) — what "Combine (N)" counts
-  const testCount = new Set(siblingResults.map(r => r.accession_number || `r-${r.id}`)).size;
   const siblingKey = siblingResults.map(r => r.id).join(',');
 
   // The side panel shows what the printed report shows (merged per test, report order and names).
@@ -642,13 +640,13 @@ export default function Results() {
                   style={{ background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', border:'none', borderRadius:'8px', padding:'0.5rem 1rem', cursor:(loading||attachments.length===0)?'not-allowed':'pointer', fontSize:'0.78rem', fontWeight:700, fontFamily:'Manrope,sans-serif', boxShadow:'0 4px 12px rgba(249,115,22,0.3)', opacity:(attachments.length===0)?0.5:1 }}>
                   {loading ? '⏳ Generating…' : '⬇ Download Attachment'}
                 </button>
-                ) : !sel.locked && siblingResults.length <= 1 && (
+                ) : !sel.locked && (
                 <PdfSplitButton
-                  label={loading ? '⏳ Generating...' : '📄 Download'}
+                  label={loading ? '⏳ Generating...' : '📄 Download PDF'}
                   loading={loading}
                   open={pdfMenu==='single'}
                   onToggle={()=>setPdfMenu(pdfMenu==='single'?null:'single')}
-                  onChoose={(withHeader)=>{ setPdfMenu(null); if (siblingResults.length > 1) downloadCombinedPDF(withHeader); else downloadPDF(sel.id, withHeader); }}
+                  onChoose={(withHeader)=>{ setPdfMenu(null); downloadPDF(sel.id, withHeader); }}
                   colors={{ bg:'linear-gradient(135deg,#f97316,#fbbf24)', fg:'#fff', border:'transparent', shadow:'0 4px 12px rgba(249,115,22,0.3)' }}
                 />
                 )}
