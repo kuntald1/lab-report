@@ -322,6 +322,18 @@ def _bill_dict(db: Session, b: Bill) -> dict:
     patient = db.query(Patient).filter(Patient.id == b.patient_id).first()
     org = db.query(Franchise).filter(Franchise.id == b.organization_id).first() if b.organization_id else None
     collected_by_name, branch_name = _collected_label(db, b, patient)
+    # department of each test, through the test catalog
+    from models.clinical import TestCatalog, Department
+    _tids = {i.test_id for i in its if i.test_id}
+    _dept = {}
+    if _tids:
+        _dept = {tid: did for tid, did in db.query(TestCatalog.id, TestCatalog.department_id)
+                                            .filter(TestCatalog.id.in_(_tids)).all()}
+    _dnames = {}
+    _dids = {d for d in _dept.values() if d}
+    if _dids:
+        _dnames = {did: nm for did, nm in db.query(Department.id, Department.name)
+                                              .filter(Department.id.in_(_dids)).all()}
     return {
         "collected_by_name": collected_by_name,
         "branch_id": b.branch_id, "branch_name": branch_name,
@@ -338,7 +350,9 @@ def _bill_dict(db: Session, b: Bill) -> dict:
         "items": [{"id": i.id, "test_id": i.test_id, "test_name": i.test_name, "mrp": i.mrp,
                    "price": i.price, "price_source": i.price_source,
                    "package_id": i.package_id, "package_name": i.package_name,
-                   "accession_number": i.accession_number, "status": i.status} for i in its],
+                   "accession_number": i.accession_number, "status": i.status,
+                   "department_id": _dept.get(i.test_id),
+                   "department_name": _dnames.get(_dept.get(i.test_id))} for i in its],
         "payments": [{"id": p.id, "method": p.method, "amount": p.amount,
                       "status": p.status, "created_at": p.created_at} for p in pays],
     }
@@ -351,7 +365,8 @@ def list_bills(db: Session = Depends(get_db), scope: Scope = Depends(get_scope),
                patient_name: Optional[str] = None,
                date_from: Optional[str] = None, date_to: Optional[str] = None,
                stage: Optional[str] = None,
-               test_id: Optional[int] = None, package_id: Optional[int] = None):
+               test_id: Optional[int] = None, package_id: Optional[int] = None,
+               department_id: Optional[int] = None):
     q = db.query(Bill)
     if scope.tenant_id is not None:
         q = q.filter(Bill.tenant_id == scope.tenant_id)
@@ -392,9 +407,9 @@ def list_bills(db: Session = Depends(get_db), scope: Scope = Depends(get_scope),
         item_bills = [b for (b,) in db.query(BillItem.bill_id).filter(BillItem.status == stage).distinct().all()]
         pids = [p for (p,) in db.query(Patient.id).filter(Patient.status == stage).all()]
         q = q.filter(_or(Bill.id.in_(item_bills or [-1]), Bill.patient_id.in_(pids or [-1])))
-    if test_id or package_id:
+    if test_id or package_id or department_id:
         from services.result_filters import test_scope
-        _bill_ids, _pids, _accs = test_scope(db, test_id, package_id)
+        _bill_ids, _pids, _accs = test_scope(db, test_id, package_id, department_id)
         q = q.filter(Bill.id.in_(_bill_ids or [-1]))
     rows = q.order_by(Bill.id.desc()).limit(500).all()
     return [_bill_dict(db, b) for b in rows]

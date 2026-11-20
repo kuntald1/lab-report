@@ -48,6 +48,7 @@ def sample_details(
     status: Optional[str] = None,        # dispatched|received|tested|validated|reported
     test_id: Optional[int] = None,
     package_id: Optional[int] = None,
+    department_id: Optional[int] = None,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -70,9 +71,9 @@ def sample_details(
         q = q.filter(Patient.created_at >= date_from)
     if date_to:
         q = q.filter(Patient.created_at <= date_to + " 23:59:59")
-    if test_id or package_id:
+    if test_id or package_id or department_id:
         from services.result_filters import test_scope
-        _bill_ids, _tpids, _accs = test_scope(db, test_id, package_id)
+        _bill_ids, _tpids, _accs = test_scope(db, test_id, package_id, department_id)
         q = q.filter(Patient.id.in_(_tpids or [-1]))
     patients = q.order_by(Patient.created_at.desc()).limit(1000).all()
     if not patients:
@@ -129,9 +130,14 @@ def sample_details(
     # doctor names for the tests (test_catalog.assigned_doctor_id -> user.name)
     test_ids = {it.test_id for items in items_by_bill.values() for it in items if it.test_id}
     tc_doc = {}
+    tc_dept = {}
     if test_ids:
         for tc in db.query(TestCatalog).filter(TestCatalog.id.in_(test_ids)).all():
             tc_doc[tc.id] = tc.assigned_doctor_id
+            tc_dept[tc.id] = tc.department_id
+    from models.clinical import Department
+    dept_names = {did: nm for did, nm in db.query(Department.id, Department.name)
+                                            .filter(Department.id.in_({d for d in tc_dept.values() if d} or {-1})).all()}
     doc_ids = {d for d in tc_doc.values() if d}
     doc_names = {}
     if doc_ids:
@@ -203,6 +209,9 @@ def sample_details(
                     "package_id": it.package_id, "package_name": it.package_name,
                     "accession_number": it.accession_number,
                     "result_id": rid,        # for the per-test Report PDF link
+                    "department_id": tc_dept.get(it.test_id),
+                    "department": dept_names.get(tc_dept.get(it.test_id)),
+                    "test_status": it.status,
                 })
             for d in deleted_by_bill.get(b.id, []):
                 deleted_tests.append({

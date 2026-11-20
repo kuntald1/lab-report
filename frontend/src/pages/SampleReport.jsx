@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { authedFetch, auth } from '../services/auth';
 import SearchSelect from '../components/SearchSelect';
 import TestFilter, { splitTestFilter } from '../components/TestFilter';
+import DepartmentSelect from '../components/DepartmentSelect';
 
 const inp = { background:'#fafbfc', border:'1.5px solid #e8ecf4', borderRadius:'9px', padding:'0.55rem 0.8rem', color:'#0f1218', fontFamily:'Manrope,sans-serif', fontSize:'0.82rem', outline:'none', width:'100%' };
 const lbl = { fontSize:'0.64rem', color:'#8892a4', fontWeight:600, textTransform:'uppercase', letterSpacing:'0.05em', display:'block', marginBottom:'0.3rem' };
@@ -14,7 +15,7 @@ export default function SampleReport() {
   const me = auth.user ? auth.user() : null;
   const isFranchise = (me?.role || '').toLowerCase() === 'franchise';
   const myFranchiseId = isFranchise ? String(me?.franchise_id || '') : '';
-  const [f, setF] = useState({ franchise_id: myFranchiseId, branch_id:'', date_from:'', date_to:'', patient_id:'', patient_name:'', barcode:'', status:'', test:'' });
+  const [f, setF] = useState({ franchise_id: myFranchiseId, branch_id:'', date_from:'', date_to:'', patient_id:'', patient_name:'', barcode:'', status:'', test:'', department_id:'' });
   const [data, setData] = useState({ rows:[], totals:{} });
   const [loading, setLoading] = useState(false);
   const [franchises, setFranchises] = useState([]);
@@ -96,6 +97,7 @@ export default function SampleReport() {
           <div><label style={lbl}>Patient Name</label><input style={inp} value={f.patient_name} onChange={e=>set('patient_name',e.target.value)} onKeyDown={e=>{ if (e.key==='Enter') load(); }} placeholder="e.g. Sujit" /></div>
           <div><label style={lbl}>Barcode</label><input style={inp} value={f.barcode} onChange={e=>set('barcode',e.target.value)} /></div>
           <TestFilter style={inp} value={f.test} onChange={v=>set('test',v)} />
+          <DepartmentSelect style={inp} labelStyle={lbl} value={f.department_id} onChange={v=>set('department_id',v)} />
           <div><label style={lbl}>Status</label>
             <select style={inp} value={f.status} onChange={e=>set('status',e.target.value)}>
               {STATUSES.map(s => <option key={s} value={s}>{s ? s[0].toUpperCase()+s.slice(1) : 'All'}</option>)}
@@ -103,7 +105,7 @@ export default function SampleReport() {
           </div>
           <div style={{ display:'flex', gap:'0.5rem' }}>
             <button onClick={load} style={{ flex:1, background:'linear-gradient(135deg,#6366f1,#818cf8)', color:'#fff', border:'none', borderRadius:'9px', padding:'0.6rem 1rem', fontWeight:700, cursor:'pointer', fontFamily:'Manrope,sans-serif' }}>Apply</button>
-            <button onClick={()=>{ setF({ franchise_id:'', branch_id:'', date_from:'', date_to:'', patient_id:'', patient_name:'', barcode:'', status:'', test:'' }); setTimeout(load,0); }} style={{ background:'transparent', color:'#8892a4', border:'1px solid #e8ecf4', borderRadius:'9px', padding:'0.6rem 0.9rem', cursor:'pointer', fontFamily:'Manrope,sans-serif' }}>Clear</button>
+            <button onClick={()=>{ setF({ franchise_id:'', branch_id:'', date_from:'', date_to:'', patient_id:'', patient_name:'', barcode:'', status:'', test:'', department_id:'' }); setTimeout(load,0); }} style={{ background:'transparent', color:'#8892a4', border:'1px solid #e8ecf4', borderRadius:'9px', padding:'0.6rem 0.9rem', cursor:'pointer', fontFamily:'Manrope,sans-serif' }}>Clear</button>
           </div>
         </div>
       </div>
@@ -200,7 +202,7 @@ export default function SampleReport() {
                                     {/* member tests */}
                                     {g.members.map((t,i) => (
                                       <div key={i} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0.4rem 0.7rem 0.4rem 1.4rem', borderTop:'1px solid #f7f8fb', gap:'1rem' }}>
-                                        <span style={{ color:'#475569', fontSize:'0.8rem', flex:1 }}>↳ {t.test_name}<span style={{ color:'#b0b7c3' }}> · {t.doctor||'No doctor'}</span></span>
+                                        <span style={{ color:'#475569', fontSize:'0.8rem', flex:1 }}>↳ {t.test_name}<span style={{ color:'#b0b7c3' }}> · {t.doctor||'No doctor'}{t.department ? ` · ${t.department}` : ''}</span></span>
                                         <span style={{ color:'#c4cad6', fontSize:'0.72rem', width:'70px', textAlign:'right' }}>—</span>
                                         {t.result_id
                                           ? <button onClick={()=>openReportPdf(t.result_id)} style={{ background:'rgba(249,115,22,0.1)', color:'#f97316', border:'1px solid rgba(249,115,22,0.3)', borderRadius:'7px', padding:'0.3rem 0.7rem', fontWeight:700, cursor:'pointer', fontSize:'0.72rem', whiteSpace:'nowrap', fontFamily:'Manrope,sans-serif' }}>📄 Report PDF</button>
@@ -211,7 +213,7 @@ export default function SampleReport() {
                                 ))}
                                 {solo.map((t,i)=>(
                                   <div key={i} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0.5rem 0.7rem', borderBottom:'1px solid #f1f3f7', fontSize:'0.82rem', gap:'1rem' }}>
-                                    <span style={{ color:'#0f1218', fontWeight:600, flex:1 }}>{t.test_name}<span style={{ color:'#8892a4', fontWeight:400 }}> · {t.doctor||'No doctor'}</span></span>
+                                    <span style={{ color:'#0f1218', fontWeight:600, flex:1 }}>{t.test_name}<span style={{ color:'#8892a4', fontWeight:400 }}> · {t.doctor||'No doctor'}{t.department ? ` · ${t.department}` : ''}</span></span>
                                     <span style={{ color:'#475569', fontWeight:700, width:'90px', textAlign:'right' }}>{money(t.price)}</span>
                                     {t.result_id
                                       ? <button onClick={()=>openReportPdf(t.result_id)} style={{ background:'rgba(249,115,22,0.1)', color:'#f97316', border:'1px solid rgba(249,115,22,0.3)', borderRadius:'7px', padding:'0.3rem 0.7rem', fontWeight:700, cursor:'pointer', fontSize:'0.72rem', whiteSpace:'nowrap', fontFamily:'Manrope,sans-serif' }}>📄 Report PDF</button>

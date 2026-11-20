@@ -81,11 +81,13 @@ def get_all_results(db: Session = Depends(get_db), scope: Scope = Depends(get_sc
                     organization_id: Optional[int] = None, branch_id: Optional[int] = None,
                     date_from: Optional[str] = None, date_to: Optional[str] = None,
                     stage: Optional[str] = None,
-                    test_id: Optional[int] = None, package_id: Optional[int] = None):
+                    test_id: Optional[int] = None, package_id: Optional[int] = None,
+                    department_id: Optional[int] = None):
     q = apply_scope(db.query(LabResult), LabResult, scope)
     q = filter_results(q, db, organization_id=organization_id, branch_id=branch_id,
                        date_from=date_from, date_to=date_to, stage=stage)
-    q = filter_results_by_test(q, db, test_id=test_id, package_id=package_id)
+    q = filter_results_by_test(q, db, test_id=test_id, package_id=package_id,
+                               department_id=department_id)
 
     # LabResult has no franchise column, so a franchise login must be scoped to
     # its own patients explicitly. We also compute whether THIS franchise is over
@@ -177,8 +179,8 @@ def get_all_results(db: Session = Depends(get_db), scope: Scope = Depends(get_sc
             pq = pq.filter(Patient.id == int(patient_id.strip()))
         if name_pids is not None:
             pq = pq.filter(Patient.id.in_(name_pids or [-1]))
-        if test_id or package_id:
-            _b, _tpids, _a = test_scope(db, test_id, package_id)
+        if test_id or package_id or department_id:
+            _b, _tpids, _a = test_scope(db, test_id, package_id, department_id)
             pq = pq.filter(Patient.id.in_(_tpids or [-1]))
         manual_patients = [p for p in pq.order_by(Patient.created_at.desc()).limit(200).all()
                            if p.id not in covered_pids]
@@ -200,11 +202,18 @@ def get_all_results(db: Session = Depends(get_db), scope: Scope = Depends(get_sc
     # patient-level or analyser-parse status.
     _accs = {r.accession_number for r in results if r.accession_number}
     bill_info = {}
+    dept_by_acc = {}          # accession -> department names of the tests on that tube
     if _accs:
-        for bi in (db.query(BillItem.accession_number, BillItem.test_name, BillItem.status)
+        from models.clinical import TestCatalog, Department
+        for bi in (db.query(BillItem.accession_number, BillItem.test_name, BillItem.status,
+                            Department.name)
+                     .outerjoin(TestCatalog, TestCatalog.id == BillItem.test_id)
+                     .outerjoin(Department, Department.id == TestCatalog.department_id)
                      .filter(BillItem.accession_number.in_(_accs))
                      .order_by(BillItem.id.asc()).all()):
             bill_info[bi[0]] = (bi[1], bi[2])
+            if bi[3] and bi[3] not in dept_by_acc.setdefault(bi[0], []):
+                dept_by_acc[bi[0]].append(bi[3])
 
     output = []
     for r in results:
@@ -222,6 +231,7 @@ def get_all_results(db: Session = Depends(get_db), scope: Scope = Depends(get_sc
             "lifecycle_status": r.patient.status if r.patient else None,
             "billed_test_name": _bn,
             "test_status":  _bs or ("collected" if r.accession_number else None),
+            "department":   ", ".join(dept_by_acc.get(r.accession_number, [])) or None,
             "parsed_data":  None if fr_locked else _with_catalog_ranges(db, r),
             "note":         None if fr_locked else r.note,
             "created_at":   r.created_at,

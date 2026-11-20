@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { authedFetch, auth } from '../services/auth';
 import TestFilter, { splitTestFilter } from '../components/TestFilter';
+import DepartmentSelect from '../components/DepartmentSelect';
 
 const inp = { background:'#fafbfc', border:'1.5px solid #e8ecf4', borderRadius:'9px', padding:'0.55rem 0.8rem', color:'#0f1218', fontFamily:'Manrope,sans-serif', fontSize:'0.82rem', outline:'none', width:'100%' };
 const lbl = { fontSize:'0.66rem', color:'#8892a4', fontWeight:600, textTransform:'uppercase', letterSpacing:'0.05em', display:'block', marginBottom:'0.3rem' };
@@ -13,6 +14,19 @@ const statusStyle = { paid:['#16a34a','Paid'], partial:['#f59e0b','Partial'], un
 // the test-stage filter — same list as Sample / Test Details
 const STAGES = ['', 'dispatched', 'received', 'tested', 'validated', 'reported'];
 
+// per-test status shown in the list (a test group counts once, under the group's name)
+const TEST_STATUS_LABEL = { collected:'Collected', dispatched:'Dispatched', received:'Received', tested:'Tested', validated:'Validated', reported:'Reported', sample_rejected:'Rejected' };
+const TEST_STATUS_COLOR = { collected:'#64748b', dispatched:'#0ea5e9', received:'#2563eb', tested:'#f59e0b', validated:'#16a34a', reported:'#7c3aed', sample_rejected:'#dc2626' };
+const billTests = (b) => {
+  const out = [], seen = new Set();
+  (b.items || []).forEach(i => {
+    const key = i.package_id ? `p${i.package_id}` : `i${i.id}`;
+    if (seen.has(key)) return; seen.add(key);
+    out.push({ key, name: i.package_id ? (i.package_name || i.test_name) : i.test_name, status: i.status || 'collected' });
+  });
+  return out;
+};
+
 // Delete Test and Cancel Bill are only open while a test is still collected / received.
 const CANCELLABLE = ['collected','received'];
 const canRemoveItem = (it) => CANCELLABLE.includes(it?.status || 'collected');
@@ -21,7 +35,7 @@ export default function Bills() {
   const [bills, setBills]       = useState([]);
   const [orgs, setOrgs]         = useState([]);
   const [branches, setBranches] = useState([]);
-  const [f, setF]               = useState({ organization_id:'', branch_id:'', barcode:'', patient_name:'', patient_id:'', date_from:'', date_to:'', stage:'', test:'' });
+  const [f, setF]               = useState({ organization_id:'', branch_id:'', barcode:'', patient_name:'', patient_id:'', date_from:'', date_to:'', stage:'', test:'', department_id:'' });
   const [loading, setLoading]   = useState(false);
   const [detail, setDetail]     = useState(null);     // bill open in modal
   const [payAmt, setPayAmt]     = useState('');
@@ -68,17 +82,17 @@ export default function Bills() {
 
   const openLabelPrint = (patientName, rows) => {
     if (rows.length === 0) return showToast('error', 'No accession numbers to print');
-    const w = window.open('', '_blank', 'width=480,height=640');
-    w.document.write(`<!doctype html><html><head><title>${detail.bill_no} · Sample Labels</title>
+    // Same 40mm x 25mm label as New Bill (Billing.jsx printLabels) so both print identically
+    const w = window.open('', '_blank', 'width=420,height=560');
+    w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${detail.bill_no} · Sample Labels</title>
       <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
       <style>
-        body{font-family:Arial,sans-serif;margin:0;padding:0.2rem;}
-        /* Sized to wrap around a sample tube, not to fill the sheet. */
-        .label{width:100%;padding:0.25rem 0.2rem;border-bottom:1px dashed #999;page-break-inside:avoid;text-align:center;}
-        .pname{font-size:0.62rem;font-weight:700;margin:0 0 0.05rem;}
-        .tname{font-size:0.55rem;color:#333;margin:0 0 0.1rem;}
-        svg{max-width:100%;}
-        @media print{ .label{border-bottom:1px dashed #ccc;} }
+        @page { size: 40mm 25mm; margin: 1mm; }
+        body{font-family:Arial,sans-serif;margin:0;padding:0;}
+        .label{width:40mm;height:25mm;box-sizing:border-box;padding:0.8mm 1mm;page-break-after:always;text-align:center;overflow:hidden;}
+        .pname{font-size:6.5pt;font-weight:700;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+        .tname{font-size:6pt;color:#333;margin:0 0 0.5mm;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+        svg{display:block;width:100%;height:14mm;}
       </style></head><body>
       ${rows.map(it => `<div class="label">
           <div class="pname">${patientName || ''}</div>
@@ -88,8 +102,11 @@ export default function Bills() {
       <script>
         window.onload = function(){
           document.querySelectorAll('.bc').forEach(function(el){
-            // width:1.6 / height:42 = larger, easier-to-scan barcode (svg is capped to label width)
-            JsBarcode(el, el.getAttribute('data-code'), { format:'CODE128', width:1.6, height:42, fontSize:12, margin:2 });
+            JsBarcode(el, el.getAttribute('data-code'), { format:'CODE128', height:40, width:2, fontSize:12, margin:0 });
+            // let the bars fill the full label width / 14mm height
+            var bw=parseFloat(el.getAttribute('width')), bh=parseFloat(el.getAttribute('height'));
+            el.setAttribute('viewBox','0 0 '+bw+' '+bh); el.setAttribute('preserveAspectRatio','none');
+            el.removeAttribute('width'); el.removeAttribute('height'); el.style.removeProperty('width'); el.style.removeProperty('height');
           });
           setTimeout(function(){ window.print(); }, 300);
         };
@@ -402,6 +419,7 @@ export default function Bills() {
           <div><label style={lbl}>Patient ID</label><input style={inp} type="number" placeholder="id" value={f.patient_id} onChange={e=>setF({...f,patient_id:e.target.value})} /></div>
           <div><label style={lbl}>Barcode</label><input style={inp} placeholder="barcode" value={f.barcode} onChange={e=>setF({...f,barcode:e.target.value})} onKeyDown={e=>{ if (e.key==='Enter') load(); }} /></div>
           <TestFilter style={inp} value={f.test} onChange={v=>setF({...f,test:v})} />
+          <DepartmentSelect style={inp} labelStyle={lbl} value={f.department_id} onChange={v=>setF({...f,department_id:v})} />
           <div><label style={lbl}>Status</label>
             <select style={inp} value={f.stage} onChange={e=>setF({...f,stage:e.target.value})}>
               {STAGES.map(s => <option key={s} value={s}>{s ? s[0].toUpperCase()+s.slice(1) : 'All'}</option>)}
@@ -409,7 +427,7 @@ export default function Bills() {
         </div>
         <div style={{ display:'flex', gap:'0.6rem', marginTop:'1rem' }}>
           <button onClick={load} style={{ background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', border:'none', borderRadius:'9px', padding:'0.6rem 1.4rem', fontWeight:700, cursor:'pointer', fontFamily:'Manrope,sans-serif' }}>Apply Filters</button>
-          <button onClick={()=>{ setF({ organization_id:'', branch_id:'', barcode:'', patient_name:'', patient_id:'', date_from:'', date_to:'', stage:'', test:'' }); setTimeout(load,0); }} style={{ background:'transparent', color:'#8892a4', border:'1px solid #e8ecf4', borderRadius:'9px', padding:'0.6rem 1.2rem', cursor:'pointer', fontFamily:'Manrope,sans-serif' }}>Clear</button>
+          <button onClick={()=>{ setF({ organization_id:'', branch_id:'', barcode:'', patient_name:'', patient_id:'', date_from:'', date_to:'', stage:'', test:'', department_id:'' }); setTimeout(load,0); }} style={{ background:'transparent', color:'#8892a4', border:'1px solid #e8ecf4', borderRadius:'9px', padding:'0.6rem 1.2rem', cursor:'pointer', fontFamily:'Manrope,sans-serif' }}>Clear</button>
         </div>
       </div>
 
@@ -418,13 +436,13 @@ export default function Bills() {
         <table style={{ width:'100%', borderCollapse:'collapse' }}>
           <thead>
             <tr style={{ background:'#fafbfc', borderBottom:'1.5px solid #e8ecf4' }}>
-              {['Bill No','Patient','Billed To','Collected By','Total','Paid','Due','Status','Date','Actions'].map(h => (
+              {['Bill No','Patient','Test Names','Test Status','Billed To','Collected By','Total','Paid','Due','Status','Date','Actions'].map(h => (
                 <th key={h} style={{ textAlign:'left', padding:'0.75rem 1.1rem', fontSize:'0.64rem', color:'#8892a4', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.06em' }}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {bills.length === 0 && <tr><td colSpan={10} style={{ textAlign:'center', padding:'3rem', color:'#8892a4' }}>{loading?'Loading…':'No bills match.'}</td></tr>}
+            {bills.length === 0 && <tr><td colSpan={12} style={{ textAlign:'center', padding:'3rem', color:'#8892a4' }}>{loading?'Loading…':'No bills match.'}</td></tr>}
             {bills.map(b => {
               const [sc, slabel] = statusStyle[b.status] || ['#64748b', b.status];
               const isCancelled = b.status === 'cancelled';
@@ -434,6 +452,15 @@ export default function Bills() {
                   onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
                   <td style={{ padding:'0.8rem 1.1rem', fontWeight:700, color:'#0f1218', fontSize:'0.82rem', fontFamily:'monospace', textDecoration: isCancelled ? 'line-through' : 'none' }}>{b.bill_no}</td>
                   <td style={{ padding:'0.8rem 1.1rem', fontSize:'0.83rem', color:'#0f1218' }}>{b.patient_name}<div style={{ color:'#8892a4', fontSize:'0.72rem', fontFamily:'monospace' }}>{b.barcode}</div></td>
+                  <td style={{ padding:'0.8rem 1.1rem', fontSize:'0.78rem', color:'#0f1218', maxWidth:'260px' }}>
+                    {billTests(b).map(t => <div key={t.key} style={{ lineHeight:1.5 }}>{t.name}</div>)}
+                    {billTests(b).length === 0 && <span style={{ color:'#8892a4' }}>—</span>}
+                  </td>
+                  <td style={{ padding:'0.8rem 1.1rem' }}>
+                    {billTests(b).map(t => { const c = TEST_STATUS_COLOR[t.status] || '#94a3b8'; return (
+                      <div key={t.key} style={{ lineHeight:1.5 }}><span style={{ background:c+'1a', color:c, border:`1px solid ${c}33`, padding:'0.05rem 0.5rem', borderRadius:'20px', fontSize:'0.66rem', fontWeight:700, whiteSpace:'nowrap' }}>{TEST_STATUS_LABEL[t.status] || t.status}</span></div>
+                    ); })}
+                  </td>
                   <td style={{ padding:'0.8rem 1.1rem', fontSize:'0.82rem', color: b.organization_name?'#6366f1':'#8892a4' }}>{b.organization_name || 'Direct'}</td>
                   <td style={{ padding:'0.8rem 1.1rem', fontSize:'0.8rem', color:'#475569' }}>{b.collected_by_name || '—'}<div style={{ color:'#8892a4', fontSize:'0.72rem' }}>{b.branch_name || ''}</div></td>
                   <td style={{ padding:'0.8rem 1.1rem', fontSize:'0.83rem', fontWeight:600 }}>{inr(b.total)}</td>

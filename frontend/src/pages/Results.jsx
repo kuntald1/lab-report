@@ -3,6 +3,7 @@ import { api } from '../services/api';
 import { authedFetch, auth } from '../services/auth';
 import SearchSelect from '../components/SearchSelect';
 import TestFilter, { splitTestFilter } from '../components/TestFilter';
+import DepartmentSelect from '../components/DepartmentSelect';
 import MergedEditor from '../components/MergedEditor';
 
 // only these roles are allowed to edit a result's values — matches the backend guard exactly
@@ -95,7 +96,7 @@ export default function Results() {
   // The list opens on today's work — a lab looks at what came in today far more
   // often than at everything ever run, and the whole table used to load first.
   const TODAY = new Date(Date.now() - new Date().getTimezoneOffset()*60000).toISOString().slice(0,10);
-  const EMPTY_Q = { organization_id:'', branch_id:'', date_from:TODAY, date_to:TODAY, patient_name:'', patient_id:'', barcode:'', accession_number:'', stage:'', test:'' };
+  const EMPTY_Q = { organization_id:'', branch_id:'', date_from:TODAY, date_to:TODAY, patient_name:'', patient_id:'', barcode:'', accession_number:'', stage:'', test:'', department_id:'' };
   const [q, setQ] = useState(EMPTY_Q);
   const [orgs, setOrgs]         = useState([]);
   const [branches, setBranches] = useState([]);
@@ -369,7 +370,7 @@ export default function Results() {
       g.rows.push(r);
       if (new Date(r.created_at) > new Date(g.created_at)) g.created_at = r.created_at;
       const tkey = r.accession_number || `r-${r.id ?? i}`;
-      if (!g.tests.has(tkey)) g.tests.set(tkey, { key:tkey, accession:r.accession_number, name:r.billed_test_name || r.test_name, status:testStatusOf(r), results:[] });
+      if (!g.tests.has(tkey)) g.tests.set(tkey, { key:tkey, accession:r.accession_number, name:r.billed_test_name || r.test_name, department:r.department, status:testStatusOf(r), results:[] });
       g.tests.get(tkey).results.push(r);
     });
     return order.map(g => ({ ...g, tests:[...g.tests.values()] }));
@@ -418,6 +419,7 @@ export default function Results() {
           <div><label style={fLbl}>Barcode</label><input style={fInp} placeholder="barcode" value={q.barcode} onChange={e=>setQ({...q,barcode:e.target.value})} onKeyDown={e=>e.key==='Enter'&&load()} /></div>
           <div><label style={fLbl}>Accession No.</label><input style={fInp} placeholder="accession" value={q.accession_number} onChange={e=>setQ({...q,accession_number:e.target.value})} onKeyDown={e=>e.key==='Enter'&&load()} /></div>
           <TestFilter style={fInp} value={q.test} onChange={v=>setQ({...q,test:v})} />
+          <DepartmentSelect style={fInp} labelStyle={fLbl} value={q.department_id} onChange={v=>setQ({...q,department_id:v})} />
           <div><label style={fLbl}>Status</label>
             <select style={fInp} value={q.stage} onChange={e=>setQ({...q,stage:e.target.value})}>
               {RESULT_STAGES.map(s => <option key={s} value={s}>{s ? s[0].toUpperCase()+s.slice(1) : 'All'}</option>)}
@@ -493,6 +495,7 @@ export default function Results() {
                     <div style={{ fontWeight:700, color:'#0f1218', fontSize:'0.86rem' }}>{t.name}</div>
                     <div style={{ display:'flex', flexWrap:'wrap', alignItems:'center', gap:'0.35rem', marginTop:'0.25rem' }}>
                       {t.accession && <span style={{ color:'#c2410c', fontWeight:700, fontFamily:'monospace', fontSize:'0.7rem' }}>{t.accession}</span>}
+                      {t.department && <span style={{ color:'#0e7490', background:'rgba(14,116,144,0.1)', border:'1px solid rgba(14,116,144,0.25)', fontWeight:700, fontSize:'0.62rem', padding:'0.05rem 0.5rem', borderRadius:'20px' }}>{t.department}</span>}
                       {t.results.length > 1 && t.results.map(r => {
                         const names = (r.parsed_data?.parameters || []).map(p => p.name).filter(Boolean);
                         const label = names.length ? names.slice(0, 2).join(', ') + (names.length > 2 ? ` +${names.length - 2}` : '') : (r.test_name || 'Result');
@@ -822,7 +825,7 @@ export default function Results() {
                         <div style={{ display:'flex', flexWrap:'wrap', gap:'0.35rem 0.6rem', marginTop:'0.3rem' }}>
                           {g.tests.map(t => { const c = lifeColor[t.status] || RESULT_STATUS_COLOR[t.status] || '#94a3b8'; return (
                             <span key={t.key} style={{ display:'inline-flex', alignItems:'center', gap:'0.35rem', fontSize:'0.72rem', color:'#475569', fontWeight:600 }}>
-                              {t.name}
+                              {t.name}{t.department ? <span style={{ color:'#94a3b8', fontWeight:500 }}>· {t.department}</span> : null}
                               <span style={{ fontSize:'0.6rem', fontWeight:800, color:c, background:`${c}1f`, border:`1px solid ${c}55`, borderRadius:'20px', padding:'0.05rem 0.45rem' }}>{TEST_STATUS_LABEL[t.status] || t.status}</span>
                             </span>); })}
                         </div>

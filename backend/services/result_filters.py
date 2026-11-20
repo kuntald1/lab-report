@@ -16,7 +16,7 @@ def stage_accessions(db, stage: str):
                                    BillItem.accession_number.isnot(None)).distinct().all()]
 
 
-def test_scope(db, test_id=None, package_id=None):
+def test_scope(db, test_id=None, package_id=None, department_id=None):
     """Which bills, patients and accessions carry this test (or this group).
 
     A group (package) is matched by package_id, which every line of the group
@@ -24,10 +24,15 @@ def test_scope(db, test_id=None, package_id=None):
     one package line. Returns (bill_ids, patient_ids, accessions); all three are
     empty lists when nothing is asked for, and the caller skips filtering then.
     """
-    if not test_id and not package_id:
+    if not test_id and not package_id and not department_id:
         return [], [], []
     from models.billing import Bill
     q = db.query(BillItem.bill_id, BillItem.accession_number)
+    if department_id:
+        # every test belongs to a department through the test catalog
+        from models.clinical import TestCatalog
+        q = q.filter(BillItem.test_id.in_(
+            db.query(TestCatalog.id).filter(TestCatalog.department_id == department_id)))
     if test_id:
         q = q.filter(BillItem.test_id == test_id)
     if package_id:
@@ -40,14 +45,14 @@ def test_scope(db, test_id=None, package_id=None):
     return bill_ids, pids, accs
 
 
-def filter_results_by_test(q, db, test_id=None, package_id=None):
+def filter_results_by_test(q, db, test_id=None, package_id=None, department_id=None):
     """Results belonging to that test. Matched by accession number — the tube
     the test was drawn into — so a patient billed for CBC and LFT shows only the
     one result when filtering by CBC. A result that carries no accession at all
     can only be placed by its patient, so it is matched that way."""
-    if not test_id and not package_id:
+    if not test_id and not package_id and not department_id:
         return q
-    _bills, pids, accs = test_scope(db, test_id, package_id)
+    _bills, pids, accs = test_scope(db, test_id, package_id, department_id)
     return q.filter(or_(LabResult.accession_number.in_(accs or ["\x00"]),
                         (LabResult.accession_number.is_(None)
                          & LabResult.patient_id.in_(pids or [-1]))))
