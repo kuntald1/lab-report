@@ -260,6 +260,7 @@ export default function Results() {
   // its own, and a franchise-locked one is not ours to change.
   const editableResults = results.filter(r => r.id != null && !r.locked && r.status !== 'outsource');
   const [openRows, setOpenRows] = useState({});
+  const [editSearch, setEditSearch] = useState('');
   const afterRowSaved = (id, updated) => setResults(prev => prev.map(r => r.id === id
     ? { ...r, parsed_data: updated.parsed_data, note: updated.note, edited: updated.parsed_data?.edited || r.edited } : r));
 
@@ -379,7 +380,14 @@ export default function Results() {
   const editGroups = patientGroups
     .map(g => ({ ...g, rows:g.rows.filter(r => editIds.has(r.id)),
                  tests:g.tests.map(t => ({ ...t, results:t.results.filter(r => editIds.has(r.id)) })).filter(t => t.results.length) }))
-    .filter(g => g.rows.length);
+    .filter(g => g.rows.length)
+    .filter(g => {
+      const s = editSearch.trim().toLowerCase();
+      if (!s) return true;
+      return String(g.patient_name || '').toLowerCase().includes(s)
+          || String(g.barcode || '').toLowerCase().includes(s)
+          || g.rows.some(r => String(r.accession_number || '').toLowerCase().includes(s));
+    });
 
   return (
     <div>
@@ -419,7 +427,7 @@ export default function Results() {
           <button onClick={()=>load()} style={{ background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', border:'none', borderRadius:'9px', padding:'0.6rem 1.4rem', fontWeight:700, cursor:'pointer', fontFamily:'Manrope,sans-serif' }}>Apply Filters</button>
           <button onClick={clearFilters} style={{ background:'transparent', color:'#8892a4', border:'1px solid #e8ecf4', borderRadius:'9px', padding:'0.6rem 1.2rem', cursor:'pointer', fontFamily:'Manrope,sans-serif' }}>Clear</button>
           {canEditAll && (
-            <button onClick={()=>{ setOpenRows({}); setEditAll(true); }} disabled={editableResults.length === 0}
+            <button onClick={()=>{ setOpenRows({}); setEditSearch(''); setEditAll(true); }} disabled={editableResults.length === 0}
               title={editableResults.length ? 'Edit every report in this list, one after another' : 'Nothing in this list can be edited'}
               style={{ background:'#fff', color:'#c2410c', border:'1.5px solid rgba(249,115,22,0.5)', borderRadius:'9px', padding:'0.6rem 1.2rem', fontWeight:700, cursor: editableResults.length ? 'pointer' : 'not-allowed', opacity: editableResults.length ? 1 : 0.5, fontFamily:'Manrope,sans-serif' }}>
               ✎ Edit All ({editableResults.length})
@@ -449,7 +457,8 @@ export default function Results() {
             <div key={g.key} style={{ ...S.card, overflow:'hidden', transition:'all 0.15s',
               border: selInGroup ? '1.5px solid rgba(249,115,22,0.35)' : '1px solid #e8ecf4',
               boxShadow: selInGroup ? '0 6px 24px rgba(249,115,22,0.12)' : '0 2px 10px rgba(15,18,24,0.05)' }}>
-              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:'1rem', padding:'0.95rem 1.2rem', background:'linear-gradient(180deg,#fffaf5,#ffffff)', borderBottom:'1px solid #f1f3f8' }}>
+              <div onClick={() => { const r = g.rows.find(x => !x.locked && x.id != null); if (r && !g.rows.includes(sel)) setSel(r); }}
+                style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:'1rem', padding:'0.95rem 1.2rem', background:'linear-gradient(180deg,#fffaf5,#ffffff)', borderBottom:'1px solid #f1f3f8', cursor: g.rows.some(x => !x.locked) ? 'pointer' : 'default' }}>
                 <div style={{ display:'flex', alignItems:'center', gap:'0.8rem', minWidth:0 }}>
                   <div style={{ width:'40px', height:'40px', borderRadius:'12px', flexShrink:0, background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', fontWeight:800, fontSize:'0.9rem', fontFamily:'Manrope,sans-serif', boxShadow:'0 4px 10px rgba(249,115,22,0.25)' }}>{initialsOf(g.patient_name)}</div>
                   <div style={{ minWidth:0 }}>
@@ -776,13 +785,23 @@ export default function Results() {
               <div>
                 <div style={{ fontFamily:'Manrope,sans-serif', fontSize:'1.1rem', fontWeight:800, color:'#0f1218' }}>Edit All</div>
                 <div style={{ fontSize:'0.75rem', color:'#8892a4', marginTop:'0.15rem' }}>
-                  {editGroups.length} patient(s) · {editableResults.length} result(s){q.date_from || q.date_to ? ` · ${q.date_from || '…'} to ${q.date_to || '…'}` : ''} — each patient saves on its own
+                  {editGroups.length}{editSearch.trim() ? ` of ${editableResults.length ? new Set(editableResults.map(r => `${r.patient_name}|${r.barcode}`)).size : 0}` : ''} patient(s) · {editableResults.length} result(s){q.date_from || q.date_to ? ` · ${q.date_from || '…'} to ${q.date_to || '…'}` : ''} — each patient saves on its own
                 </div>
               </div>
               <button onClick={()=>setEditAll(false)} style={{ background:'#fafbfc', border:'1px solid #e8ecf4', color:'#8892a4', borderRadius:'8px', padding:'0.45rem 0.7rem', cursor:'pointer' }}>✕</button>
             </div>
 
             <div style={{ padding:'1rem 1.3rem 1.4rem', display:'flex', flexDirection:'column', gap:'0.55rem' }}>
+              <div style={{ position:'relative' }}>
+                <span style={{ position:'absolute', left:'0.8rem', top:'50%', transform:'translateY(-50%)', fontSize:'0.85rem', color:'#8892a4', pointerEvents:'none' }}>🔍</span>
+                <input value={editSearch} onChange={e=>setEditSearch(e.target.value)} autoFocus
+                  placeholder="Search by patient name, barcode or accession no."
+                  style={{ ...fInp, width:'100%', boxSizing:'border-box', paddingLeft:'2.2rem' }} />
+                {editSearch && <button onClick={()=>setEditSearch('')} title="Clear" style={{ position:'absolute', right:'0.5rem', top:'50%', transform:'translateY(-50%)', background:'transparent', border:'none', color:'#8892a4', cursor:'pointer', fontSize:'0.9rem' }}>✕</button>}
+              </div>
+              {editableResults.length > 0 && editGroups.length === 0 && (
+                <div style={{ fontSize:'0.84rem', color:'#8892a4', padding:'0.8rem 0' }}>No patient matches "{editSearch}".</div>
+              )}
               {editableResults.length === 0 && (
                 <div style={{ fontSize:'0.84rem', color:'#8892a4', padding:'1rem 0' }}>Nothing in this list can be edited.</div>
               )}
