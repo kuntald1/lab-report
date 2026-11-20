@@ -412,10 +412,10 @@ export default function Billing({ isAdmin = true, initialPatientId = '', onManag
       <style>
         @page { size: 40mm 25mm; margin: 1mm; }
         body{font-family:Arial,sans-serif;margin:0;padding:0;}
-        .label{width:40mm;height:25mm;box-sizing:border-box;padding:1mm 1.5mm;page-break-after:always;text-align:center;overflow:hidden;}
+        .label{width:40mm;height:25mm;box-sizing:border-box;padding:0.8mm 1mm;page-break-after:always;text-align:center;overflow:hidden;}
         .pname{font-size:6.5pt;font-weight:700;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
         .tname{font-size:6pt;color:#333;margin:0 0 0.5mm;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-        svg{max-width:100%;height:9mm;}
+        svg{display:block;width:100%;height:14mm;}
       </style></head><body>
       ${lines.map(l => `<div class="label">
           <div class="pname">${l.patientName}</div>
@@ -425,7 +425,11 @@ export default function Billing({ isAdmin = true, initialPatientId = '', onManag
       <script>
         window.onload = function(){
           document.querySelectorAll('.bc').forEach(function(el){
-            JsBarcode(el, el.getAttribute('data-code'), { format:'CODE128', height:26, width:1.3, fontSize:8, margin:0 });
+            JsBarcode(el, el.getAttribute('data-code'), { format:'CODE128', height:40, width:2, fontSize:12, margin:0 });
+            // let the bars fill the full label width / 14mm height
+            var bw=parseFloat(el.getAttribute('width')), bh=parseFloat(el.getAttribute('height'));
+            el.setAttribute('viewBox','0 0 '+bw+' '+bh); el.setAttribute('preserveAspectRatio','none');
+            el.removeAttribute('width'); el.removeAttribute('height'); el.style.removeProperty('width'); el.style.removeProperty('height');
           });
           setTimeout(function(){ window.print(); }, 300);
         };

@@ -88,8 +88,8 @@ export default function Bills() {
       <script>
         window.onload = function(){
           document.querySelectorAll('.bc').forEach(function(el){
-            // width:1 = 1px per bar (the default 2 made an 8-char code ~70mm, too wide for a tube)
-            JsBarcode(el, el.getAttribute('data-code'), { format:'CODE128', width:1, height:24, fontSize:9, margin:2 });
+            // width:1.6 / height:42 = larger, easier-to-scan barcode (svg is capped to label width)
+            JsBarcode(el, el.getAttribute('data-code'), { format:'CODE128', width:1.6, height:42, fontSize:12, margin:2 });
           });
           setTimeout(function(){ window.print(); }, 300);
         };
