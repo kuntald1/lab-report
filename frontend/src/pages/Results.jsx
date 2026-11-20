@@ -3,7 +3,7 @@ import { api } from '../services/api';
 import { authedFetch, auth } from '../services/auth';
 import SearchSelect from '../components/SearchSelect';
 import TestFilter, { splitTestFilter } from '../components/TestFilter';
-import ResultEditor from '../components/ResultEditor';
+import MergedEditor from '../components/MergedEditor';
 
 // only these roles are allowed to edit a result's values — matches the backend guard exactly
 const CAN_EDIT_RESULTS = ['super_admin', 'lab_admin', 'pathologist', 'technician'];
@@ -90,10 +90,7 @@ export default function Results() {
   const [view, setView] = useState(null);           // report-shaped panels for the selected patient (null = not loaded)
   const [pendingEdit, setPendingEdit] = useState(null);
   const [editMerged, setEditMerged] = useState(false);   // editing the whole merged (report-shaped) list
-  const [editPanels, setEditPanels] = useState([]);
-  const [addPanel, setAddPanel] = useState(null);        // { pi, list } — rows offered by a panel's "+ Add parameter"
   const [viewTick, setViewTick] = useState(0);
-  const origRowsRef = useRef({});
   const [pdfMenu, setPdfMenu] = useState(null);   // 'single' | 'combined' | null — which download dropdown is open
   // The list opens on today's work — a lab looks at what came in today far more
   // often than at everything ever run, and the whole table used to load first.
@@ -293,113 +290,22 @@ export default function Results() {
   };
   const cancelEdit = () => { setEditing(false); setEditMerged(false); };
 
-  const cleanRow = (p) => { const { _k, heading, result_id, src_ix, ...rest } = p; return rest; };
-  const missingFor = async (id, rows) => {
-    try {
-      const res = await authedFetch(`/results/${id}/missing-parameters`, { method:'POST',
-        headers:{'Content-Type':'application/json'}, body: JSON.stringify({ parameters: rows }) });
-      return res.ok ? ((await res.json()).parameters || []) : [];
-    } catch { return []; }
+  const startEdit = () => { if (view && view.length > 0) { setEditMerged(true); setEditing(true); } else startEditSingle(); };
+  // after MergedEditor saved: refresh our copies of every result it changed
+  const afterMergedSaved = (list) => {
+    list.forEach(({ id, updated }) => {
+      setResults(prev => prev.map(r => r.id === id ? { ...r, parsed_data: updated.parsed_data, note: updated.note, edited: updated.parsed_data?.edited || r.edited } : r));
+      if (sel && id === sel.id) setSel(prev => ({ ...prev, parsed_data: updated.parsed_data, note: updated.note }));
+    });
+    setViewTick(t => t + 1);
+    setEditing(false); setEditMerged(false);
   };
-  const keyOf = (p) => String(p.param || p.name || '').trim().toUpperCase();
-  const startEditMerged = () => {
-    let n = 0;
-    const panels = view.map(pn => ({ title:pn.title, accession:pn.accession, primaryId:pn.result_ids[0],
-      rows: pn.parameters.map(p => ({ ...p, _k:`k${n++}` })) }));
-    origRowsRef.current = Object.fromEntries(panels.flatMap(pn => pn.rows.map(r => [r._k, { ...r }])));
-    setEditPanels(panels); setEditNote(sel.note || ''); setCalcDirty(false); setAddPanel(null);
-    setEditMerged(true); setEditing(true);
-    panels.forEach((pn, pi) => missingFor(pn.primaryId, pn.rows.map(cleanRow)).then(extra =>
-      setEditPanels(prev => prev.map((x, xi) => xi !== pi ? x : { ...x, rows:[...x.rows,
-        ...extra.filter(e => !x.rows.some(p => keyOf(p) === keyOf(e)))
-                .map(e => ({ ...e, result_id:x.primaryId, _k:`m${pi}_${n++}` }))] }))));
-  };
-  const startEdit = () => { if (view && view.length > 0) startEditMerged(); else startEditSingle(); };
-  const changePanelParam = (pi, ri, field, val) => {
-    if (field === 'value') setCalcDirty(true);
-    setEditPanels(prev => prev.map((x, xi) => xi !== pi ? x : { ...x, rows:x.rows.map((r, i) => i !== ri ? r : { ...r, [field]:val, ...(field === 'flag' ? { flag_manual:true } : {}) }) }));
-  };
-  const removePanelParam = (pi, ri) => { setCalcDirty(true); setAddPanel(null);
-    setEditPanels(prev => prev.map((x, xi) => xi !== pi ? x : { ...x, rows:x.rows.filter((_, i) => i !== ri) })); };
-  const openAddPanel = async (pi) => { const pn = editPanels[pi]; setAddPanel({ pi, list: await missingFor(pn.primaryId, pn.rows.map(cleanRow)) }); };
-  const addPanelParam = (idx) => {
-    if (!addPanel) return; const row = addPanel.list[idx]; const pi = addPanel.pi;
-    if (row) setEditPanels(prev => prev.map((x, xi) => xi !== pi ? x : { ...x, rows:[...x.rows, { ...row, result_id:x.primaryId, _k:`a${Date.now()}` }] }));
-    setAddPanel(null);
-  };
-  const calculateMerged = async () => {
-    setCalcBusy(true);
-    try {
-      for (let pi = 0; pi < editPanels.length; pi++) {
-        const pn = editPanels[pi];
-        const res = await authedFetch(`/results/${pn.primaryId}/calculate`, { method:'POST',
-          headers:{'Content-Type':'application/json'}, body: JSON.stringify({ parameters: pn.rows.map(cleanRow) }) });
-        if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(apiErrorText(e.detail) || 'Calculate failed'); }
-        const out = (await res.json()).parameters || [];
-        setEditPanels(prev => prev.map((x, xi) => {
-          if (xi !== pi) return x;
-          const rows = [...x.rows];
-          out.forEach((op, oi) => {
-            const ix = rows.findIndex(r => keyOf(r) === keyOf(op));
-            if (ix >= 0) rows[ix] = { ...rows[ix], value:op.value, flag: op.flag ?? rows[ix].flag };
-            else rows.push({ ...op, result_id:x.primaryId, _k:`c${Date.now()}_${oi}` });
-          });
-          return { ...x, rows };
-        }));
-      }
-      setCalcDirty(false);
-    } catch (err) { alert(String(err.message || 'Calculate failed')); }
-    setCalcBusy(false);
-  };
-  // Each row remembers which stored result (and which position in it) it came from, so
-  // Save writes every change back to its own result — and leaves the rest of that result untouched.
-  const saveMerged = async () => {
-    setSaving(true);
-    try {
-      const orig = origRowsRef.current;
-      const cur = new Map(editPanels.flatMap(pn => pn.rows.map(r => [r._k, r])));
-      const byId = new Map();
-      const get = (id) => {
-        if (!byId.has(id)) { const r = results.find(x => x.id === id);
-          byId.set(id, { r, params:((r?.parsed_data?.parameters) || []).map(p => ({ ...p })), del:new Set(), add:[], dirty:false }); }
-        return byId.get(id);
-      };
-      Object.values(orig).forEach(o => {
-        if (o.src_ix == null || o.result_id == null) return;
-        const c = cur.get(o._k), e = get(o.result_id), p = e.params[o.src_ix];
-        if (!p) return;
-        if (!c) { e.del.add(o.src_ix); e.dirty = true; return; }
-        if (String(c.value ?? '') !== String(o.value ?? '')) { p.value = c.value; e.dirty = true; }
-        if ((c.flag || 'N') !== (o.flag || 'N')) { p.flag = c.flag; p.flag_manual = true; e.dirty = true; }
-      });
-      editPanels.forEach(pn => pn.rows.forEach(c => {
-        const o = orig[c._k];
-        if (o && o.src_ix != null) return;
-        if (String(c.value ?? '').trim() === '') return;
-        if (o && String(c.value) === String(o.value ?? '')) return;
-        const e = get(pn.primaryId); e.add.push(cleanRow(c)); e.dirty = true;
-      }));
-      if (editNote !== (sel.note || '')) get(sel.id).dirty = true;
-      for (const [id, e] of byId) {
-        if (!e.dirty) continue;
-        const params = [...e.params.filter((_, i) => !e.del.has(i)), ...e.add];
-        const res = await authedFetch(`/results/${id}`, { method:'PUT', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ parameters: params, note: id === sel.id ? editNote : (e.r?.note || '') }) });
-        if (!res.ok) { const er = await res.json().catch(()=>({})); throw new Error(apiErrorText(er.detail) || 'Save failed'); }
-        const updated = await res.json();
-        setResults(prev => prev.map(r => r.id === id ? { ...r, parsed_data: updated.parsed_data, note: updated.note, edited: updated.parsed_data?.edited || r.edited } : r));
-        if (id === sel.id) setSel(prev => ({ ...prev, parsed_data: updated.parsed_data, note: updated.note }));
-      }
-      setViewTick(t => t + 1);
-      setEditing(false); setEditMerged(false);
-    } catch (err) { alert(String(err.message || 'Save failed')); }
-    setSaving(false);
-  };
+
   // a parameter row in the merged view belongs to one analyser result — open that one for editing
   const editResultOf = (rid) => {
     const r = results.find(x => x.id === rid);
     if (!r || r.locked) return;
-    if (view && view.length > 0) { startEditMerged(); return; }
+    if (view && view.length > 0) { startEdit(); return; }
     if (sel && sel.id === rid) { startEdit(); return; }
     setPendingEdit(rid); setSel(r);
   };
@@ -467,6 +373,13 @@ export default function Results() {
     });
     return order.map(g => ({ ...g, tests:[...g.tests.values()] }));
   })();
+
+  // Edit All: the same patient cards, restricted to what can be edited
+  const editIds = new Set(editableResults.map(r => r.id));
+  const editGroups = patientGroups
+    .map(g => ({ ...g, rows:g.rows.filter(r => editIds.has(r.id)),
+                 tests:g.tests.map(t => ({ ...t, results:t.results.filter(r => editIds.has(r.id)) })).filter(t => t.results.length) }))
+    .filter(g => g.rows.length);
 
   return (
     <div>
@@ -692,55 +605,13 @@ export default function Results() {
               <>
             {!sel.locked && (
             <div style={{ fontSize:'0.68rem', color:'#8892a4', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:'0.8rem' }}>
-              Parameters ({editing && editMerged ? editPanels.reduce((n, pn) => n + pn.rows.length, 0) : view ? view.reduce((n, pn) => n + pn.parameters.length, 0) : (sel.parsed_data?.parameters?.length||0)})
+              Parameters ({view ? view.reduce((n, pn) => n + pn.parameters.length, 0) : (sel.parsed_data?.parameters?.length||0)})
             </div>
             )}
             {editing && editMerged ? (
-              <div style={{ display:'flex', flexDirection:'column', gap:'0.5rem' }}>
-                <div style={{ display:'flex', alignItems:'center', gap:'0.6rem', justifyContent:'flex-end' }}>
-                  {calcDirty && <span style={{ fontSize:'0.7rem', color:'#c2410c', fontWeight:700 }}>Values changed — click Calculate to refresh VLDL / ratios</span>}
-                  <button onClick={calculateMerged} disabled={calcBusy} title="Recalculate dependent values from the values below"
-                    style={{ background: calcDirty ? 'linear-gradient(135deg,#f97316,#fbbf24)' : '#fff', color: calcDirty ? '#fff' : '#c2410c', border:'1px solid rgba(249,115,22,0.4)', borderRadius:'8px', padding:'0.4rem 0.8rem', fontWeight:700, cursor:'pointer', fontSize:'0.76rem', fontFamily:'Manrope,sans-serif' }}>{calcBusy ? '…' : '🧮 Calculate'}</button>
-                </div>
-                {editPanels.map((pn, pi) => (
-                  <div key={pn.accession || pi} style={{ display:'flex', flexDirection:'column', gap:'0.5rem', marginBottom:'0.6rem' }}>
-                    <div style={{ fontFamily:'Manrope,sans-serif', fontWeight:800, fontSize:'0.8rem', color:'#0f1218', textTransform:'uppercase', letterSpacing:'0.03em', borderBottom:'2px solid #0f1218', paddingBottom:'0.25rem' }}>{pn.title}</div>
-                    {pn.rows.map((p, ri) => (
-                      <div key={p._k} style={{ background:'#fafbfc', border:'1px solid #e8ecf4', borderRadius:'9px', padding:'0.6rem 0.8rem', display:'grid', gridTemplateColumns:'1.3fr 0.8fr 0.6fr 0.7fr auto', gap:'0.4rem', alignItems:'center' }}>
-                        <div style={{ fontSize:'0.8rem', fontWeight:700, color:'#0f1218' }}>{p.name || p.param}{p.added && <span style={{ marginLeft:'0.4rem', fontSize:'0.6rem', fontWeight:700, color:'#1d4ed8', background:'rgba(59,130,246,0.1)', borderRadius:4, padding:'0.1rem 0.35rem' }}>enter manually</span>}</div>
-                        <input value={p.value ?? ''} onChange={e=>changePanelParam(pi, ri, 'value', e.target.value)}
-                          style={{ padding:'0.4rem 0.5rem', borderRadius:6, border:'1.5px solid #f97316', fontSize:'0.82rem', fontWeight:700 }} />
-                        <select value={p.flag||'N'} onChange={e=>changePanelParam(pi, ri, 'flag', e.target.value)}
-                          style={{ padding:'0.4rem 0.3rem', borderRadius:6, border:'1px solid #e8ecf4', fontSize:'0.76rem' }}>
-                          <option value="N">Normal</option>
-                          <option value="H">High</option>
-                          <option value="L">Low</option>
-                        </select>
-                        <div style={{ fontSize:'0.68rem', color:'#8892a4' }}>{p.unit}{p.ref_text ? ` · ${String(p.ref_text).split('\n')[0]}…` : ` · ${p.ref_min ?? ''}–${p.ref_max ?? ''}`}</div>
-                        <button onClick={()=>removePanelParam(pi, ri)} title="Remove this row from the report" style={{ background:'transparent', border:'none', color:'#dc2626', cursor:'pointer', fontSize:'0.9rem', padding:'0.2rem 0.4rem' }}>✕</button>
-                      </div>
-                    ))}
-                    <div style={{ display:'flex', alignItems:'center', gap:'0.6rem' }}>
-                      <button onClick={()=>openAddPanel(pi)} style={{ background:'#fff', color:'#1d4ed8', border:'1px dashed rgba(59,130,246,0.5)', borderRadius:'8px', padding:'0.4rem 0.8rem', fontWeight:700, cursor:'pointer', fontSize:'0.76rem', fontFamily:'Manrope,sans-serif' }}>+ Add parameter</button>
-                      {addPanel && addPanel.pi === pi && (addPanel.list.length === 0
-                        ? <span style={{ fontSize:'0.72rem', color:'#8892a4' }}>Every parameter of this test is already listed.</span>
-                        : <select defaultValue="" onChange={e=>addPanelParam(e.target.value)} style={{ padding:'0.4rem 0.5rem', borderRadius:6, border:'1px solid #e8ecf4', fontSize:'0.78rem' }}>
-                            <option value="" disabled>Pick a parameter…</option>
-                            {addPanel.list.map((r,k)=><option key={k} value={k}>{r.name}</option>)}
-                          </select>)}
-                    </div>
-                  </div>
-                ))}
-                <div>
-                  <label style={{ fontSize:'0.68rem', color:'#8892a4', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.05em', display:'block', marginBottom:'0.3rem' }}>Note (shown at the end of the report if filled in)</label>
-                  <textarea value={editNote} onChange={e=>setEditNote(e.target.value)} placeholder="e.g. Sample slightly hemolysed; recommend repeat in 2 weeks"
-                    style={{ width:'100%', minHeight:'70px', padding:'0.6rem 0.8rem', borderRadius:9, border:'1.5px solid #e8ecf4', fontSize:'0.82rem', fontFamily:'Manrope,sans-serif', resize:'vertical', boxSizing:'border-box' }} />
-                </div>
-                <div style={{ display:'flex', gap:'0.5rem', marginTop:'0.4rem' }}>
-                  <button onClick={saveMerged} disabled={saving} style={{ flex:1, background:'linear-gradient(135deg,#16a34a,#22c55e)', color:'#fff', border:'none', borderRadius:'9px', padding:'0.6rem', cursor:'pointer', fontWeight:700, fontFamily:'Manrope,sans-serif' }}>{saving ? 'Saving…' : '✓ Save Changes'}</button>
-                  <button onClick={cancelEdit} disabled={saving} style={{ background:'transparent', border:'1px solid #e8ecf4', color:'#8892a4', borderRadius:'9px', padding:'0.6rem 1rem', cursor:'pointer', fontFamily:'Manrope,sans-serif' }}>Cancel</button>
-                </div>
-              </div>
+              <MergedEditor ids={siblingResults.filter(r => !r.locked && r.status !== 'outsource').map(r => r.id)}
+                results={results} noteResultId={sel.id}
+                onSaved={afterMergedSaved} onCancel={() => { setEditing(false); setEditMerged(false); }} />
             ) : editing ? (
               <div style={{ display:'flex', flexDirection:'column', gap:'0.5rem' }}>
                 <div style={{ display:'flex', alignItems:'center', gap:'0.6rem', justifyContent:'flex-end' }}>
@@ -905,7 +776,7 @@ export default function Results() {
               <div>
                 <div style={{ fontFamily:'Manrope,sans-serif', fontSize:'1.1rem', fontWeight:800, color:'#0f1218' }}>Edit All</div>
                 <div style={{ fontSize:'0.75rem', color:'#8892a4', marginTop:'0.15rem' }}>
-                  {editableResults.length} report(s){q.date_from || q.date_to ? ` · ${q.date_from || '…'} to ${q.date_to || '…'}` : ''} — each one saves on its own
+                  {editGroups.length} patient(s) · {editableResults.length} result(s){q.date_from || q.date_to ? ` · ${q.date_from || '…'} to ${q.date_to || '…'}` : ''} — each patient saves on its own
                 </div>
               </div>
               <button onClick={()=>setEditAll(false)} style={{ background:'#fafbfc', border:'1px solid #e8ecf4', color:'#8892a4', borderRadius:'8px', padding:'0.45rem 0.7rem', cursor:'pointer' }}>✕</button>
@@ -915,27 +786,41 @@ export default function Results() {
               {editableResults.length === 0 && (
                 <div style={{ fontSize:'0.84rem', color:'#8892a4', padding:'1rem 0' }}>Nothing in this list can be edited.</div>
               )}
-              {editableResults.map(r => (
-                <div key={r.id} style={{ border:'1px solid #e8ecf4', borderRadius:'11px', overflow:'hidden' }}>
-                  <div onClick={()=>setOpenRows(o=>({ ...o, [r.id]: !o[r.id] }))}
-                    style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:'0.7rem', padding:'0.75rem 0.95rem', cursor:'pointer', background: openRows[r.id] ? '#fff7ed' : '#fafbfc' }}>
-                    <div style={{ minWidth:0 }}>
-                      <div style={{ fontSize:'0.84rem', fontWeight:700, color:'#0f1218', fontFamily:'Manrope,sans-serif' }}>
-                        {r.patient_name || '—'} <span style={{ fontFamily:'monospace', color:'#c2410c', fontWeight:700 }}>{r.barcode || '—'}</span>
-                      </div>
-                      <div style={{ fontSize:'0.7rem', color:'#8892a4', marginTop:'0.15rem' }}>
-                        {r.test_name || `Result #${r.id}`} · {r.accession_number || '—'} · {(r.parsed_data?.parameters||[]).length} params
+              {editGroups.map(g => {
+                const open = !!openRows[g.key];
+                const anyEdited = g.rows.some(r => r.edited || r.parsed_data?.edited);
+                return (
+                <div key={g.key} style={{ border: open ? '1.5px solid rgba(249,115,22,0.35)' : '1px solid #e8ecf4', borderRadius:'12px', overflow:'hidden' }}>
+                  <div onClick={()=>setOpenRows(o=>({ ...o, [g.key]: !o[g.key] }))}
+                    style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:'0.8rem', padding:'0.8rem 1rem', cursor:'pointer', background: open ? '#fff7ed' : '#fafbfc' }}>
+                    <div style={{ display:'flex', alignItems:'center', gap:'0.75rem', minWidth:0 }}>
+                      <div style={{ width:'36px', height:'36px', borderRadius:'11px', flexShrink:0, background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', fontWeight:800, fontSize:'0.8rem', fontFamily:'Manrope,sans-serif' }}>{initialsOf(g.patient_name)}</div>
+                      <div style={{ minWidth:0 }}>
+                        <div style={{ fontSize:'0.88rem', fontWeight:800, color:'#0f1218', fontFamily:'Manrope,sans-serif' }}>
+                          {g.patient_name || '—'} <span style={{ fontFamily:'monospace', color:'#c2410c', fontWeight:700, fontSize:'0.78rem' }}>{g.barcode || '—'}</span>
+                          {anyEdited && <span style={{ marginLeft:'0.5rem', fontSize:'0.6rem', fontWeight:700, color:'#7c3aed', background:'rgba(124,58,237,0.1)', borderRadius:4, padding:'0.1rem 0.4rem' }}>✎ EDITED</span>}
+                        </div>
+                        <div style={{ display:'flex', flexWrap:'wrap', gap:'0.35rem 0.6rem', marginTop:'0.3rem' }}>
+                          {g.tests.map(t => { const c = lifeColor[t.status] || RESULT_STATUS_COLOR[t.status] || '#94a3b8'; return (
+                            <span key={t.key} style={{ display:'inline-flex', alignItems:'center', gap:'0.35rem', fontSize:'0.72rem', color:'#475569', fontWeight:600 }}>
+                              {t.name}
+                              <span style={{ fontSize:'0.6rem', fontWeight:800, color:c, background:`${c}1f`, border:`1px solid ${c}55`, borderRadius:'20px', padding:'0.05rem 0.45rem' }}>{TEST_STATUS_LABEL[t.status] || t.status}</span>
+                            </span>); })}
+                        </div>
                       </div>
                     </div>
-                    <span style={{ fontSize:'0.8rem', color:'#8892a4' }}>{openRows[r.id] ? '▲' : '▼'}</span>
+                    <span style={{ fontSize:'0.8rem', color:'#8892a4' }}>{open ? '▲' : '▼'}</span>
                   </div>
-                  {openRows[r.id] && (
-                    <div style={{ padding:'0.9rem', borderTop:'1px solid #e8ecf4' }}>
-                      <ResultEditor result={r} onSaved={updated => afterRowSaved(r.id, updated)} />
+                  {open && (
+                    <div style={{ padding:'0.2rem 0.9rem 0.9rem', borderTop:'1px solid #e8ecf4', maxHeight:'70vh', overflowY:'auto' }}>
+                      <MergedEditor ids={g.rows.map(r => r.id)} results={results} noteResultId={g.rows[0].id}
+                        onSaved={list => list.forEach(({ id, updated }) => afterRowSaved(id, updated))}
+                        onCancel={() => setOpenRows(o => ({ ...o, [g.key]: false }))} />
                     </div>
                   )}
                 </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         </div>
