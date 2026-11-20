@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { authedFetch } from '../services/auth';
+import DepartmentSelect from '../components/DepartmentSelect';
 
 const STATUSES = ['collected', 'received', 'tested', 'validated', 'reported', 'outsource', 'sample_rejected'];
 const NEXT = ['collected', 'received', 'tested', 'validated', 'reported'];
@@ -8,6 +9,8 @@ const STATUS_COLOR = {
   tested:'#f59e0b', validated:'#16a34a', reported:'#0f766e',
   outsource:'#7c3aed', sample_rejected:'#dc2626',
 };
+
+const TODAY = new Date(Date.now() - new Date().getTimezoneOffset()*60000).toISOString().slice(0,10);
 
 async function j(path, method = 'GET', body) {
   const opts = { method };
@@ -19,7 +22,8 @@ async function j(path, method = 'GET', body) {
 
 export default function ChangeStatus() {
   const [tab, setTab] = useState('search');   // 'search' | 'scan'
-  const [f, setF] = useState({ patient_id: '', barcode: '', accession_number: '', branch_id: '', franchise_id: '', status: '' });
+  const [f, setF] = useState({ patient_id: '', barcode: '', accession_number: '', branch_id: '', franchise_id: '', status: '', date_from: TODAY, date_to: TODAY, organization_id: '', department_id: '' });
+  const [orgs, setOrgs] = useState([]);
   const [rows, setRows] = useState(null);
   const [sel, setSel] = useState(new Set());
   const [err, setErr] = useState('');
@@ -37,10 +41,20 @@ export default function ChangeStatus() {
     if (f.branch_id) qs.set('branch_id', f.branch_id);
     if (f.franchise_id) qs.set('franchise_id', f.franchise_id);
     if (f.status) qs.set('status', f.status);
+    if (f.date_from) qs.set('date_from', f.date_from);
+    if (f.date_to) qs.set('date_to', f.date_to);
+    if (f.organization_id) qs.set('organization_id', f.organization_id);
+    if (f.department_id) qs.set('department_id', f.department_id);
     try { setRows(await j('/sample-status/search?' + qs.toString())); }
     catch (e) { setErr(e.message); }
     finally { setBusy(false); }
   };
+
+  // opens on today's samples, like Results / Bills
+  useEffect(() => {
+    search();
+    authedFetch('/b2b/organizations').then(r => r.ok ? r.json() : []).then(d => setOrgs(Array.isArray(d) ? d : [])).catch(() => {});
+  }, []);   // eslint-disable-line
 
   const toggle = (id) => { const n = new Set(sel); n.has(id) ? n.delete(id) : n.add(id); setSel(n); };
   const toggleAll = () => {
@@ -189,6 +203,26 @@ export default function ChangeStatus() {
       {/* filters */}
       <div style={card}>
         <div style={{ display: 'flex', gap: '0.7rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+          <div style={{ minWidth: 140 }}>
+            <div style={lbl}>From</div>
+            <input type="date" style={inp} value={f.date_from} onChange={e => setF({ ...f, date_from: e.target.value })} />
+          </div>
+          <div style={{ minWidth: 140 }}>
+            <div style={lbl}>To</div>
+            <input type="date" style={inp} value={f.date_to} onChange={e => setF({ ...f, date_to: e.target.value })} />
+          </div>
+          {orgs.length > 0 && (
+            <div style={{ minWidth: 160 }}>
+              <div style={lbl}>Organization</div>
+              <select style={inp} value={f.organization_id} onChange={e => setF({ ...f, organization_id: e.target.value })}>
+                <option value="">All</option>
+                {orgs.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
+              </select>
+            </div>
+          )}
+          <div style={{ minWidth: 150 }}>
+            <DepartmentSelect style={inp} labelStyle={lbl} value={f.department_id} onChange={v => setF({ ...f, department_id: v })} />
+          </div>
           <Field label="Patient ID" value={f.patient_id} onChange={v => setF({ ...f, patient_id: v })} />
           <Field label="Barcode" value={f.barcode} onChange={v => setF({ ...f, barcode: v })} />
           <Field label="Accession No." value={f.accession_number} onChange={v => setF({ ...f, accession_number: v })} />
@@ -229,7 +263,7 @@ export default function ChangeStatus() {
               <thead>
                 <tr style={{ textAlign: 'left', color: '#8892a4', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                   <th style={{ padding: '0.4rem' }}><input type="checkbox" checked={rows.length > 0 && sel.size === rows.length} onChange={toggleAll} /></th>
-                  <th style={th}>Patient</th><th style={th}>Barcode</th><th style={th}>Test</th><th style={th}>Accession No.</th><th style={th}>Bill No.</th><th style={th}>Status</th><th style={th}>Result?</th>
+                  <th style={th}>Patient</th><th style={th}>Barcode</th><th style={th}>Test</th><th style={th}>Department</th><th style={th}>Accession No.</th><th style={th}>Bill No.</th><th style={th}>Status</th><th style={th}>Result?</th>
                 </tr>
               </thead>
               <tbody>
@@ -244,6 +278,7 @@ export default function ChangeStatus() {
                       )}
                       <div>{r.test_name}</div>
                     </td>
+                    <td style={{ ...td, color:'#0e7490', fontWeight:600 }}>{r.department || '—'}</td>
                     <td style={{ ...td, fontFamily:'monospace', color:'#c2410c' }}>{r.accession_number || '—'}</td>
                     <td style={{ ...td, color:'#8892a4' }}>{r.bill_no}</td>
                     <td style={td}><span style={{ ...pill, background: (STATUS_COLOR[r.status] || '#94a3b8') + '22', color: STATUS_COLOR[r.status] || '#94a3b8' }}>{r.status}</span></td>

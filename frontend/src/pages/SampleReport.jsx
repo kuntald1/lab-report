@@ -11,11 +11,13 @@ const money = (n) => '₹' + (Number(n||0)).toLocaleString('en-IN', { minimumFra
 const fmt = (d) => d ? new Date(d).toLocaleString('en-IN', { dateStyle:'medium', timeStyle:'short' }) : '—';
 const STATUSES = ['', 'dispatched','received','tested','validated','reported'];
 
+const TODAY = new Date(Date.now() - new Date().getTimezoneOffset()*60000).toISOString().slice(0,10);
+
 export default function SampleReport() {
   const me = auth.user ? auth.user() : null;
   const isFranchise = (me?.role || '').toLowerCase() === 'franchise';
   const myFranchiseId = isFranchise ? String(me?.franchise_id || '') : '';
-  const [f, setF] = useState({ franchise_id: myFranchiseId, branch_id:'', date_from:'', date_to:'', patient_id:'', patient_name:'', barcode:'', status:'', test:'', department_id:'' });
+  const [f, setF] = useState({ franchise_id: myFranchiseId, branch_id:'', date_from:TODAY, date_to:TODAY, patient_id:'', patient_name:'', barcode:'', status:'', test:'', department_id:'' });
   const [data, setData] = useState({ rows:[], totals:{} });
   const [loading, setLoading] = useState(false);
   const [franchises, setFranchises] = useState([]);
@@ -49,9 +51,10 @@ export default function SampleReport() {
     load();
   }, []); // eslint-disable-line
 
-  const load = () => {
+  const load = (ff) => {
     setLoading(true);
-    const { test, ...rest } = f;
+    const cur = (ff && 'date_from' in ff) ? ff : f;   // onClick passes an event, Clear passes the fresh filters
+    const { test, ...rest } = cur;
     const qs = Object.entries({ ...rest, ...splitTestFilter(test) }).filter(([,v])=>v!=='').map(([k,v])=>`${k}=${encodeURIComponent(v)}`).join('&');
     authedFetch(`/reports2/sample-details${qs?`?${qs}`:''}`).then(r=>r.ok?r.json():{rows:[],totals:{}}).then(d=>{ setData(d); setLoading(false); }).catch(()=>setLoading(false));
   };
@@ -105,7 +108,7 @@ export default function SampleReport() {
           </div>
           <div style={{ display:'flex', gap:'0.5rem' }}>
             <button onClick={load} style={{ flex:1, background:'linear-gradient(135deg,#6366f1,#818cf8)', color:'#fff', border:'none', borderRadius:'9px', padding:'0.6rem 1rem', fontWeight:700, cursor:'pointer', fontFamily:'Manrope,sans-serif' }}>Apply</button>
-            <button onClick={()=>{ setF({ franchise_id:'', branch_id:'', date_from:'', date_to:'', patient_id:'', patient_name:'', barcode:'', status:'', test:'', department_id:'' }); setTimeout(load,0); }} style={{ background:'transparent', color:'#8892a4', border:'1px solid #e8ecf4', borderRadius:'9px', padding:'0.6rem 0.9rem', cursor:'pointer', fontFamily:'Manrope,sans-serif' }}>Clear</button>
+            <button onClick={()=>{ const e0 = { franchise_id: myFranchiseId, branch_id:'', date_from:TODAY, date_to:TODAY, patient_id:'', patient_name:'', barcode:'', status:'', test:'', department_id:'' }; setF(e0); load(e0); }} style={{ background:'transparent', color:'#8892a4', border:'1px solid #e8ecf4', borderRadius:'9px', padding:'0.6rem 0.9rem', cursor:'pointer', fontFamily:'Manrope,sans-serif' }}>Clear</button>
           </div>
         </div>
       </div>
@@ -129,13 +132,13 @@ export default function SampleReport() {
         <table style={{ width:'100%', borderCollapse:'collapse' }}>
           <thead>
             <tr style={{ background:'#fafbfc', borderBottom:'1.5px solid #e8ecf4' }}>
-              {['','Barcode','Patient','Status','Franchise / Branch / Collected by','Tests','Billed','Collected','Balance'].map((h,i) => (
-                <th key={i} style={{ textAlign: i>5?'right':'left', padding:'0.7rem 1rem', fontSize:'0.62rem', color:'#8892a4', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.05em' }}>{h}</th>
+              {['','Barcode','Patient','Status','Franchise / Branch / Collected by','Tests','Department','Billed','Collected','Balance'].map((h,i) => (
+                <th key={i} style={{ textAlign: i>6?'right':'left', padding:'0.7rem 1rem', fontSize:'0.62rem', color:'#8892a4', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.05em' }}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {data.rows.length === 0 && <tr><td colSpan={9} style={{ textAlign:'center', padding:'3rem', color:'#8892a4' }}>{loading?'Loading…':'No samples match these filters.'}</td></tr>}
+            {data.rows.length === 0 && <tr><td colSpan={10} style={{ textAlign:'center', padding:'3rem', color:'#8892a4' }}>{loading?'Loading…':'No samples match these filters.'}</td></tr>}
             {data.rows.map(r => (
               <>
                 <tr key={r.patient_id} style={{ borderBottom:'1px solid #f4f6fa', cursor:'pointer' }} onClick={()=>toggle(r.patient_id)}>
@@ -145,13 +148,14 @@ export default function SampleReport() {
                   <td style={{ padding:'0.7rem 1rem' }}><span style={{ background:`${statusColor(r.status)}22`, color:statusColor(r.status), padding:'0.2rem 0.6rem', borderRadius:'20px', fontSize:'0.68rem', fontWeight:700 }}>{r.status||'—'}</span></td>
                   <td style={{ padding:'0.7rem 1rem', fontSize:'0.8rem', color:'#475569' }}>{r.franchise}<div style={{ color:'#8892a4', fontSize:'0.72rem' }}>{r.branch}</div>{r.collected_by && <div style={{ color:'#0d9488', fontSize:'0.72rem' }}>🧑‍🔬 {r.collected_by}</div>}</td>
                   <td style={{ padding:'0.7rem 1rem', fontSize:'0.8rem', color:'#475569' }}>{r.tests.length} test(s)</td>
+                  <td style={{ padding:'0.7rem 1rem', fontSize:'0.76rem', color:'#0e7490', fontWeight:600 }}>{[...new Set(r.tests.map(t=>t.department).filter(Boolean))].join(', ') || '—'}</td>
                   <td style={{ padding:'0.7rem 1rem', textAlign:'right', fontWeight:700, color:'#0f1218', fontSize:'0.82rem' }}>{money(r.billed)}</td>
                   <td style={{ padding:'0.7rem 1rem', textAlign:'right', fontWeight:700, color:'#16a34a', fontSize:'0.82rem' }}>{money(r.collected)}</td>
                   <td style={{ padding:'0.7rem 1rem', textAlign:'right', fontWeight:700, color: r.balance>0?'#dc2626':'#8892a4', fontSize:'0.82rem' }}>{money(r.balance)}</td>
                 </tr>
                 {expanded[r.patient_id] && (
                   <tr key={r.patient_id+'-d'}>
-                    <td colSpan={9} style={{ padding:'0', background:'#fbfcfe' }}>
+                    <td colSpan={10} style={{ padding:'0', background:'#fbfcfe' }}>
                       <div style={{ padding:'1rem 1.5rem 1.4rem' }}>
                         {/* tabs */}
                         <div style={{ display:'flex', gap:'0.4rem', marginBottom:'0.9rem', borderBottom:'1.5px solid #eef1f6' }}>

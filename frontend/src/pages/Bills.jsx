@@ -22,7 +22,7 @@ const billTests = (b) => {
   (b.items || []).forEach(i => {
     const key = i.package_id ? `p${i.package_id}` : `i${i.id}`;
     if (seen.has(key)) return; seen.add(key);
-    out.push({ key, name: i.package_id ? (i.package_name || i.test_name) : i.test_name, status: i.status || 'collected' });
+    out.push({ key, name: i.package_id ? (i.package_name || i.test_name) : i.test_name, status: i.status || 'collected', department: i.department_name || '' });
   });
   return out;
 };
@@ -31,11 +31,13 @@ const billTests = (b) => {
 const CANCELLABLE = ['collected','received'];
 const canRemoveItem = (it) => CANCELLABLE.includes(it?.status || 'collected');
 
+const TODAY = new Date(Date.now() - new Date().getTimezoneOffset()*60000).toISOString().slice(0,10);
+
 export default function Bills() {
   const [bills, setBills]       = useState([]);
   const [orgs, setOrgs]         = useState([]);
   const [branches, setBranches] = useState([]);
-  const [f, setF]               = useState({ organization_id:'', branch_id:'', barcode:'', patient_name:'', patient_id:'', date_from:'', date_to:'', stage:'', test:'', department_id:'' });
+  const [f, setF]               = useState({ organization_id:'', branch_id:'', barcode:'', patient_name:'', patient_id:'', date_from:TODAY, date_to:TODAY, stage:'', test:'', department_id:'' });
   const [loading, setLoading]   = useState(false);
   const [detail, setDetail]     = useState(null);     // bill open in modal
   const [payAmt, setPayAmt]     = useState('');
@@ -163,9 +165,10 @@ export default function Bills() {
     } catch (e) { showToast('error', String(e.message||'Razorpay failed')); }
   };
 
-  const load = () => {
+  const load = (ff) => {
     setLoading(true);
-    const { test, ...rest } = f;
+    const cur = (ff && 'date_from' in ff) ? ff : f;   // onClick passes an event, Clear passes the fresh filters
+    const { test, ...rest } = cur;
     const qs = Object.entries({ ...rest, ...splitTestFilter(test) }).filter(([,v])=>v!=='').map(([k,v])=>`${k}=${encodeURIComponent(v)}`).join('&');
     authedFetch(`/billing/bills${qs?`?${qs}`:''}`).then(r=>r.ok?r.json():[]).then(d=>{ setBills(d); setLoading(false); }).catch(()=>setLoading(false));
   };
@@ -427,7 +430,7 @@ export default function Bills() {
         </div>
         <div style={{ display:'flex', gap:'0.6rem', marginTop:'1rem' }}>
           <button onClick={load} style={{ background:'linear-gradient(135deg,#f97316,#fbbf24)', color:'#fff', border:'none', borderRadius:'9px', padding:'0.6rem 1.4rem', fontWeight:700, cursor:'pointer', fontFamily:'Manrope,sans-serif' }}>Apply Filters</button>
-          <button onClick={()=>{ setF({ organization_id:'', branch_id:'', barcode:'', patient_name:'', patient_id:'', date_from:'', date_to:'', stage:'', test:'', department_id:'' }); setTimeout(load,0); }} style={{ background:'transparent', color:'#8892a4', border:'1px solid #e8ecf4', borderRadius:'9px', padding:'0.6rem 1.2rem', cursor:'pointer', fontFamily:'Manrope,sans-serif' }}>Clear</button>
+          <button onClick={()=>{ const e0 = { organization_id:'', branch_id:'', barcode:'', patient_name:'', patient_id:'', date_from:TODAY, date_to:TODAY, stage:'', test:'', department_id:'' }; setF(e0); load(e0); }} style={{ background:'transparent', color:'#8892a4', border:'1px solid #e8ecf4', borderRadius:'9px', padding:'0.6rem 1.2rem', cursor:'pointer', fontFamily:'Manrope,sans-serif' }}>Clear</button>
         </div>
       </div>
 
@@ -436,13 +439,13 @@ export default function Bills() {
         <table style={{ width:'100%', borderCollapse:'collapse' }}>
           <thead>
             <tr style={{ background:'#fafbfc', borderBottom:'1.5px solid #e8ecf4' }}>
-              {['Bill No','Patient','Test Names','Test Status','Billed To','Collected By','Total','Paid','Due','Status','Date','Actions'].map(h => (
+              {['Bill No','Patient','Test Names','Department','Test Status','Billed To','Collected By','Total','Paid','Due','Status','Date','Actions'].map(h => (
                 <th key={h} style={{ textAlign:'left', padding:'0.75rem 1.1rem', fontSize:'0.64rem', color:'#8892a4', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.06em' }}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {bills.length === 0 && <tr><td colSpan={12} style={{ textAlign:'center', padding:'3rem', color:'#8892a4' }}>{loading?'Loading…':'No bills match.'}</td></tr>}
+            {bills.length === 0 && <tr><td colSpan={13} style={{ textAlign:'center', padding:'3rem', color:'#8892a4' }}>{loading?'Loading…':'No bills match.'}</td></tr>}
             {bills.map(b => {
               const [sc, slabel] = statusStyle[b.status] || ['#64748b', b.status];
               const isCancelled = b.status === 'cancelled';
@@ -455,6 +458,9 @@ export default function Bills() {
                   <td style={{ padding:'0.8rem 1.1rem', fontSize:'0.78rem', color:'#0f1218', maxWidth:'260px' }}>
                     {billTests(b).map(t => <div key={t.key} style={{ lineHeight:1.5 }}>{t.name}</div>)}
                     {billTests(b).length === 0 && <span style={{ color:'#8892a4' }}>—</span>}
+                  </td>
+                  <td style={{ padding:'0.8rem 1.1rem', fontSize:'0.76rem', color:'#0e7490', fontWeight:600 }}>
+                    {billTests(b).map(t => <div key={t.key} style={{ lineHeight:1.5 }}>{t.department || '—'}</div>)}
                   </td>
                   <td style={{ padding:'0.8rem 1.1rem' }}>
                     {billTests(b).map(t => { const c = TEST_STATUS_COLOR[t.status] || '#94a3b8'; return (

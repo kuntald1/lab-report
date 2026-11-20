@@ -51,7 +51,10 @@ def search_samples(db: Session = Depends(get_db), scope: Scope = Depends(get_sco
                    patient_id: Optional[str] = None, barcode: Optional[str] = None,
                    accession_number: Optional[str] = None,
                    branch_id: Optional[int] = None, franchise_id: Optional[int] = None,
-                   status: Optional[str] = None, limit: int = 200):
+                   status: Optional[str] = None, limit: int = 200,
+                   date_from: Optional[str] = None, date_to: Optional[str] = None,
+                   organization_id: Optional[int] = None,
+                   department_id: Optional[int] = None):
     q = (db.query(BillItem, Bill, Patient)
            .join(Bill, Bill.id == BillItem.bill_id)
            .join(Patient, Patient.id == Bill.patient_id)
@@ -80,6 +83,17 @@ def search_samples(db: Session = Depends(get_db), scope: Scope = Depends(get_sco
         q = q.filter(Patient.registered_franchise_id == franchise_id)
     if status:
         q = q.filter(BillItem.status == status)
+    if date_from:
+        q = q.filter(Bill.created_at >= date_from)
+    if date_to:
+        q = q.filter(Bill.created_at <= date_to + " 23:59:59")
+    if organization_id:
+        q = q.filter(or_(Bill.organization_id == organization_id,
+                         Patient.registered_franchise_id == organization_id))
+    if department_id:
+        from models.clinical import TestCatalog
+        q = q.filter(BillItem.test_id.in_(
+            db.query(TestCatalog.id).filter(TestCatalog.department_id == department_id)))
 
     rows = q.order_by(BillItem.id.desc()).limit(min(limit, 500)).all()
 
@@ -91,7 +105,18 @@ def search_samples(db: Session = Depends(get_db), scope: Scope = Depends(get_sco
             if a:
                 have.add(a)
 
+    # department of each test, through the test catalog
+    from models.clinical import TestCatalog, Department
+    tids = {it.test_id for it, b, p in rows if it.test_id}
+    dept_of = {}
+    if tids:
+        dept_of = {tid: nm for tid, nm in
+                   db.query(TestCatalog.id, Department.name)
+                     .join(Department, Department.id == TestCatalog.department_id)
+                     .filter(TestCatalog.id.in_(tids)).all()}
+
     return [{
+        "department": dept_of.get(it.test_id),
         "id": it.id,                          # bill_item id — what advance/select operates on
         "bill_id": b.id, "bill_no": b.bill_no,
         "patient_id": p.id, "patient_name": p.patient_name, "barcode": p.barcode,
