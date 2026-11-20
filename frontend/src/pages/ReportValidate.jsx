@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { authedFetch } from '../services/auth';
+import { authedFetch, auth } from '../services/auth';
 
 // Patient-history ticks, as reception sees them on the registration form.
 const CHECK_LABEL = {
@@ -29,6 +29,9 @@ const HISTORY_CHECKS = [
   { key:'pregnancy',   label:'Pregnant?' },
   { key:'hypertension',label:'Hypertension?' },
 ];
+
+// Admins can look at every report, but only a doctor validates (their signature goes on it).
+const isAdminUser = ['super_admin', 'lab_admin'].includes((auth.user()?.role || '').toLowerCase());
 
 export default function ReportValidate() {
   const [rows, setRows]       = useState([]);
@@ -287,9 +290,9 @@ export default function ReportValidate() {
 
             {mode === 'view' ? (
               <div style={{ display:'flex', gap:'0.6rem' }}>
-                <button onClick={validate} disabled={busy} style={{ flex:1, background:'#16a34a', color:'#fff', border:'none', borderRadius:'10px', padding:'0.75rem', fontWeight:700, cursor:'pointer', fontFamily:'Manrope,sans-serif', fontSize:'0.9rem' }}>
+                {!isAdminUser && <button onClick={validate} disabled={busy} style={{ flex:1, background:'#16a34a', color:'#fff', border:'none', borderRadius:'10px', padding:'0.75rem', fontWeight:700, cursor:'pointer', fontFamily:'Manrope,sans-serif', fontSize:'0.9rem' }}>
                   {busy ? '…' : '✓ Validate Report'}
-                </button>
+                </button>}
                 <button onClick={()=>setMode('need-history')} disabled={busy} style={{ flex:1, background:'#fff', color:'#b45309', border:'1.5px solid #f59e0b', borderRadius:'10px', padding:'0.75rem', fontWeight:700, cursor:'pointer', fontFamily:'Manrope,sans-serif', fontSize:'0.9rem' }}>
                   Need More History
                 </button>
