@@ -242,32 +242,6 @@ class _BottomPinnedBlock(Flowable):
         return [Spacer(1, pad)] + list(self._content)
 
 
-class _EndMarker(Flowable):
-    """Zero-height flowable placed at the very end of the story. When it is
-    drawn (i.e. on the LAST page) it calls `draw_fn(canvas)` with the canvas in
-    plain page coordinates — used to put "END OF REPORT" at the bottom of the
-    last page, level with the doctor signature, without taking any room in the
-    normal flow."""
-    def __init__(self, draw_fn):
-        Flowable.__init__(self)
-        self._fn = draw_fn
-        self.deferred = False
-
-    def wrap(self, aW, aH):
-        return 0, 0
-
-    def draw(self):
-        c = self.canv
-        ax, ay = c.absolutePosition(0, 0)
-        c.saveState()
-        c.translate(-ax, -ay)          # back to page coordinates
-        try:
-            self._fn(c)
-        except Exception:
-            pass                       # never cost the report over a caption
-        c.restoreState()
-
-
 def _sized_image(path, width_cm: float):
     """An Image flowable at width_cm wide, height computed from the file's
     own aspect ratio — works for any uploaded logo/signature regardless of
@@ -1292,24 +1266,7 @@ def generate_combined_pdf(results: list, db: Session, with_header: bool = True, 
     footer_flow.append(Paragraph('**END OF REPORT**', end_style))
     footer_flow.append(Paragraph('The result is related to the sample(s) tested only.', disclaim_style))
 
-    if 1 <= len(signers[:3]) <= 2:
-        # END OF REPORT sits at the bottom of the last page, level with the doctor
-        # signature (left of it) — drawn on the canvas, so it takes no room in the flow.
-        def _draw_end(canvas):
-            n = len(signers[:3])
-            area_l = doc.leftMargin
-            area_r = A4[0] - 1.5 * cm - n * _SIG_COL_W
-            cx = (area_l + area_r) / 2
-            y0 = FOOTER_BAND_H + 0.35 * cm
-            canvas.setFillColor(MUTED)
-            canvas.setFont('Helvetica', 7.5)
-            canvas.drawCentredString(cx, y0, 'sample(s) tested only.')
-            canvas.drawCentredString(cx, y0 + 10, 'The result is related to the')
-            canvas.setFont('Helvetica-Bold', 9)
-            canvas.drawCentredString(cx, y0 + 24, '**END OF REPORT**')
-        signoff_block = _EndMarker(_draw_end)
-    else:
-        signoff_block = _BottomPinnedBlock(footer_flow)
+    signoff_block = _BottomPinnedBlock(footer_flow)
     story.append(signoff_block)
 
     # ── PAGE CHROME: faint logo watermark behind the body + repeating
