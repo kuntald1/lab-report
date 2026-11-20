@@ -851,6 +851,7 @@ def generate_combined_pdf(results: list, db: Session, with_header: bool = True, 
     BLACK      = colors.HexColor('#1a1a1a')
     GREEN      = colors.HexColor('#0e7d6b')
     MUTED      = colors.HexColor('#5c7370')
+    CELL_DARK  = colors.HexColor('#33403d')   # unit / reference range / methodology text: darker than MUTED so it reads clearly
     BORDER     = colors.HexColor('#d8d8d8')
     TEAL_FOOT  = colors.HexColor('#0b4d3e')
 
@@ -1099,9 +1100,9 @@ def generate_combined_pdf(results: list, db: Session, with_header: bool = True, 
                 table_data.append([
                     Paragraph(name_txt, ParagraphStyle('td', fontName='Helvetica', fontSize=9, textColor=BLACK)),
                     Paragraph(val_txt, ParagraphStyle('tv', fontName='Helvetica', fontSize=9.5, textColor=BLACK, alignment=TA_CENTER)),
-                    Paragraph(str(p.get('unit', '') or '\u2014'), ParagraphStyle('tu', fontName='Helvetica', fontSize=8.5, textColor=MUTED, alignment=TA_CENTER)),
-                    Paragraph(ref_range, ParagraphStyle('tr', fontName='Helvetica', fontSize=8.5, textColor=MUTED, alignment=TA_LEFT, leading=11)),
-                    Paragraph(str(p.get('method', '') or '\u2014'), ParagraphStyle('tm', fontName='Helvetica', fontSize=8.5, textColor=MUTED, alignment=TA_LEFT, leading=11)),
+                    Paragraph(str(p.get('unit', '') or '\u2014'), ParagraphStyle('tu', fontName='Helvetica', fontSize=8.5, textColor=CELL_DARK, alignment=TA_CENTER)),
+                    Paragraph(ref_range, ParagraphStyle('tr', fontName='Helvetica', fontSize=8.5, textColor=CELL_DARK, alignment=TA_LEFT, leading=11)),
+                    Paragraph(str(p.get('method', '') or '\u2014'), ParagraphStyle('tm', fontName='Helvetica', fontSize=8.5, textColor=CELL_DARK, alignment=TA_LEFT, leading=11)),
                 ])
 
             # repeatRows keeps the column headings on top of the continuation
@@ -1259,7 +1260,7 @@ def generate_combined_pdf(results: list, db: Session, with_header: bool = True, 
         # while making the block 1 cm taller — and a taller block is one that
         # stops fitting under a long table sooner, which is what sends the
         # sign-off onto a page of its own.
-        footer_flow.append(sig_table)
+        # (the signature is now drawn on EVERY page, bottom right — see _draw_signers)
 
     footer_flow.append(Spacer(1, 0.3*cm))
     footer_flow.append(Paragraph('**END OF REPORT**', end_style))
@@ -1275,8 +1276,71 @@ def generate_combined_pdf(results: list, db: Session, with_header: bool = True, 
     # logo for the header, the watermark behind the body stays the icon.
     watermark_path = _ICON_PATH
 
+    # ── DOCTOR SIGNATURE ON EVERY PAGE, bottom right, just above the footer band ──
+    _SIG_COL_W = 5.4 * cm
+    _shown_signers = signers[:3]
+
+    def _signer_lines(sg):
+        ln = []
+        if sg['registration_no']:
+            ln.append(('Helvetica', 8, f"Registration no {sg['registration_no']}"))
+        if sg['qualification']:
+            ln.append(('Helvetica', 8, sg['qualification']))
+        if sg['department']:
+            ln.append(('Helvetica', 8, sg['department']))
+        ln.append(('Helvetica-Bold', 10, sg['name']))
+        return ln
+
+    def _signer_image(sg):
+        """(path, w, h) of the uploaded signature scaled to fit, or None."""
+        try:
+            if not sg['signature_filename']:
+                return None
+            pth = asset_path(sg['signature_filename'])
+            iw, ih = ImageReader(pth).getSize()
+            w = 3.0 * cm
+            h = w * ih / iw
+            if h > 1.3 * cm:
+                h = 1.3 * cm
+                w = h * iw / ih
+            return pth, w, h
+        except Exception:
+            return None
+
+    def _sig_block_height(sg):
+        im = _signer_image(sg)
+        return sum(sz + 3 for _f, sz, _t in _signer_lines(sg)) + (im[2] + 4 if im else 8)
+
+    SIG_H = (max(_sig_block_height(sg) for sg in _shown_signers) + 0.45 * cm) if _shown_signers else 0
+    doc.bottomMargin = BOTTOM_MARGIN + SIG_H     # every page keeps this strip free for the signature
+
+    def _draw_signers(canvas):
+        right = A4[0] - 1.5 * cm
+        for i, sg in enumerate(_shown_signers):
+            x = right - (len(_shown_signers) - 1 - i) * _SIG_COL_W
+            y = FOOTER_BAND_H + 0.35 * cm
+            canvas.setFillColor(BLACK)
+            for fnt, sz, txt in _signer_lines(sg):
+                canvas.setFont(fnt, sz)
+                canvas.drawRightString(x, y, str(txt))
+                y += sz + 3
+            im = _signer_image(sg)
+            if im:
+                try:
+                    canvas.drawImage(im[0], x - im[1], y + 2, width=im[1], height=im[2], mask='auto')
+                except Exception:
+                    pass
+            else:
+                canvas.setStrokeColor(MUTED)
+                canvas.setLineWidth(0.8)
+                canvas.line(x - 3.8 * cm, y + 4, x, y + 4)
+
     def _draw_page_chrome(canvas, doc_):
         canvas.saveState()
+        try:
+            _draw_signers(canvas)
+        except Exception:
+            pass   # a signature that won't draw must never cost us the report
         # --- faint watermark, centred on the page, well below the text ---
         # (skipped for with_header=False — pre-printed letterhead stock
         # already carries its own branding, so this would double up)
